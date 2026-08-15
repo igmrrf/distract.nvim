@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::manifest::AssetManifest;
+use serde::{Deserialize, Serialize};
 
 /// Incoming JSON-RPC command from Neovim.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -24,7 +24,12 @@ pub enum IpcCommand {
     },
     #[serde(rename = "Despawn", alias = "despawn")]
     Despawn { id: usize },
-    #[serde(rename = "ClearAll", alias = "clear_all", alias = "clear_entities", alias = "clear")]
+    #[serde(
+        rename = "ClearAll",
+        alias = "clear_all",
+        alias = "clear_entities",
+        alias = "clear"
+    )]
     ClearAll,
     #[serde(rename = "TriggerAction", alias = "trigger_action")]
     TriggerAction {
@@ -117,10 +122,17 @@ mod tests {
 
     #[test]
     fn test_ipc_command_deserialization_all_variants() {
-        let spawn_json = r#"{"command":"Spawn","entity_type":"cat","x":100.0,"y":200.0,"flip_x":true}"#;
+        let spawn_json =
+            r#"{"command":"Spawn","entity_type":"cat","x":100.0,"y":200.0,"flip_x":true}"#;
         let cmd: IpcCommand = serde_json::from_str(spawn_json).unwrap();
         match cmd {
-            IpcCommand::Spawn { entity_type, x, y, flip_x, .. } => {
+            IpcCommand::Spawn {
+                entity_type,
+                x,
+                y,
+                flip_x,
+                ..
+            } => {
                 assert_eq!(entity_type, "cat");
                 assert_eq!(x, Some(100.0));
                 assert_eq!(y, Some(200.0));
@@ -157,10 +169,17 @@ mod tests {
             _ => panic!("Expected EditorEvent"),
         }
 
-        let grid_json = r#"{"command":"UpdateGrid","width":80,"height":24,"cell_width":10,"cell_height":20}"#;
+        let grid_json =
+            r#"{"command":"UpdateGrid","width":80,"height":24,"cell_width":10,"cell_height":20}"#;
         let cmd: IpcCommand = serde_json::from_str(grid_json).unwrap();
         match cmd {
-            IpcCommand::UpdateGrid { width, height, cell_width, cell_height, .. } => {
+            IpcCommand::UpdateGrid {
+                width,
+                height,
+                cell_width,
+                cell_height,
+                ..
+            } => {
                 assert_eq!(width, 80);
                 assert_eq!(height, 24);
                 assert_eq!(cell_width, Some(10));
@@ -184,26 +203,41 @@ mod tests {
 
     #[test]
     fn test_ipc_response_serialization_all_variants() {
-        let resp_ready = IpcResponse::Ready { version: "0.2.0".to_string() };
+        let resp_ready = IpcResponse::Ready {
+            version: "0.2.0".to_string(),
+        };
         let line = resp_ready.to_json_line();
         assert!(line.contains(r#""status":"ready""#));
         assert!(line.contains(r#""version":"0.2.0""#));
         assert!(line.ends_with('\n'));
 
-        let resp_spawned = IpcResponse::Spawned { id: 1, asset_name: "cat".to_string(), state: "idle".to_string() };
+        let resp_spawned = IpcResponse::Spawned {
+            id: 1,
+            asset_name: "cat".to_string(),
+            state: "idle".to_string(),
+        };
         let line = resp_spawned.to_json_line();
         assert!(line.contains(r#""status":"spawned""#));
         assert!(line.contains(r#""id":1"#));
 
-        let resp_action = IpcResponse::ActionTriggered { id: 1, asset_name: "cat".to_string(), action: "jump".to_string(), state: "jump".to_string() };
+        let resp_action = IpcResponse::ActionTriggered {
+            id: 1,
+            asset_name: "cat".to_string(),
+            action: "jump".to_string(),
+            state: "jump".to_string(),
+        };
         let line = resp_action.to_json_line();
         assert!(line.contains(r#""status":"action_triggered""#));
 
         let resp_despawned = IpcResponse::Despawned { id: 1 };
-        assert!(resp_despawned.to_json_line().contains(r#""status":"despawned""#));
+        assert!(resp_despawned
+            .to_json_line()
+            .contains(r#""status":"despawned""#));
 
         let resp_cleared = IpcResponse::Cleared;
-        assert!(resp_cleared.to_json_line().contains(r#""status":"cleared""#));
+        assert!(resp_cleared
+            .to_json_line()
+            .contains(r#""status":"cleared""#));
 
         let resp_pong = IpcResponse::Pong;
         assert!(resp_pong.to_json_line().contains(r#""status":"pong""#));
@@ -224,10 +258,12 @@ mod tests {
         assert!(line.contains(r#""status":"status_report""#));
         assert!(line.contains(r#""count":1"#));
 
-        let resp_err = IpcResponse::Error { code: "TEST_ERR".to_string(), message: "Something failed".to_string() };
+        let resp_err = IpcResponse::Error {
+            code: "TEST_ERR".to_string(),
+            message: "Something failed".to_string(),
+        };
         let line = resp_err.to_json_line();
         assert!(line.contains(r#""status":"error""#));
         assert!(line.contains("TEST_ERR"));
     }
 }
-

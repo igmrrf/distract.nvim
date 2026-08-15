@@ -1,0 +1,324 @@
+*distract.txt*   Animated companions for Neovim            *distract* *distract.nvim*
+
+==============================================================================
+CONTENTS                                                    *distract-contents*
+
+    1. Introduction ......................... |distract-introduction|
+    2. Requirements ......................... |distract-requirements|
+    3. Setup ................................ |distract-setup|
+    4. Configuration ........................ |distract-config|
+    5. Commands ............................. |distract-commands|
+    6. Backends ............................. |distract-backends|
+       6.1 halfblock ........................ |distract-halfblock|
+       6.2 overlay .......................... |distract-overlay|
+    7. Assets and manifests ................. |distract-manifests|
+       7.1 Units ............................ |distract-units|
+       7.2 Custom art ....................... |distract-custom-art|
+    8. Events ............................... |distract-events|
+    9. Troubleshooting ...................... |distract-troubleshooting|
+   10. Lua API .............................. |distract-api|
+
+==============================================================================
+1. INTRODUCTION                                         *distract-introduction*
+
+distract.nvim draws small animated companions — a cat, a crab, a sun — that
+react to what you are doing in the editor. They walk when you move, sprint when
+you type, and curl up and sleep when you stop.
+
+Sprites are drawn procedurally rather than stored as pixel art. Each state is a
+pose function sampled along a curve, and volume comes from shading each shape as
+a lit hemisphere, so the animation is smooth by construction and every state has
+its own art.
+
+==============================================================================
+2. REQUIREMENTS                                         *distract-requirements*
+
+    Neovim 0.9 or newer, with truecolor (`:set termguicolors`).
+
+The |distract-overlay| backend additionally needs a Rust toolchain to build its
+engine, or a prebuilt binary. See |distract-overlay|.
+
+==============================================================================
+3. SETUP                                                       *distract-setup*
+
+>lua
+    require("distract").setup()
+    -- then
+    vim.cmd("DistractStart")
+    vim.cmd("DistractSpawn cat")
+<
+`setup()` is optional; the first command calls it for you with defaults.
+
+==============================================================================
+4. CONFIGURATION                                              *distract-config*
+
+>lua
+    require("distract").setup({
+      backend = "halfblock",   -- "halfblock" or "overlay"
+      fps = 30,                -- simulation rate
+      idle_timeout_ms = 5000,  -- quiet time before an `idle` event fires
+      debounce_ms = 50,        -- minimum gap between repeats of one event
+      cell_width = nil,        -- overlay only, see |distract-overlay|
+      cell_height = nil,       -- overlay only, see |distract-overlay|
+      assets = {},             -- extra or replacement manifests
+    })
+<
+                                                    *distract-config-backend*
+backend~
+    Which renderer to use. See |distract-backends|. Defaults to `"halfblock"`.
+
+                                                        *distract-config-fps*
+fps~
+    Simulation and redraw rate for the in-terminal backend. The overlay engine
+    runs its own loop at 60 FPS and skips frames entirely when nothing is
+    moving.
+
+                                             *distract-config-idle_timeout_ms*
+idle_timeout_ms~
+    How long the editor must be quiet before an `idle` event is dispatched.
+    Applies to both backends.
+
+                                                 *distract-config-debounce_ms*
+debounce_ms~
+    Minimum interval between repeats of the same event name. Throttling is per
+    event name, so `typing` and `moving` — which both fire on every keystroke in
+    insert mode — do not cancel each other out.
+
+                                                     *distract-config-assets*
+assets~
+    A table of `name = manifest`. Anything set here takes precedence over the
+    built-in `cat`, `crab` and `sun`. See |distract-manifests|.
+
+==============================================================================
+5. COMMANDS                                                 *distract-commands*
+
+                                                                *:DistractStart*
+:DistractStart          Start the engine for the current backend.
+
+                                                                 *:DistractStop*
+:DistractStop           Stop the engine and remove every entity.
+
+                                                               *:DistractToggle*
+:DistractToggle         Start if stopped, stop if running.
+
+                                                                *:DistractSpawn*
+:DistractSpawn [asset]  Spawn an entity. Defaults to `cat`. Completes on the
+                        available asset names.
+
+                                                               *:DistractAction*
+:DistractAction {action} [target]
+                        Trigger a custom action. `target` may be an entity id or
+                        an asset name; omit it to affect everything. Built-in
+                        actions are `jump`, `yawn` (cat), `clip`, `burrow`
+                        (crab) and `eclipse`, `flare` (sun).
+
+                                                                *:DistractClear*
+:DistractClear          Remove every entity. The engine keeps running on both
+                        backends, so a later `:DistractSpawn` works without
+                        restarting.
+
+                                                               *:DistractStatus*
+:DistractStatus         Report every live entity, its state and its position.
+
+                                                              *:DistractBackend*
+:DistractBackend [name] Show the current backend, or switch to `name`.
+                        Switching restarts the plugin if it was running.
+                        Entities do not carry over between backends.
+
+                                                                *:DistractBuild*
+:DistractBuild          Build the overlay engine binary in the background. Only
+                        needed for the |distract-overlay| backend.
+
+==============================================================================
+6. BACKENDS                                                 *distract-backends*
+
+Two renderers are available: `halfblock` and `overlay`. Both run the same state
+machine, the same physics and the same art.
+
+------------------------------------------------------------------------------
+6.1 halfblock                                              *distract-halfblock*
+
+The default. Draws sprites inside Neovim using the Unicode half-block
+characters, two sprite pixels per terminal cell, coloured with truecolor
+highlights.
+
+Requires `termguicolors`. Works over SSH, inside tmux, and in any terminal that
+supports 24-bit colour. Each entity gets its own small floating window, which is
+what lets the editor show through everywhere the sprite is not.
+
+------------------------------------------------------------------------------
+6.2 overlay                                                  *distract-overlay*
+
+Runs a separate Rust process that opens a transparent, always-on-top,
+click-through window over your whole screen and draws sprites on the GPU.
+
+Build it first: >
+    :DistractBackend overlay
+    :DistractBuild
+<
+or build it yourself: >
+    cargo build --release --manifest-path <plugin>/engine/Cargo.toml
+<
+A binary placed at `engine/bin/distract-engine` is also picked up, which is
+where a release archive should be unpacked.
+
+                                                        *distract-cell-size*
+Cell size~
+
+The overlay positions entities in screen pixels, but Neovim measures everything
+in terminal cells. Converting between them needs the terminal's cell size in
+pixels, and there is no portable way to ask for it from inside Neovim.
+
+Resolution order:
+    1. `cell_width` / `cell_height` from |distract-config|, if set.
+    2. The terminal's own answer to the `CSI 16 t` query. kitty, WezTerm,
+       Ghostty, foot and iTerm2 answer it; most others ignore it.
+    3. A 10x20 default.
+
+If entities do not line up with your editor — most likely on a HiDPI display,
+where a real cell is closer to 16x36 — measure your cell size and set it: >lua
+    require("distract").setup({
+      backend = "overlay",
+      cell_width = 16,
+      cell_height = 36,
+    })
+<
+The sprite scale follows `cell_width`, so overlay sprites come out the same
+apparent size as the same sprite drawn in the terminal.
+
+                                                        *distract-x11*
+X11~
+
+The overlay backend refuses to start on X11. Click-through is what stops a
+fullscreen always-on-top window from swallowing every mouse click on your
+desktop, and it is not available there. Use `halfblock`, or a Wayland session.
+
+==============================================================================
+7. ASSETS AND MANIFESTS                                    *distract-manifests*
+
+A manifest describes one kind of entity: its states, what each state looks like,
+how it moves, and what makes it change state.
+
+>lua
+    {
+      name = "cat",
+      asset_type = "procedural",   -- or "sprite"
+      spritesheet = {},            -- see |distract-custom-art|
+      initial_state = "idle",
+      z_index = 10,
+      states = {
+        walk = {
+          animation = { frames = { 4, 5, 6, 7 }, fps = 6.0, loop_anim = true },
+          physics   = { target_vx = 1.5, wrap_mode = "wrap" },
+          transitions = {
+            on_event = { typing = "walk_fast", idle = "idle" },
+            timeout_ms = 3000,
+            on_timeout = "idle",
+          },
+        },
+      },
+      custom_actions = {
+        jump = { target_state = "jump", duration_ms = 1200, return_state = "idle" },
+      },
+    }
+<
+`animation.frames` holds 0-based indices into the asset's frame list, not
+positions in the animation. `wrap_mode` is one of `wrap`, `bounce`, `clamp`,
+`despawn` or `none`.
+
+------------------------------------------------------------------------------
+7.1 Units                                                       *distract-units*
+
+Positions and velocities are in *sprite pixels*, and velocities are per frame at
+60 FPS. One sprite pixel is one terminal cell wide and half a terminal cell
+tall — exactly what the half-block renderer draws.
+
+Both backends convert from that same unit, so one manifest describes one
+behaviour everywhere: the in-terminal backend converts to cells, and the overlay
+multiplies by its pixels-per-sprite-pixel scale (see |distract-cell-size|).
+
+`gravity` and `jump_impulse_y` are in the same unit. `path_amplitude` is in
+sprite pixels and defaults to 4.
+
+------------------------------------------------------------------------------
+7.2 Custom art                                              *distract-custom-art*
+
+Set `spritesheet.path` to use your own image instead of the generated sprites: >lua
+    spritesheet = {
+      path = "/path/to/sheet.png",
+      frame_width = 32,
+      frame_height = 32,
+      columns = 8,
+      rows = 1,
+    }
+<
+Animated GIFs are also accepted; every frame must be the same size.
+
+Limits, so a large asset fails with a message rather than exhausting memory:
+    - 1024 px per side, per frame
+    - 512 frames
+    - 256 MiB decoded in total
+
+A path that does not exist, or an image that cannot be decoded, is reported as
+an error rather than silently falling back to the generated art.
+
+Note that `animation.frames` indices must exist in your sheet. A four-frame
+sheet with a manifest referencing frame 28 wraps modulo four, so several states
+end up drawing the same picture.
+
+==============================================================================
+8. EVENTS                                                     *distract-events*
+
+Editor activity is translated into these event names, which manifests match in
+`transitions.on_event`:
+
+    typing      TextChanged, TextChangedI
+    moving      CursorMoved, CursorMovedI
+    scrolling   WinScrolled
+    idle        no activity for `idle_timeout_ms`
+
+Every event carries the cursor's screen position. An entity that picks up a
+moving state in response will turn to face the cursor, so it looks like it
+noticed where you are working.
+
+==============================================================================
+9. TROUBLESHOOTING                                   *distract-troubleshooting*
+
+Sprites are the wrong colour, or invisible~
+    Truecolor is required: >vim
+        :set termguicolors
+<
+Overlay entities do not line up with the editor~
+    Set `cell_width` and `cell_height`. See |distract-cell-size|.
+
+The overlay refuses to start~
+    Either the engine is not built (`:DistractBuild`), or you are on X11, where
+    click-through is unavailable. See |distract-x11|.
+
+`:DistractStatus` says nothing is alive but I can see something~
+    Run `:DistractStop` then `:DistractStart`. If it recurs, please report it.
+
+==============================================================================
+10. LUA API                                                      *distract-api*
+
+>lua
+    local distract = require("distract")
+
+    distract.setup(opts)               -- see |distract-config|
+    distract.start()
+    distract.stop()
+    distract.spawn(asset_name, opts)   -- opts: { x, y, flip_x }
+    distract.action(action_name, target)
+    distract.clear()
+    distract.status()
+    distract.build()                   -- overlay engine, asynchronous
+
+    distract.get_backend()             -- current backend name
+    distract.get_available_backends()  -- { "halfblock", "overlay" }
+    distract.set_backend(name)
+    distract.is_running()
+    distract.get_asset_names()
+    distract.get_all_actions()
+<
+
+vim:tw=78:ts=8:ft=help:norl:

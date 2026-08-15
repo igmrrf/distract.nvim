@@ -12,7 +12,14 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
    - Renders 24-bit RGB pixel-art sprites directly inside Neovim using Unicode half-blocks (`▀` / `▄`) and native floating windows.
    - **Zero OS window overlays**, transparent background, works in any truecolor terminal emulator (Ghostty, WezTerm, Kitty, Alacritty, iTerm2, tmux, SSH).
 2. 🖥️ **`overlay` (Hardware-Accelerated GPU Window)**:
-   - Transparent, borderless WGPU desktop window overlay with Porter-Duff compositing.
+   - Transparent, borderless, click-through wgpu desktop window.
+   - Draws one instanced quad per entity from a sprite atlas uploaded once, and
+     skips the frame entirely when nothing has moved, so an idle overlay costs
+     approximately nothing.
+   - Needs a compiled engine binary — see [Overlay backend](#-overlay-backend).
+   - Not available on X11: click-through is unsupported there, and a fullscreen
+     always-on-top window without it would capture every mouse click on your
+     desktop. The overlay refuses to start rather than trapping you.
 
 > **Removed:** the ASCII `float` backend. Sprites are truecolor pixel art only;
 > `backend = "float"` resolves to `halfblock` and emits a warning.
@@ -24,8 +31,11 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
 
 ## 🎨 Sprites
 
-Sprites are **drawn procedurally**, not stored as pixel tables. Each asset in
-[`lua/distract/sprites/`](lua/distract/sprites) exposes one `draw(pose)` routine
+Sprites are **drawn procedurally**, not stored as pixel tables. Both backends
+draw the same art: [`lua/distract/sprites/`](lua/distract/sprites) for the
+terminal, [`engine/src/sprites/`](engine/src/sprites) for the overlay, from the
+same pose curves and the same shading model. Each asset exposes one
+`draw(pose)` routine
 taking a handful of scalars — body lift, gait phase, claw opening, eclipse
 progress — and each state samples those scalars along a curve. Frames are
 generated once on first use and cached.
@@ -48,6 +58,9 @@ apart.
 | cat | 24×16 px (24×8 cells) | 29 | idle, walk, walk_fast, jump, yawn, sleep |
 | crab | 24×16 px (24×8 cells) | 25 | idle, walk, walk_fast, clip_claws, burrow, sleep |
 | sun | 16×16 px (16×8 cells) | 25 | shining, eclipse, flare, rising, setting |
+
+Frames are drawn on first use, not at startup: loading the plugin costs well
+under a millisecond whether or not you ever spawn anything.
 
 Adding a state means adding a pose curve:
 
@@ -99,12 +112,57 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 | `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `burrow`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
 | `:DistractClear` | Clear all active entities from the screen | |
 | `:DistractStatus` | Print active entities, states, and coordinates | |
+| `:DistractBuild` | Build the overlay engine binary in the background | |
+
+---
+
+## 🖥️ Overlay backend
+
+The overlay runs a separate Rust process. Build it once:
+
+```vim
+:DistractBackend overlay
+:DistractBuild
+```
+
+or from a shell:
+
+```bash
+cargo build --release --manifest-path engine/Cargo.toml
+```
+
+A binary unpacked to `engine/bin/distract-engine` is also picked up, which is
+where a [release](https://github.com/igmrrf/distract.nvim/releases) archive
+should go.
+
+### Cell size
+
+The overlay positions entities in screen pixels while Neovim measures in
+terminal cells, and there is no portable way to ask a terminal for its cell size
+from inside Neovim. Resolution order is: your config, then the terminal's answer
+to `CSI 16 t` (kitty, WezTerm, Ghostty, foot, iTerm2), then a 10×20 default.
+
+If entities do not line up — most likely on a HiDPI display, where a real cell
+is closer to 16×36 — measure yours and set it:
+
+```lua
+require("distract").setup({
+  backend = "overlay",
+  cell_width = 16,
+  cell_height = 36,
+})
+```
 
 ---
 
 ## 🐾 Defining Custom Assets
 
-Assets are fully data-driven. You can define custom animations, physics, and state transitions in your Neovim configuration:
+Assets are fully data-driven. You can define custom animations, physics, and state transitions in your Neovim configuration.
+
+**Units.** Positions and velocities are in *sprite pixels*, and velocities are
+per frame at 60 FPS. One sprite pixel is one terminal cell wide and half a cell
+tall. Both backends convert from that same unit, so one manifest describes one
+behaviour everywhere. See `:help distract-units`.
 
 ```lua
 require("distract").setup({
@@ -151,7 +209,8 @@ require("distract").setup({
 
 ## 🧪 Testing
 
-Run the Rust engine tests:
+Run the Rust engine tests — unit tests, headless GPU tests that exercise the
+real shader, and the screenshot integration test:
 ```bash
 cargo test --manifest-path engine/Cargo.toml
 ```
@@ -159,6 +218,22 @@ cargo test --manifest-path engine/Cargo.toml
 Run the Neovim Lua test suite (exits non-zero on failure):
 ```bash
 nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
+```
+
+Lint and format gates, all enforced in CI:
+```bash
+cargo fmt --manifest-path engine/Cargo.toml -- --check
+cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
+stylua --check lua plugin tests
+luacheck lua plugin tests
+```
+
+---
+
+## 📖 Documentation
+
+```vim
+:help distract
 ```
 
 ---

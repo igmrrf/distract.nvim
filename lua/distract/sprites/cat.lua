@@ -21,7 +21,7 @@ local EYE = { 38, 34, 46 }
 local EYE_LIT = { 126, 232, 214 }
 local ZZZ = { 186, 214, 255 }
 
-local sin, cos, pi, floor = math.sin, math.cos, math.pi, math.floor
+local sin, pi, floor = math.sin, math.pi, math.floor
 
 --- Draws one cat pose.
 --- pose fields:
@@ -63,8 +63,15 @@ local function draw(pose)
     local curve = (0.55 + tail * 0.45) * t * t
     local tx = tail_base_x - t * (4.2 - curl * 1.6)
     local ty = body_cy - curve * (4.4 - curl * 2.6) + curl * 0.8
-    g.orb(c, tx, ty, 1.45 - t * 0.6, 1.45 - t * 0.6, FUR_DARK,
-      { ambient = 0.42, rim = 0.20, specular = 0.12 })
+    g.orb(
+      c,
+      tx,
+      ty,
+      1.45 - t * 0.6,
+      1.45 - t * 0.6,
+      FUR_DARK,
+      { ambient = 0.42, rim = 0.20, specular = 0.12 }
+    )
   end
 
   -- Legs: two pairs in counter-phase, so the gait reads as a four-beat walk.
@@ -74,8 +81,15 @@ local function draw(pose)
     local foot_y = base_y + 2.4 - lift * 1.2 - curl * 2.2
     local lifted = math.max(0, sin((leg + phase) * 2 * pi + pi / 2)) * (0.9 + stretch * 0.8)
     g.limb(c, hip_x, body_cy + body_ry * 0.6, knee_x, foot_y - lifted, 1.35, FUR)
-    g.orb(c, knee_x, foot_y - lifted, 1.5, 1.1, PAW,
-      { ambient = 0.58, rim = 0.20, specular = 0.16 })
+    g.orb(
+      c,
+      knee_x,
+      foot_y - lifted,
+      1.5,
+      1.1,
+      PAW,
+      { ambient = 0.58, rim = 0.20, specular = 0.16 }
+    )
   end
 
   if curl < 0.6 then
@@ -87,8 +101,15 @@ local function draw(pose)
 
   -- Body, then a lighter belly band to suggest a second surface.
   g.orb(c, body_cx, body_cy, body_rx, body_ry, FUR, { ambient = 0.36, rim = 0.26 })
-  g.orb(c, body_cx + 0.4, body_cy + body_ry * 0.45, body_rx * 0.68, body_ry * 0.44, BELLY,
-    { ambient = 0.52, rim = 0.10, specular = 0.14 })
+  g.orb(
+    c,
+    body_cx + 0.4,
+    body_cy + body_ry * 0.45,
+    body_rx * 0.68,
+    body_ry * 0.44,
+    BELLY,
+    { ambient = 0.52, rim = 0.10, specular = 0.14 }
+  )
 
   -- Head sits forward of and above the body. It is deliberately smaller than
   -- the body and lifted clear of it, otherwise the two orbs merge into one
@@ -106,8 +127,12 @@ local function draw(pose)
     for row = 0, 2 do
       local half = EAR_HALF[row + 1]
       for dx = -half, half do
-        g.set(c, ex + dx + lean * (2 - row) * 0.35, head_cy - head_r - 1.1 + row,
-          g.shade(FUR_DARK, -0.18 + row * 0.14))
+        g.set(
+          c,
+          ex + dx + lean * (2 - row) * 0.35,
+          head_cy - head_r - 1.1 + row,
+          g.shade(FUR_DARK, -0.18 + row * 0.14)
+        )
       end
     end
   end
@@ -116,8 +141,15 @@ local function draw(pose)
 
   g.orb(c, head_cx, head_cy, head_r, head_r * 0.94, FUR, { ambient = 0.38, rim = 0.30 })
   -- Muzzle
-  g.orb(c, head_cx + 1.1, head_cy + 1.3, 1.7, 1.1, BELLY,
-    { ambient = 0.56, rim = 0.14, specular = 0.20 })
+  g.orb(
+    c,
+    head_cx + 1.1,
+    head_cy + 1.3,
+    1.7,
+    1.1,
+    BELLY,
+    { ambient = 0.56, rim = 0.14, specular = 0.20 }
+  )
 
   -- Eyes: mostly dark with a small bright catchlight. Filling the eye with the
   -- lit colour instead reads as a pair of goggles at this size.
@@ -137,8 +169,14 @@ local function draw(pose)
   -- Threshold kept low so the mouth shrinks out of existence rather than
   -- popping off in one frame.
   if mouth > 0.04 then
-    g.ellipse(c, head_cx + 1.2, head_cy + 1.7 + mouth * 0.5,
-      0.6 + mouth * 0.8, 0.4 + mouth * 1.0, { 122, 46, 62 })
+    g.ellipse(
+      c,
+      head_cx + 1.2,
+      head_cy + 1.7 + mouth * 0.5,
+      0.6 + mouth * 0.8,
+      0.4 + mouth * 1.0,
+      { 122, 46, 62 }
+    )
   end
 
   -- Sleep marks drift up and to the right as they fade in. The rise is scaled
@@ -164,100 +202,140 @@ end
 -- State curves
 -- =========================================================================
 
-local frames = {}
+local pose_sets = {}
 local layout = {}
+local frame_count = 0
 
---- Appends a state's frames and records its 0-based index range.
+--- Records a state's poses and its 0-based frame index range.
+---
+--- Poses are cheap to build; drawing them is not. Nothing is rasterised here so
+--- that requiring this module — which every manifest does, and therefore so
+--- does every Neovim startup — stays close to free. Frames are drawn on first
+--- use by `frames()`.
 local function add(state, poses)
-  local start = #frames
-  for _, matrix in ipairs(g.render_poses(poses, draw)) do
-    frames[#frames + 1] = matrix
-  end
+  local start = frame_count
+  pose_sets[#pose_sets + 1] = poses
+  frame_count = frame_count + #poses
   local idx = {}
-  for i = 0, #poses - 1 do idx[i + 1] = start + i end
+  for i = 0, #poses - 1 do
+    idx[i + 1] = start + i
+  end
   layout[state] = idx
 end
 
 -- Idle: slow breathing, a gentle tail sway, blinking held open.
-add("idle", g.cycle(4, function(t)
-  return {
-    lift = 0.04 + 0.04 * sin(t * 2 * pi),
-    tail = sin(t * 2 * pi) * 0.8,
-    head_dip = 0.10 * sin(t * 2 * pi),
-    eye = 1,
-  }
-end))
+add(
+  "idle",
+  g.cycle(4, function(t)
+    return {
+      lift = 0.04 + 0.04 * sin(t * 2 * pi),
+      tail = sin(t * 2 * pi) * 0.8,
+      head_dip = 0.10 * sin(t * 2 * pi),
+      eye = 1,
+    }
+  end)
+)
 
 -- Walk: four-beat gait with a slight body bob.
-add("walk", g.cycle(4, function(t)
-  return {
-    leg = t,
-    lift = 0.10 + 0.08 * math.abs(sin(t * 2 * pi)),
-    stretch = 0.12,
-    tail = sin(t * 2 * pi) * 0.6,
-    eye = 1,
-  }
-end))
+add(
+  "walk",
+  g.cycle(4, function(t)
+    return {
+      leg = t,
+      lift = 0.10 + 0.08 * math.abs(sin(t * 2 * pi)),
+      stretch = 0.12,
+      tail = sin(t * 2 * pi) * 0.6,
+      eye = 1,
+    }
+  end)
+)
 
 -- Sprint: body lower and longer, legs reaching further, tail streamed back.
-add("walk_fast", g.cycle(4, function(t)
-  return {
-    leg = t,
-    lift = 0.16 + 0.14 * math.abs(sin(t * 2 * pi)),
-    stretch = 0.85,
-    head_dip = 0.30,
-    tail = 0.9 - 0.25 * sin(t * 2 * pi),
-    eye = 1,
-  }
-end))
+add(
+  "walk_fast",
+  g.cycle(4, function(t)
+    return {
+      leg = t,
+      lift = 0.16 + 0.14 * math.abs(sin(t * 2 * pi)),
+      stretch = 0.85,
+      head_dip = 0.30,
+      tail = 0.9 - 0.25 * sin(t * 2 * pi),
+      eye = 1,
+    }
+  end)
+)
 
 -- Jump: crouch, launch, apex, fall, land. The crouch decays smoothly into the
 -- sine arc rather than switching over at a threshold, which would put a jump
 -- cut between the first two frames.
-add("jump", g.sequence(8, function(t)
-  local crouch = math.max(0, 1 - t / 0.34) ^ 2
-  local arc = sin(math.max(0, (t - 0.12) / 0.88) * pi)
-  return {
-    lift = arc - crouch * 0.26,
-    stretch = 0.30 + arc * 0.5 - crouch * 0.18,
-    leg = 0.25 + arc * 0.2,
-    head_dip = 0.22 * crouch - 0.45 * arc,
-    tail = -0.5 + arc * 1.2,
-    eye = 1,
-  }
-end))
+add(
+  "jump",
+  g.sequence(8, function(t)
+    local crouch = math.max(0, 1 - t / 0.34) ^ 2
+    local arc = sin(math.max(0, (t - 0.12) / 0.88) * pi)
+    return {
+      lift = arc - crouch * 0.26,
+      stretch = 0.30 + arc * 0.5 - crouch * 0.18,
+      leg = 0.25 + arc * 0.2,
+      head_dip = 0.22 * crouch - 0.45 * arc,
+      tail = -0.5 + arc * 1.2,
+      eye = 1,
+    }
+  end)
+)
 
 -- Yawn: mouth opens and closes while the eyes squeeze shut. The mouth arc alone
 -- returns to the same value on the way down as on the way up, which would make
 -- two frames identical, so the head tips and the tail sweeps monotonically
 -- through the whole yawn to keep every frame distinct.
-add("yawn", g.sequence(5, function(t)
-  local open = sin(g.ease(t) * pi)
-  return {
-    -- A yawn is a whole-body stretch, not just a mouth. Moving the body too
-    -- keeps every frame doing something; with only the mouth animating, the
-    -- frame where it finally shuts is the one big change in an otherwise
-    -- static run and reads as a cut.
-    lift = 0.06 + 0.30 * open,
-    stretch = 0.34 * open,
-    leg = 0.12 * open,
-    head_dip = 0.22 - 0.70 * t - 0.45 * open,
-    mouth = open,
-    eye = 1 - open * 0.95,
-    tail = -0.45 + 1.3 * t + 0.3 * open,
-  }
-end))
+add(
+  "yawn",
+  g.sequence(5, function(t)
+    local open = sin(g.ease(t) * pi)
+    return {
+      -- A yawn is a whole-body stretch, not just a mouth. Moving the body too
+      -- keeps every frame doing something; with only the mouth animating, the
+      -- frame where it finally shuts is the one big change in an otherwise
+      -- static run and reads as a cut.
+      lift = 0.06 + 0.30 * open,
+      stretch = 0.34 * open,
+      leg = 0.12 * open,
+      head_dip = 0.22 - 0.70 * t - 0.45 * open,
+      mouth = open,
+      eye = 1 - open * 0.95,
+      tail = -0.45 + 1.3 * t + 0.3 * open,
+    }
+  end)
+)
 
 -- Sleep: curled, breathing, with Zzz drifting upward.
-add("sleep", g.cycle(4, function(t)
-  return {
-    curl = 1,
-    lift = 0.02 * sin(t * 2 * pi),
-    head_dip = 0.55 + 0.10 * sin(t * 2 * pi),
-    eye = 0,
-    tail = -0.6,
-    zzz = t,
-  }
-end))
+add(
+  "sleep",
+  g.cycle(4, function(t)
+    return {
+      curl = 1,
+      lift = 0.02 * sin(t * 2 * pi),
+      head_dip = 0.55 + 0.10 * sin(t * 2 * pi),
+      eye = 0,
+      tail = -0.6,
+      zzz = t,
+    }
+  end)
+)
+
+-- Drawn once, on first use.
+local frames_cache = nil
+
+local function frames()
+  if not frames_cache then
+    frames_cache = {}
+    for _, poses in ipairs(pose_sets) do
+      for _, matrix in ipairs(g.render_poses(poses, draw)) do
+        frames_cache[#frames_cache + 1] = matrix
+      end
+    end
+  end
+  return frames_cache
+end
 
 return { frames = frames, layout = layout, width = W, height = H }

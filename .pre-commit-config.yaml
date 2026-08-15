@@ -23,9 +23,9 @@ repos:
         files: ^engine/.*\.rs$
         pass_filenames: false
 
-      - id: cargo-check
-        name: Rust Engine Check
-        entry: cargo check --manifest-path engine/Cargo.toml
+      - id: cargo-clippy
+        name: Rust Lint (clippy, warnings are errors)
+        entry: cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
         language: system
         files: ^engine/.*
         pass_filenames: false
@@ -37,9 +37,25 @@ repos:
         files: ^engine/.*
         pass_filenames: false
 
+      - id: stylua
+        name: Lua Format Check
+        entry: stylua --check lua plugin tests
+        language: system
+        files: ^(lua/|plugin/|tests/).*\.lua$
+        pass_filenames: false
+
+      - id: luacheck
+        name: Lua Lint
+        entry: luacheck lua plugin tests
+        language: system
+        files: ^(lua/|plugin/|tests/).*\.lua$
+        pass_filenames: false
+
+      # No trailing `-c "q"`: it masks a failing suite and makes the hook pass.
+      # run_tests.lua terminates the editor itself via qall!/cquit.
       - id: lua-tests
         name: Neovim Lua Test Suite
-        entry: nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/run_tests.lua" -c "q"
+        entry: nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
         language: system
         files: ^(lua/|plugin/|tests/).*\.lua$
         pass_filenames: false

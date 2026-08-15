@@ -6,13 +6,14 @@ local sprites = require("distract.terminal_sprites")
 
 describe("distract ASCII backend removal", function()
   it("no longer exposes an ASCII sprite lookup", function()
-    assert.is_nil(sprites.get_ascii_sprite,
-      "ASCII sprite art was removed; the accessor must be gone too")
+    assert.is_nil(
+      sprites.get_ascii_sprite,
+      "ASCII sprite art was removed; the accessor must be gone too"
+    )
   end)
 
   it("no longer implements a float backend", function()
-    assert.is_false(renderer.supports("float"),
-      "the ASCII float backend was removed")
+    assert.is_false(renderer.supports("float"), "the ASCII float backend was removed")
   end)
 
   it("does not advertise a float backend", function()

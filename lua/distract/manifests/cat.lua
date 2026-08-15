@@ -4,14 +4,16 @@ local layout = require("distract.terminal_sprites").get_layout("cat")
 
 local M = {
   name = "cat",
-  asset_type = "sprite",
-  spritesheet = {
-    path = "assets/cat_sprite.png",
-    frame_width = 48,
-    frame_height = 48,
-    columns = 4,
-    rows = 1,
-  },
+  asset_type = "procedural",
+  -- No spritesheet: the cat is drawn procedurally by `distract.sprites.cat` on
+  -- the terminal backend and by `engine/src/sprites/cat.rs` on the overlay,
+  -- from the same pose curves.
+  --
+  -- This used to point at `assets/cat_sprite.png`, which is a 4-frame sheet.
+  -- The overlay loaded those 4 frames and every one of the 29 indices in
+  -- `layout` collapsed onto them modulo 4, so idle, sleep, yawn and jump all
+  -- drew the same picture. Set `spritesheet.path` only for genuinely custom art.
+  spritesheet = {},
   initial_state = "idle",
   z_index = 10,
   states = {
@@ -54,7 +56,13 @@ local M = {
     },
     jump = {
       animation = { frames = layout.jump, fps = 10.0, loop_anim = false, flip_x = false },
-      physics = { target_vx = 2.0, target_vy = 0.0, jump_impulse_y = -4.0, gravity = 0.15, wrap_mode = "bounce" },
+      physics = {
+        target_vx = 2.0,
+        target_vy = 0.0,
+        jump_impulse_y = -2.2,
+        gravity = 0.32,
+        wrap_mode = "bounce",
+      },
       is_locked = true,
       transitions = {
         timeout_ms = 1200,

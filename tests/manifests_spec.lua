@@ -3,16 +3,18 @@ require("tests.test_harness")
 describe("distract.manifests cat definition", function()
   local cat = require("distract.manifests.cat")
 
-  it("has valid metadata and spritesheet properties", function()
+  it("has valid metadata and is drawn procedurally", function()
     assert.are.same("cat", cat.name)
-    assert.are.same("sprite", cat.asset_type)
+    assert.are.same("procedural", cat.asset_type)
     assert.are.same("idle", cat.initial_state)
-    assert.is_not_nil(cat.spritesheet.path)
-    assert.are_equal(48, cat.spritesheet.frame_width)
-    assert.are_equal(48, cat.spritesheet.frame_height)
-    assert.are_equal(4, cat.spritesheet.columns)
-    assert.are_equal(1, cat.spritesheet.rows)
+  end)
 
+  it("declares no spritesheet, so both backends draw the generated art", function()
+    -- The cat used to point at a 4-frame PNG. The overlay loaded those 4
+    -- frames and every one of the manifest's 29 indices collapsed onto them
+    -- modulo 4, so idle, sleep, yawn and jump all drew the same picture.
+    assert.is_nil(cat.spritesheet.path)
+    assert.are.same({}, cat.spritesheet)
   end)
 
   it("defines all required behavioral states", function()

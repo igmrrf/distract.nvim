@@ -13,7 +13,9 @@ local function with_broken_renderer(fn)
   end
   local ok, err = pcall(fn)
   renderer.draw = original
-  if not ok then error(err, 0) end
+  if not ok then
+    error(err, 0)
+  end
   return calls
 end
 
@@ -28,7 +30,9 @@ local function count_warnings(fn)
   end
   local ok, err = pcall(fn)
   vim.notify = original
-  if not ok then error(err, 0) end
+  if not ok then
+    error(err, 0)
+  end
   return warnings
 end
 
@@ -61,8 +65,7 @@ describe("distract.engine render fault tolerance", function()
       end)
     end)
 
-    assert.is_false(engine.is_running(),
-      "engine must stop itself once rendering fails repeatedly")
+    assert.is_false(engine.is_running(), "engine must stop itself once rendering fails repeatedly")
     engine.clear()
   end)
 
@@ -76,8 +79,7 @@ describe("distract.engine render fault tolerance", function()
         end
       end)
     end)
-    assert.are_equal(1, warnings,
-      "a render fault should notify once, not once per frame")
+    assert.are_equal(1, warnings, "a render fault should notify once, not once per frame")
     engine.clear()
   end)
 
@@ -87,14 +89,17 @@ describe("distract.engine render fault tolerance", function()
     local calls = 0
     renderer.draw = function(...)
       calls = calls + 1
-      if calls <= 2 then error("transient failure") end
+      if calls <= 2 then
+        error("transient failure")
+      end
       return original(...)
     end
-    for _ = 1, 6 do pcall(engine.tick) end
+    for _ = 1, 6 do
+      pcall(engine.tick)
+    end
     renderer.draw = original
 
-    assert.is_true(engine.is_running(),
-      "a transient render error should not stop the engine")
+    assert.is_true(engine.is_running(), "a transient render error should not stop the engine")
     engine.clear()
   end)
 end)

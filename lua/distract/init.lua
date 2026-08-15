@@ -1,29 +1,50 @@
 local M = {}
 
-local default_cat = require("distract.manifests.cat")
-local default_crab = require("distract.manifests.crab")
-local default_sun = require("distract.manifests.sun")
-
+--- Backends that exist and can be selected.
 local available_backends = { "halfblock", "overlay" }
 
--- Aliases that resolve to a backend which is genuinely implemented.
+--- Built-in assets. Manifests are required on demand rather than at module
+--- load: each one pulls in its sprite module for the frame layout, and eagerly
+--- loading all three used to be paid on every Neovim start whether or not
+--- anything was ever spawned.
+local BUILTIN_ASSETS = { "cat", "crab", "sun" }
+
+--- Aliases that resolve to a backend which is genuinely implemented.
 local BACKEND_ALIASES = {
-  halfblock = "halfblock", tui = "halfblock", terminal = "halfblock", truecolor = "halfblock",
-  overlay = "overlay", external = "overlay", gpu = "overlay", wgpu = "overlay",
+  halfblock = "halfblock",
+  tui = "halfblock",
+  terminal = "halfblock",
+  truecolor = "halfblock",
+  overlay = "overlay",
+  external = "overlay",
+  gpu = "overlay",
+  wgpu = "overlay",
 }
 
--- Names that no longer name a backend of their own.
---   float/ascii  -- the ASCII art backend was removed in favour of truecolor
---                   pixel sprites; there is no text-art rendering path left.
---   kitty/ghostty/wezterm
---                -- the Kitty graphics protocol backend is not implemented.
--- Both used to resolve to something that silently drew the wrong thing. They
--- now resolve to halfblock, and the substitution is reported rather than hidden.
+--- Names that no longer name a backend of their own.
+---   float/ascii  -- the ASCII art backend was removed in favour of truecolor
+---                   pixel sprites; there is no text-art rendering path left.
+---   kitty/ghostty/wezterm
+---                -- the Kitty graphics protocol backend is not implemented.
+--- Both used to resolve to something that silently drew the wrong thing. They
+--- now resolve to halfblock, and the substitution is reported rather than hidden.
 local SUBSTITUTED_ALIASES = {
-  float = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
-  ascii = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
-  lua = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
-  window = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
+  float = {
+    to = "halfblock",
+    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
+  },
+  ascii = {
+    to = "halfblock",
+    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
+  },
+  lua = {
+    to = "halfblock",
+    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
+  },
+  window = {
+    to = "halfblock",
+    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
+  },
   kitty = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
   ghostty = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
   wezterm = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
@@ -35,15 +56,24 @@ local substitution_warned = {}
 --- @param b string|nil requested backend name or alias
 --- @param quiet boolean|nil suppress the substitution notice
 local function normalize_backend(b, quiet)
-  if not b then return "halfblock" end
+  if not b then
+    return "halfblock"
+  end
   b = string.lower(vim.trim(b))
 
   local substitute = SUBSTITUTED_ALIASES[b]
   if substitute then
     if not quiet and not substitution_warned[b] then
       substitution_warned[b] = true
-      vim.notify(string.format("[Distract] Backend '%s' is unavailable: %s. Using '%s' instead.",
-        b, substitute.why, substitute.to), vim.log.levels.WARN)
+      vim.notify(
+        string.format(
+          "[Distract] Backend '%s' is unavailable: %s. Using '%s' instead.",
+          b,
+          substitute.why,
+          substitute.to
+        ),
+        vim.log.levels.WARN
+      )
     end
     return substitute.to
   end
@@ -51,33 +81,71 @@ local function normalize_backend(b, quiet)
   return BACKEND_ALIASES[b] or "halfblock"
 end
 
+--- Loads a built-in manifest, or nil if there is no such asset.
+local function load_builtin_manifest(name)
+  local ok, manifest = pcall(require, "distract.manifests." .. name)
+  if ok then
+    return manifest
+  end
+  return nil
+end
+
+--- `config.assets` resolves built-in manifests on first access. A user-supplied
+--- manifest set on the table directly always wins, because `__index` is only
+--- consulted for absent keys.
+local function lazy_assets()
+  return setmetatable({}, {
+    __index = function(t, name)
+      if not vim.tbl_contains(BUILTIN_ASSETS, name) then
+        return nil
+      end
+      local manifest = load_builtin_manifest(name)
+      rawset(t, name, manifest)
+      return manifest
+    end,
+  })
+end
+
 M.config = {
-  backend = "halfblock", -- 'halfblock' (In-terminal Truecolor), 'float' (ASCII Window), 'overlay' (GPU Overlay)
+  -- 'halfblock' (in-terminal truecolor) or 'overlay' (GPU window).
+  backend = "halfblock",
   fps = 30,
   idle_timeout_ms = 5000,
   debounce_ms = 50,
-  assets = {
-    cat = default_cat,
-    crab = default_crab,
-    sun = default_sun,
-  },
+  -- Overlay only: terminal cell size in physical pixels. Leave unset to use the
+  -- terminal's own report where available, otherwise a 10x20 default.
+  -- See `:help distract-overlay`.
+  cell_width = nil,
+  cell_height = nil,
+  assets = lazy_assets(),
 }
 
 local is_setup = false
+local group = vim.api.nvim_create_augroup("Distract", { clear = true })
+
+local function backend_module(backend)
+  if backend == "overlay" then
+    return require("distract.external")
+  end
+  return require("distract.engine")
+end
 
 function M.setup(opts)
   opts = opts or {}
   M.config = vim.tbl_deep_extend("force", M.config, opts)
   M.config.backend = normalize_backend(M.config.backend)
+  -- `tbl_deep_extend` copies into a plain table, so re-attach the lazy loader
+  -- while keeping anything the user supplied.
+  M.config.assets = setmetatable(M.config.assets or {}, getmetatable(lazy_assets()))
 
-  if M.config.backend == "overlay" or M.config.backend == "external" then
-    require("distract.external").setup(M.config)
-  else
-    require("distract.engine").setup(M.config)
-  end
+  backend_module(M.config.backend).setup(M.config)
   is_setup = true
 
+  -- Grouped and cleared: an ungrouped autocmd accumulated a duplicate on every
+  -- `setup()` call, which config reloads and the test suite both do repeatedly.
+  vim.api.nvim_clear_autocmds({ group = group })
   vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = group,
     callback = function()
       M.stop()
     end,
@@ -92,6 +160,10 @@ function M.get_available_backends()
   return vim.deepcopy(available_backends)
 end
 
+--- Switches backend, preserving whether the plugin was running.
+---
+--- Entities do not migrate: the two backends keep separate worlds. That is
+--- reported rather than left for the user to discover.
 function M.set_backend(backend_name)
   local norm = normalize_backend(backend_name)
   if norm == M.config.backend then
@@ -99,18 +171,34 @@ function M.set_backend(backend_name)
     return
   end
 
+  local was_running = M.is_running()
   M.stop()
   M.config.backend = norm
-  if norm == "overlay" then
-    require("distract.external").setup(M.config)
+  backend_module(norm).setup(M.config)
+
+  if was_running then
+    M.start()
+    vim.notify(
+      string.format(
+        "[Distract] Switched backend to '%s' and restarted. Entities do not carry over; spawn again with :DistractSpawn.",
+        norm
+      ),
+      vim.log.levels.INFO
+    )
   else
-    require("distract.engine").setup(M.config)
+    vim.notify(
+      string.format("[Distract] Switched backend to '%s'. Start it with :DistractStart.", norm),
+      vim.log.levels.INFO
+    )
   end
-  vim.notify(string.format("[Distract] Switched backend to '%s'", norm), vim.log.levels.INFO)
 end
 
 function M.is_overlay()
-  return M.config.backend == "overlay" or M.config.backend == "external"
+  return M.config.backend == "overlay"
+end
+
+function M.is_running()
+  return require("distract.external").is_running() or require("distract.engine").is_running()
 end
 
 function M.start()
@@ -119,19 +207,14 @@ function M.start()
   end
 
   if M.is_overlay() then
-    require("distract.external").start()
-  else
-    require("distract.engine").start()
+    require("distract.external").query_cell_size()
   end
+  backend_module(M.config.backend).start()
   require("distract.events").setup(M.config)
 end
 
 function M.stop()
-  if M.is_overlay() then
-    require("distract.external").stop()
-  else
-    require("distract.engine").stop()
-  end
+  backend_module(M.config.backend).stop()
   require("distract.events").teardown()
 end
 
@@ -139,47 +222,45 @@ function M.spawn(asset_name, opts)
   if not is_setup then
     M.setup()
   end
-
-  asset_name = asset_name or "cat"
-  if M.is_overlay() then
-    require("distract.external").spawn(asset_name, opts)
-  else
-    require("distract.engine").spawn(asset_name, opts)
-  end
+  backend_module(M.config.backend).spawn(asset_name or "cat", opts)
 end
 
 function M.action(action_name, target)
   if not is_setup then
     M.setup()
   end
-
-  if M.is_overlay() then
-    require("distract.external").trigger_action(action_name, target)
-  else
-    require("distract.engine").trigger_action(action_name, target)
-  end
+  backend_module(M.config.backend).trigger_action(action_name, target)
 end
 
 function M.clear()
-  if M.is_overlay() then
-    require("distract.external").clear()
-  else
-    require("distract.engine").clear()
-  end
+  backend_module(M.config.backend).clear()
 end
 
 function M.status()
-  if M.is_overlay() then
-    require("distract.external").get_status()
-  else
-    require("distract.engine").get_status()
-  end
+  backend_module(M.config.backend).get_status()
+end
+
+--- Builds the overlay engine binary asynchronously.
+function M.build()
+  require("distract.external").build()
 end
 
 function M.get_asset_names()
+  local seen = {}
   local names = {}
+  local function push(name)
+    if not seen[name] then
+      seen[name] = true
+      table.insert(names, name)
+    end
+  end
+  for _, name in ipairs(BUILTIN_ASSETS) do
+    push(name)
+  end
+  -- `pairs` only sees assets that have been materialised or user-supplied,
+  -- which is why the built-in list is enumerated explicitly above.
   for name, _ in pairs(M.config.assets) do
-    table.insert(names, name)
+    push(name)
   end
   table.sort(names)
   return names
@@ -188,8 +269,9 @@ end
 function M.get_all_actions()
   local actions = {}
   local seen = {}
-  for _, asset in pairs(M.config.assets) do
-    if asset.custom_actions then
+  for _, name in ipairs(M.get_asset_names()) do
+    local asset = M.config.assets[name]
+    if asset and asset.custom_actions then
       for action_name, _ in pairs(asset.custom_actions) do
         if not seen[action_name] then
           seen[action_name] = true

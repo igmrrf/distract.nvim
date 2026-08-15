@@ -6,7 +6,9 @@ local function count_filled(canvas)
   local n = 0
   for y = 1, canvas.h do
     for x = 1, canvas.w do
-      if canvas.rows[y][x] then n = n + 1 end
+      if canvas.rows[y][x] then
+        n = n + 1
+      end
     end
   end
   return n
@@ -19,7 +21,10 @@ local function distinct_colors(canvas)
       local c = canvas.rows[y][x]
       if c then
         local key = c[1] .. "," .. c[2] .. "," .. c[3]
-        if not seen[key] then seen[key] = true; n = n + 1 end
+        if not seen[key] then
+          seen[key] = true
+          n = n + 1
+        end
       end
     end
   end
@@ -117,8 +122,10 @@ describe("distract.sprite_gen colour", function()
       for _, base in ipairs({ { 0, 0, 0 }, { 255, 255, 255 }, { 12, 200, 90 } }) do
         local out = gen.shade(base, amount)
         for i = 1, 3 do
-          assert(out[i] >= 0 and out[i] <= 255,
-            string.format("channel %d = %s out of range", i, tostring(out[i])))
+          assert(
+            out[i] >= 0 and out[i] <= 255,
+            string.format("channel %d = %s out of range", i, tostring(out[i]))
+          )
         end
       end
     end
@@ -135,8 +142,10 @@ describe("distract.sprite_gen volumetric orb", function()
   it("renders a shaded volume rather than a flat fill", function()
     local c = gen.canvas(24, 24)
     gen.orb(c, 12, 12, 9, 9, { 200, 120, 60 })
-    assert(distinct_colors(c) >= 6, string.format(
-      "an orb should produce a gradient, got %d distinct colours", distinct_colors(c)))
+    assert(
+      distinct_colors(c) >= 6,
+      string.format("an orb should produce a gradient, got %d distinct colours", distinct_colors(c))
+    )
   end)
 
   it("is brighter on the side facing the light", function()
@@ -146,8 +155,10 @@ describe("distract.sprite_gen volumetric orb", function()
     local dark = gen.get(c, 12 + 4, 12 + 4)
     assert.is_not_nil(lit)
     assert.is_not_nil(dark)
-    assert(luminance(lit) > luminance(dark),
-      "the pixel facing the light must be brighter than the one facing away")
+    assert(
+      luminance(lit) > luminance(dark),
+      "the pixel facing the light must be brighter than the one facing away"
+    )
   end)
 
   it("follows the light direction when it is reversed", function()
@@ -155,8 +166,10 @@ describe("distract.sprite_gen volumetric orb", function()
     gen.orb(c, 12, 12, 9, 9, { 200, 120, 60 }, { light = { 0.6, 0.6, 0.5 } })
     local upper_left = gen.get(c, 12 - 4, 12 - 4)
     local lower_right = gen.get(c, 12 + 4, 12 + 4)
-    assert(luminance(lower_right) > luminance(upper_left),
-      "reversing the light must reverse which side is lit")
+    assert(
+      luminance(lower_right) > luminance(upper_left),
+      "reversing the light must reverse which side is lit"
+    )
   end)
 
   it("stays inside its own bounding ellipse", function()
@@ -170,21 +183,27 @@ end)
 
 describe("distract.sprite_gen pose interpolation", function()
   it("samples a looping cycle without repeating the first pose at the end", function()
-    local poses = gen.cycle(4, function(t) return { t = t } end)
+    local poses = gen.cycle(4, function(t)
+      return { t = t }
+    end)
     assert.are_equal(4, #poses)
     assert.are_equal(0, poses[1].t)
     assert(poses[4].t < 1, "a looping cycle must not sample t = 1, which duplicates t = 0")
   end)
 
   it("samples a one shot sequence across the full range", function()
-    local poses = gen.sequence(5, function(t) return { t = t } end)
+    local poses = gen.sequence(5, function(t)
+      return { t = t }
+    end)
     assert.are_equal(5, #poses)
     assert.are_equal(0, poses[1].t)
     assert.are_equal(1, poses[5].t)
   end)
 
   it("advances monotonically", function()
-    local poses = gen.sequence(6, function(t) return { t = t } end)
+    local poses = gen.sequence(6, function(t)
+      return { t = t }
+    end)
     for i = 2, #poses do
       assert(poses[i].t > poses[i - 1].t, "pose parameter must increase")
     end

@@ -18,7 +18,9 @@ describe("distract.external IPC message handling", function()
 
   it("should handle action_triggered response", function()
     assert.has_no.errors(function()
-      external.handle_ipc_message('{"status":"action_triggered","id":1,"asset_name":"cat","action":"jump","state":"jump"}')
+      external.handle_ipc_message(
+        '{"status":"action_triggered","id":1,"asset_name":"cat","action":"jump","state":"jump"}'
+      )
     end)
   end)
 
@@ -32,22 +34,26 @@ describe("distract.external IPC message handling", function()
   it("should handle status_report responses (empty and populated)", function()
     assert.has_no.errors(function()
       external.handle_ipc_message('{"status":"status_report","count":0,"entities":[]}')
-      external.handle_ipc_message('{"status":"status_report","count":2,"entities":[{"id":1,"asset_name":"cat","state":"walk","x":100.0,"y":50.0},{"id":2,"asset_name":"sun","state":"shining","x":400.0,"y":100.0}]}')
+      external.handle_ipc_message(
+        '{"status":"status_report","count":2,"entities":[{"id":1,"asset_name":"cat","state":"walk","x":100.0,"y":50.0},{"id":2,"asset_name":"sun","state":"shining","x":400.0,"y":100.0}]}'
+      )
     end)
   end)
 
   it("should handle error responses gracefully", function()
     assert.has_no.errors(function()
-      external.handle_ipc_message('{"status":"error","code":"SPAWN_FAILED","message":"Unknown asset"}')
+      external.handle_ipc_message(
+        '{"status":"error","code":"SPAWN_FAILED","message":"Unknown asset"}'
+      )
     end)
   end)
 
   it("should handle malformed JSON without raising errors", function()
     assert.has_no.errors(function()
-      external.handle_ipc_message('')
-      external.handle_ipc_message('not a valid json')
-      external.handle_ipc_message('{ incomplete json')
-      external.handle_ipc_message('12345')
+      external.handle_ipc_message("")
+      external.handle_ipc_message("not a valid json")
+      external.handle_ipc_message("{ incomplete json")
+      external.handle_ipc_message("12345")
     end)
   end)
 end)

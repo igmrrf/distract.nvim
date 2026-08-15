@@ -69,18 +69,39 @@ local function draw(pose)
     g.limb(c, cx + side * shell_rx * 0.7, cy - 0.2, base_x + side * 1.4, base_y, 1.2, SHELL)
     -- Pincer halves swing apart around the arm axis.
     local gap = (1 - clamp) * 2.6
-    g.orb(c, reach_x, base_y - gap * 0.5 - 0.4, 2.2, 1.5, CLAW,
-      { ambient = 0.46, rim = 0.26, specular = 0.32 })
-    g.orb(c, reach_x, base_y + gap * 0.5 + 0.4, 2.2, 1.5, g.shade(CLAW, -0.16),
-      { ambient = 0.46, rim = 0.20, specular = 0.24 })
+    g.orb(
+      c,
+      reach_x,
+      base_y - gap * 0.5 - 0.4,
+      2.2,
+      1.5,
+      CLAW,
+      { ambient = 0.46, rim = 0.26, specular = 0.32 }
+    )
+    g.orb(
+      c,
+      reach_x,
+      base_y + gap * 0.5 + 0.4,
+      2.2,
+      1.5,
+      g.shade(CLAW, -0.16),
+      { ambient = 0.46, rim = 0.20, specular = 0.24 }
+    )
   end
   claw_at(-1)
   claw_at(1)
 
   -- Shell, with a darker inner carapace band for depth.
   g.orb(c, cx, cy, shell_rx, shell_ry, SHELL, { ambient = 0.34, rim = 0.30, specular = 0.34 })
-  g.orb(c, cx, cy + 0.5, shell_rx * 0.66, shell_ry * 0.52, SHELL_DARK,
-    { ambient = 0.42, rim = 0.12, specular = 0.16 })
+  g.orb(
+    c,
+    cx,
+    cy + 0.5,
+    shell_rx * 0.66,
+    shell_ry * 0.52,
+    SHELL_DARK,
+    { ambient = 0.42, rim = 0.12, specular = 0.16 }
+  )
 
   -- Eyestalks rise out of the shell and carry the eyes.
   local function eyestalk(side)
@@ -106,8 +127,7 @@ local function draw(pose)
     for row = 0, floor(sink * 3) do
       local half = mound_w - row * 2
       for dx = -half, half do
-        g.set(c, cx + dx, mound_y - row,
-          g.shade(SAND, -0.08 * row + 0.05 * cos(dx * 0.9)))
+        g.set(c, cx + dx, mound_y - row, g.shade(SAND, -0.08 * row + 0.05 * cos(dx * 0.9)))
       end
     end
   end
@@ -128,93 +148,134 @@ local function draw(pose)
   return c
 end
 
-local frames = {}
+local pose_sets = {}
 local layout = {}
+local frame_count = 0
 
+--- Records a state's poses and its 0-based frame index range.
+---
+--- Poses are cheap to build; drawing them is not. Nothing is rasterised here so
+--- that requiring this module — which every manifest does, and therefore so
+--- does every Neovim startup — stays close to free. Frames are drawn on first
+--- use by `frames()`.
 local function add(state, poses)
-  local start = #frames
-  for _, matrix in ipairs(g.render_poses(poses, draw)) do
-    frames[#frames + 1] = matrix
-  end
+  local start = frame_count
+  pose_sets[#pose_sets + 1] = poses
+  frame_count = frame_count + #poses
   local idx = {}
-  for i = 0, #poses - 1 do idx[i + 1] = start + i end
+  for i = 0, #poses - 1 do
+    idx[i + 1] = start + i
+  end
   layout[state] = idx
 end
 
 -- Idle: at rest with the claws held open and low, legs planted. The open claws
 -- and grounded stance are what separate this from the first frame of a walk.
-add("idle", g.cycle(4, function(t)
-  return {
-    bob = sin(t * 2 * pi),
-    clamp = 0.26 + 0.10 * sin(t * 2 * pi),
-    raise = 0,
-    stalk = 0.82 + 0.18 * sin(t * 2 * pi),
-    leg = 0,
-    eye = 1,
-  }
-end))
+add(
+  "idle",
+  g.cycle(4, function(t)
+    return {
+      bob = sin(t * 2 * pi),
+      clamp = 0.26 + 0.10 * sin(t * 2 * pi),
+      raise = 0,
+      stalk = 0.82 + 0.18 * sin(t * 2 * pi),
+      leg = 0,
+      eye = 1,
+    }
+  end)
+)
 
 -- Scuttle: legs stepping, shell rocking with the gait, claws drawn in and up
 -- out of the way. Starts mid-stride so it never opens on a planted pose.
-add("walk", g.cycle(4, function(t)
-  return {
-    leg = t + 0.125,
-    bob = 0.6 * sin(t * 4 * pi),
-    clamp = 0.76,
-    raise = 0.12,
-    stalk = 0.95,
-    eye = 1,
-  }
-end))
+add(
+  "walk",
+  g.cycle(4, function(t)
+    return {
+      leg = t + 0.125,
+      bob = 0.6 * sin(t * 4 * pi),
+      clamp = 0.76,
+      raise = 0.12,
+      stalk = 0.95,
+      eye = 1,
+    }
+  end)
+)
 
 -- Fast scuttle: claws tucked in, body lower, harder rock.
-add("walk_fast", g.cycle(4, function(t)
-  return {
-    leg = t,
-    bob = 1.0 * sin(t * 4 * pi),
-    clamp = 0.85,
-    raise = 0.15,
-    stalk = 0.6,
-    eye = 1,
-  }
-end))
+add(
+  "walk_fast",
+  g.cycle(4, function(t)
+    return {
+      leg = t,
+      bob = 1.0 * sin(t * 4 * pi),
+      clamp = 0.85,
+      raise = 0.15,
+      stalk = 0.6,
+      eye = 1,
+    }
+  end)
+)
 
 -- Clip: two snaps. `beat` alone repeats its values across the sequence, which
 -- would make two frames identical, so the claws also climb steadily throughout.
-add("clip_claws", g.sequence(4, function(t)
-  local beat = math.abs(sin(t * 1.5 * pi))
-  return {
-    raise = 0.35 + t * 0.45 + 0.20 * beat,
-    clamp = 1 - beat,
-    stalk = 1 - t * 0.15,
-    bob = 0.4 * beat,
-    eye = 1,
-  }
-end))
+add(
+  "clip_claws",
+  g.sequence(4, function(t)
+    local beat = math.abs(sin(t * 1.5 * pi))
+    return {
+      raise = 0.35 + t * 0.45 + 0.20 * beat,
+      clamp = 1 - beat,
+      stalk = 1 - t * 0.15,
+      bob = 0.4 * beat,
+      eye = 1,
+    }
+  end)
+)
 
 -- Burrow: sinks into a rising sand mound, eyestalks retracting last. It starts
 -- already breaking the sand so the opening pose cannot be mistaken for a walk.
-add("burrow", g.sequence(5, function(t)
-  local e = g.ease(t)
-  return {
-    sink = 0.14 + e * 0.86,
-    stalk = 1 - e * 0.9,
-    clamp = 0.4 + e * 0.6,
-    raise = 0.30 * (1 - e),
-    leg = t * 0.5,
-    eye = 1 - e * 0.8,
-  }
-end))
+add(
+  "burrow",
+  g.sequence(5, function(t)
+    local e = g.ease(t)
+    return {
+      sink = 0.14 + e * 0.86,
+      stalk = 1 - e * 0.9,
+      clamp = 0.4 + e * 0.6,
+      raise = 0.30 * (1 - e),
+      leg = t * 0.5,
+      eye = 1 - e * 0.8,
+    }
+  end)
+)
 
 -- Sleep: settled, eyes shut, claws slack, Zzz drifting up.
-add("sleep", g.cycle(4, function(t)
-  return {
-    bob = 0.4 * sin(t * 2 * pi),
-    clamp = 0.9,
-    stalk = 0.18,
-    eye = 0,
-    zzz = t,
-  }
-end))
+add(
+  "sleep",
+  g.cycle(4, function(t)
+    return {
+      bob = 0.4 * sin(t * 2 * pi),
+      clamp = 0.9,
+      stalk = 0.18,
+      eye = 0,
+      zzz = t,
+    }
+  end)
+)
+
+-- Drawn once, on first use.
+local frames_cache = nil
+
+local function frames()
+  if not frames_cache then
+    frames_cache = {}
+    for _, poses in ipairs(pose_sets) do
+      for _, matrix in ipairs(g.render_poses(poses, draw)) do
+        frames_cache[#frames_cache + 1] = matrix
+      end
+    end
+  end
+  return frames_cache
+end
 
 return { frames = frames, layout = layout, width = W, height = H }

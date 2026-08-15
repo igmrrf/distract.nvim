@@ -7,15 +7,39 @@ M.failures = {}
 
 if not _G.describe then
   local current_suite = ""
+  -- Per-suite hooks, matching the subset of the Busted API the specs use.
+  -- Hooks are scoped to the enclosing `describe` and cleared when it ends, so
+  -- one suite's cleanup cannot leak into the next.
+  local before_hooks = {}
+  local after_hooks = {}
 
   _G.describe = function(name, fn)
+    local outer_before, outer_after = before_hooks, after_hooks
+    before_hooks, after_hooks = {}, {}
     current_suite = name
     print(string.format("\n[%s]", name))
     fn()
+    before_hooks, after_hooks = outer_before, outer_after
+  end
+
+  _G.before_each = function(fn)
+    table.insert(before_hooks, fn)
+  end
+
+  _G.after_each = function(fn)
+    table.insert(after_hooks, fn)
+  end
+
+  local function run_hooks(hooks)
+    for _, hook in ipairs(hooks) do
+      pcall(hook)
+    end
   end
 
   _G.it = function(name, fn)
+    run_hooks(before_hooks)
     local ok, err = pcall(fn)
+    run_hooks(after_hooks)
     if ok then
       M.passed = M.passed + 1
       print(string.format("  ✓ %s", name))
@@ -33,20 +57,51 @@ if not _G.describe then
         error(msg or "assertion failed!", 2)
       end
       return val
-    end
+    end,
   })
 
   custom_assert.are = {
     same = function(expected, actual, msg)
       if vim.inspect(expected) ~= vim.inspect(actual) then
-        error(string.format("assert.are.same failed: %s (expected %s, got %s)", msg or "", vim.inspect(expected), vim.inspect(actual)), 2)
+        error(
+          string.format(
+            "assert.are.same failed: %s (expected %s, got %s)",
+            msg or "",
+            vim.inspect(expected),
+            vim.inspect(actual)
+          ),
+          2
+        )
       end
-    end
+    end,
   }
 
   custom_assert.are_equal = function(expected, actual, msg)
     if expected ~= actual then
-      error(string.format("assert.are_equal failed: %s (expected %s, got %s)", msg or "", tostring(expected), tostring(actual)), 2)
+      error(
+        string.format(
+          "assert.are_equal failed: %s (expected %s, got %s)",
+          msg or "",
+          tostring(expected),
+          tostring(actual)
+        ),
+        2
+      )
+    end
+  end
+
+  custom_assert.are_not_equal = function(unexpected, actual, msg)
+    if unexpected == actual then
+      error(
+        string.format("assert.are_not_equal failed: %s (both were %s)", msg or "", tostring(actual)),
+        2
+      )
+    end
+  end
+
+  custom_assert.is_function = function(val, msg)
+    if type(val) ~= "function" then
+      error(string.format("assert.is_function failed: %s (got %s)", msg or "", type(val)), 2)
     end
   end
 
@@ -80,7 +135,7 @@ if not _G.describe then
       if not ok then
         error(string.format("assert.has_no.errors failed: %s", tostring(err)), 2)
       end
-    end
+    end,
   }
 
   _G.assert = custom_assert

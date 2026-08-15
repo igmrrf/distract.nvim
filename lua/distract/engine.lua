@@ -1,6 +1,26 @@
+--- In-terminal simulation.
+---
+--- Runs the same state machine and the same physics as the Rust overlay engine,
+--- so one manifest describes one behaviour on both backends.
+---
+--- Units. Manifest positions and velocities are in *sprite pixels*, and
+--- velocities are per frame at 60 FPS. One sprite pixel is one terminal cell
+--- wide and half a terminal cell tall, which is what the half-block renderer
+--- draws. This module therefore converts sprite pixels to cells on the way out;
+--- the overlay engine multiplies by its own pixels-per-sprite-pixel scale. The
+--- two used to apply unrelated ad-hoc factors (`dt * 60` against `dt * 15` and
+--- `dt * 30`), so the same manifest moved at different speeds on each backend.
+
 local M = {}
 local uv = vim.uv or vim.loop
 local renderer = require("distract.renderer")
+local sprites = require("distract.terminal_sprites")
+
+--- Sprite pixels per terminal cell.
+local CELLS_PER_SPRITE_PX_X = 1.0
+local CELLS_PER_SPRITE_PX_Y = 0.5
+--- Reference frame rate the manifest velocities are expressed against.
+local REFERENCE_FPS = 60
 
 local timer = nil
 local entities = {}
@@ -8,7 +28,7 @@ local entity_counter = 0
 local is_running = false
 local config = {
   fps = 30,
-  backend = "halfblock", -- "halfblock", "float" (in-terminal); "overlay" runs in distract.external
+  backend = "halfblock",
   assets = {},
 }
 
@@ -32,16 +52,22 @@ function M.is_running()
 end
 
 function M.start()
-  if is_running then return end
+  if is_running then
+    return
+  end
   is_running = true
   last_tick_time = uv.hrtime()
   consecutive_render_failures = 0
 
   local tick_rate = math.floor(1000 / (config.fps or 30))
   timer = uv.new_timer()
-  timer:start(0, tick_rate, vim.schedule_wrap(function()
-    M.tick()
-  end))
+  timer:start(
+    0,
+    tick_rate,
+    vim.schedule_wrap(function()
+      M.tick()
+    end)
+  )
 end
 
 function M.stop()
@@ -53,6 +79,15 @@ function M.stop()
   is_running = false
   renderer.clear_all()
   entities = {}
+end
+
+--- Size of an asset's sprite in terminal cells.
+local function sprite_cell_size(asset_name)
+  local ok, w, h = pcall(sprites.get_dimensions, asset_name)
+  if not ok or not w then
+    return 16, 8
+  end
+  return w * CELLS_PER_SPRITE_PX_X, h * CELLS_PER_SPRITE_PX_Y
 end
 
 function M.spawn(asset_name, opts)
@@ -116,8 +151,19 @@ function M.spawn(asset_name, opts)
     entity.vx = entity.target_vx
     entity.vy = entity.target_vy
     entity.is_locked = state_def.is_locked or false
-    if p.ground_y then entity.ground_y = p.ground_y end
+    if p.ground_y then
+      entity.ground_y = p.ground_y
+    end
   end
+
+  -- Desynchronise from anything already alive. Two cats spawned together
+  -- otherwise share a frame index, a frame timer and a path phase for the rest
+  -- of their lives, which reads as a chorus line rather than as two animals.
+  local anim = state_def and state_def.animation
+  local frame_count = (anim and anim.frames and #anim.frames) or 1
+  entity.frame_idx = math.random(1, math.max(1, frame_count))
+  entity.frame_timer = math.random() * 0.1
+  entity.path_phase = math.random() * 2 * math.pi
 
   table.insert(entities, entity)
 
@@ -125,7 +171,15 @@ function M.spawn(asset_name, opts)
     M.start()
   end
 
-  vim.notify(string.format("[Distract] Spawned %s (#%d) [%s] (in-terminal mode)", asset_name, id, initial_state), vim.log.levels.INFO)
+  vim.notify(
+    string.format(
+      "[Distract] Spawned %s (#%d) [%s] (in-terminal mode)",
+      asset_name,
+      id,
+      initial_state
+    ),
+    vim.log.levels.INFO
+  )
   return id
 end
 
@@ -146,11 +200,24 @@ function M.set_entity_state(entity, new_state)
   end
 end
 
+--- Turns an entity to face a point, if it is not already facing it.
+local function face_toward(entity, target_x)
+  local dx = target_x - entity.x
+  if math.abs(dx) < 1 then
+    return
+  end
+  entity.heading_x = dx > 0 and 1 or -1
+  entity.flip_x = entity.heading_x < 0
+end
+
+--- Where the user is working, in terminal cells, if known.
+local focus_col = nil
+
 function M.trigger_action(action_name, target)
   local triggered_count = 0
 
   for _, entity in ipairs(entities) do
-    local match = false
+    local match
     if type(target) == "number" then
       match = (entity.id == target)
     elseif type(target) == "string" and target ~= "" then
@@ -162,43 +229,92 @@ function M.trigger_action(action_name, target)
     if match and entity.manifest.custom_actions then
       local action_def = entity.manifest.custom_actions[action_name]
       if action_def then
+        -- The Rust side gets this for free because serde requires the field.
+        -- On this side a custom action missing `target_state` used to set
+        -- `current_state = nil`, and the next tick failed the state lookup.
         local target_state = action_def.target_state
-        local duration_s = action_def.duration_ms and (action_def.duration_ms / 1000) or nil
-        local return_state = action_def.return_state
-        local is_locked = (action_def.is_locked ~= false)
+        if type(target_state) ~= "string" or target_state == "" then
+          vim.notify(
+            string.format(
+              "[Distract] Action '%s' on '%s' has no target_state; ignoring it.",
+              action_name,
+              entity.asset_name
+            ),
+            vim.log.levels.WARN
+          )
+        elseif not (entity.manifest.states and entity.manifest.states[target_state]) then
+          vim.notify(
+            string.format(
+              "[Distract] Action '%s' on '%s' targets unknown state '%s'; ignoring it.",
+              action_name,
+              entity.asset_name,
+              target_state
+            ),
+            vim.log.levels.WARN
+          )
+        else
+          local duration_s = action_def.duration_ms and (action_def.duration_ms / 1000) or nil
+          local return_state = action_def.return_state
+          local is_locked = (action_def.is_locked ~= false)
 
-        entity.ground_y = entity.y
-        M.set_entity_state(entity, target_state)
-        entity.action_timer = 0
-        entity.action_duration = duration_s
-        entity.return_state = return_state
-        entity.is_locked = is_locked
+          entity.ground_y = entity.y
+          M.set_entity_state(entity, target_state)
+          entity.action_timer = 0
+          entity.action_duration = duration_s
+          entity.return_state = return_state
+          entity.is_locked = is_locked
 
-        -- Apply jump impulse if defined
-        local state_def = entity.manifest.states and entity.manifest.states[target_state]
-        if state_def and state_def.physics and state_def.physics.jump_impulse_y then
-          entity.vy = state_def.physics.jump_impulse_y
+          -- Apply jump impulse if defined
+          local state_def = entity.manifest.states[target_state]
+          if state_def.physics and state_def.physics.jump_impulse_y then
+            entity.vy = state_def.physics.jump_impulse_y
+          end
+
+          triggered_count = triggered_count + 1
+          vim.notify(
+            string.format("[Distract] %s (#%d) -> %s", entity.asset_name, entity.id, action_name),
+            vim.log.levels.INFO
+          )
         end
-
-        triggered_count = triggered_count + 1
-        vim.notify(string.format("[Distract] %s (#%d) -> %s", entity.asset_name, entity.id, action_name), vim.log.levels.INFO)
       end
     end
   end
 
   if triggered_count == 0 then
-    vim.notify(string.format("[Distract] Action '%s' not found or matched no active entities", action_name), vim.log.levels.WARN)
+    vim.notify(
+      string.format("[Distract] Action '%s' not found or matched no active entities", action_name),
+      vim.log.levels.WARN
+    )
   end
 end
 
-function M.handle_editor_event(event_name)
+--- @param event_name string
+--- @param context table|nil optional `{ cursor_col = n, cursor_row = n }`
+function M.handle_editor_event(event_name, context)
+  if type(context) == "table" and type(context.cursor_col) == "number" then
+    focus_col = context.cursor_col
+  end
+
   for _, entity in ipairs(entities) do
     if not entity.is_locked and entity.manifest.states then
       local state_def = entity.manifest.states[entity.current_state]
       if state_def and state_def.transitions and state_def.transitions.on_event then
         local next_state = state_def.transitions.on_event[event_name]
         if next_state then
+          local changed = entity.current_state ~= next_state
           M.set_entity_state(entity, next_state)
+
+          -- Orient toward the cursor when picking up a new behaviour, so the
+          -- entity looks like it noticed.
+          if changed and focus_col then
+            local next_def = entity.manifest.states[next_state]
+            local moves = next_def
+              and next_def.physics
+              and math.abs(next_def.physics.target_vx or 0) > 0
+            if moves then
+              face_toward(entity, focus_col)
+            end
+          end
         end
       end
     end
@@ -209,10 +325,19 @@ function M.tick()
   local now = uv.hrtime()
   local dt = last_tick_time and ((now - last_tick_time) / 1e9) or 0.033
   last_tick_time = now
-  if dt > 0.1 then dt = 0.1 end
+  if dt > 0.1 then
+    dt = 0.1
+  end
+
+  if #entities == 0 then
+    return
+  end
 
   local max_columns = vim.o.columns
   local max_lines = vim.o.lines
+  local step = dt * REFERENCE_FPS
+
+  local despawned = false
 
   for _, entity in ipairs(entities) do
     entity.state_time = entity.state_time + dt
@@ -233,7 +358,11 @@ function M.tick()
     local state_def = entity.manifest.states and entity.manifest.states[entity.current_state]
     if state_def then
       -- 2. State Timeout
-      if state_def.transitions and state_def.transitions.timeout_ms and state_def.transitions.on_timeout then
+      if
+        state_def.transitions
+        and state_def.transitions.timeout_ms
+        and state_def.transitions.on_timeout
+      then
         if entity.state_time * 1000 >= state_def.transitions.timeout_ms then
           M.set_entity_state(entity, state_def.transitions.on_timeout)
         end
@@ -261,20 +390,20 @@ function M.tick()
         end
       end
 
-      -- 4. Physics
+      -- 4. Physics, in the shared manifest unit (sprite pixels per 60 FPS frame)
       local phys = state_def.physics or {}
       local speed_x = math.abs(phys.target_vx or 0)
       entity.target_vx = speed_x * entity.heading_x
       entity.target_vy = phys.target_vy or 0
       entity.flip_x = (entity.heading_x < 0)
 
-      local friction = phys.friction or 0.1
-      local lerp_factor = math.min(1.0, math.max(0.05, 1.0 - math.exp(-friction * dt * 30)))
+      local friction = phys.friction or 0.05
+      local lerp_factor = math.min(1.0, math.max(0.01, 1.0 - math.exp(-friction * step)))
       entity.vx = entity.vx + (entity.target_vx - entity.vx) * lerp_factor
 
       if (phys.gravity or 0) > 0 then
-        entity.vy = entity.vy + (phys.gravity * dt * 30)
-        entity.y = entity.y + (entity.vy * dt * 15)
+        entity.vy = entity.vy + (phys.gravity * step)
+        entity.y = entity.y + (entity.vy * step * CELLS_PER_SPRITE_PX_Y)
 
         if entity.y >= entity.ground_y then
           entity.y = entity.ground_y
@@ -283,24 +412,30 @@ function M.tick()
       else
         entity.vy = entity.vy + (entity.target_vy - entity.vy) * lerp_factor
         if phys.path_type == "sine" then
-          local amp = phys.path_amplitude or 2.0
+          local amp = (phys.path_amplitude or 4.0) * CELLS_PER_SPRITE_PX_Y
           local freq = phys.path_frequency or 2.0
           entity.path_phase = entity.path_phase + (dt * freq)
           entity.y = entity.base_y + math.sin(entity.path_phase) * amp
         else
-          entity.y = entity.y + (entity.vy * dt * 15)
+          entity.y = entity.y + (entity.vy * step * CELLS_PER_SPRITE_PX_Y)
         end
       end
 
-      entity.x = entity.x + (entity.vx * dt * 15)
+      entity.x = entity.x + (entity.vx * step * CELLS_PER_SPRITE_PX_X)
 
-      -- 5. Screen boundary modes
+      -- 5. Screen boundary modes. Sizes come from the asset rather than a
+      -- constant: the built-in sprites are 24 cells wide (cat, crab) and 16
+      -- (sun), so a hardcoded 16 wrapped and bounced them in the wrong place.
+      local sprite_w, sprite_h = sprite_cell_size(entity.asset_name)
       local wrap_mode = phys.wrap_mode or "wrap"
-      local sprite_w = 16
+
       if wrap_mode == "wrap" then
-        if entity.vx > 0 and entity.x > max_columns then
+        -- Gated on position, not on velocity: `vx` lerps toward its target, so
+        -- a state whose target is zero decays it through zero and an entity
+        -- that had already left the screen would never wrap back.
+        if entity.x > max_columns then
           entity.x = -sprite_w
-        elseif entity.vx < 0 and entity.x < -sprite_w then
+        elseif entity.x < -sprite_w then
           entity.x = max_columns
         end
       elseif wrap_mode == "bounce" then
@@ -315,9 +450,36 @@ function M.tick()
         end
       elseif wrap_mode == "clamp" then
         entity.x = math.max(0, math.min(entity.x, max_columns - sprite_w))
-        entity.y = math.max(0, math.min(entity.y, max_lines - 4))
+        entity.y = math.max(0, math.min(entity.y, max_lines - sprite_h - 1))
+      elseif wrap_mode == "despawn" then
+        if
+          entity.x < -sprite_w
+          or entity.x > max_columns
+          or entity.y < -sprite_h
+          or entity.y > max_lines
+        then
+          entity.is_active = false
+          despawned = true
+        end
+      end
+      -- "none" deliberately applies no boundary handling.
+    end
+  end
+
+  if despawned then
+    local kept = {}
+    for _, e in ipairs(entities) do
+      if e.is_active then
+        table.insert(kept, e)
+      else
+        renderer.close_window(e.id)
+        vim.notify(
+          string.format("[Distract] Despawned entity #%d (left the screen)", e.id),
+          vim.log.levels.INFO
+        )
       end
     end
+    entities = kept
   end
 
   local ok, err = pcall(renderer.draw, entities, config.backend)
@@ -341,9 +503,25 @@ function M.get_status()
   if #entities == 0 then
     vim.notify("[Distract] No active entities (in-terminal mode).", vim.log.levels.INFO)
   else
-    local lines = { string.format("[Distract] %d active entities (in-terminal mode, backend: %s):", #entities, config.backend) }
+    local lines = {
+      string.format(
+        "[Distract] %d active entities (in-terminal mode, backend: %s):",
+        #entities,
+        config.backend
+      ),
+    }
     for _, ent in ipairs(entities) do
-      table.insert(lines, string.format("  • #%d %s (state: %s, pos: %.0f, %.0f)", ent.id, ent.asset_name, ent.current_state, ent.x, ent.y))
+      table.insert(
+        lines,
+        string.format(
+          "  • #%d %s (state: %s, pos: %.0f, %.0f)",
+          ent.id,
+          ent.asset_name,
+          ent.current_state,
+          ent.x,
+          ent.y
+        )
+      )
     end
     vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
   end
@@ -365,9 +543,21 @@ function M.despawn(id)
   end
 end
 
+--- Removes every entity but leaves the engine running.
+---
+--- This matches the overlay backend's `ClearAll`. `:DistractClear` used to mean
+--- "clear and stop" here and "clear" there, so the same command left the plugin
+--- in a different state depending on the backend. `tick` returns immediately
+--- while nothing is alive, so an idle engine costs nothing.
 function M.clear()
-  M.stop()
+  renderer.clear_all()
+  entities = {}
   vim.notify("[Distract] All entities cleared", vim.log.levels.INFO)
+end
+
+--- Live entities, for tests and diagnostics.
+function M.get_entities()
+  return entities
 end
 
 return M

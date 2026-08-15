@@ -142,10 +142,18 @@ function M.line(c, x0, y0, x1, y1, color)
 
   while true do
     M.set(c, x0, y0, color)
-    if x0 == x1 and y0 == y1 then break end
+    if x0 == x1 and y0 == y1 then
+      break
+    end
     local e2 = 2 * err
-    if e2 >= dy then err = err + dy; x0 = x0 + sx end
-    if e2 <= dx then err = err + dx; y0 = y0 + sy end
+    if e2 >= dy then
+      err = err + dy
+      x0 = x0 + sx
+    end
+    if e2 <= dx then
+      err = err + dx
+      y0 = y0 + sy
+    end
   end
 end
 
@@ -155,7 +163,9 @@ end
 
 local function normalize(v)
   local len = sqrt(v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
-  if len == 0 then return { 0, 0, 1 } end
+  if len == 0 then
+    return { 0, 0, 1 }
+  end
   return { v[1] / len, v[2] / len, v[3] / len }
 end
 

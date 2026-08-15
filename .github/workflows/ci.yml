@@ -12,6 +12,70 @@ permissions:
 
 jobs:
   # =========================================================================
+  # 0. Lint and format gates
+  # =========================================================================
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+
+      - name: Install Linux GUI/Winit build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libwayland-dev \
+            libxkbcommon-dev
+
+      - name: cargo fmt --check
+        run: cargo fmt --manifest-path engine/Cargo.toml -- --check
+
+      # Warnings are errors here: an advisory lint nobody reads is not a gate.
+      - name: cargo clippy
+        run: cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
+
+      - name: Setup Lua for luacheck
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+
+      - name: Setup LuaRocks
+        uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install luacheck
+        run: luarocks install luacheck
+
+      - name: luacheck
+        run: luacheck lua plugin tests
+
+      - name: stylua --check
+        uses: JohnnyMorganz/stylua-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          version: latest
+          args: --check lua plugin tests
+
+  # =========================================================================
   # 1. Neovim Lua Test Suite
   # =========================================================================
   test-lua:
@@ -34,15 +98,12 @@ jobs:
 
       # No trailing `-c "q"`: it would mask a failing suite and make the job
       # exit 0. run_tests.lua terminates the editor itself via qall!/cquit.
+      # run_tests.lua enumerates every spec file, so running
+      # PlenaryBustedDirectory over the same directory afterwards only doubled
+      # the job time.
       - name: Run Lua test suite
         timeout-minutes: 5
         run: nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
-
-      - name: Run Plenary Busted tests
-        timeout-minutes: 5
-        run: |
-          nvim --headless --noplugin -u tests/minimal_init.lua \
-            -c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua' }"
 
   # =========================================================================
   # 2. Rust Engine Unit & Integration Tests
@@ -103,7 +164,7 @@ jobs:
   build-engine-release:
     name: Build Binary (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test-lua, test-rust]
+    needs: [lint, test-lua, test-rust]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false

@@ -76,8 +76,7 @@ local function draw(pose)
       for step = 0, steps do
         local t = step / steps
         local rr = inner + (outer - inner) * t
-        g.set(c, cx + ca * rr, cy + sa * rr,
-          g.shade(g.mix(SURFACE, CORONA, t), 0.10 - t * 0.30))
+        g.set(c, cx + ca * rr, cy + sa * rr, g.shade(g.mix(SURFACE, CORONA, t), 0.10 - t * 0.30))
       end
     end
   end
@@ -91,14 +90,13 @@ local function draw(pose)
     specular = 0.0,
   })
   -- Hot core.
-  g.orb(c, cx, cy, radius * 0.55, radius * 0.55,
-    g.shade(CORE, flare * 0.35), {
-      light = { 0, 0, 1 },
-      ambient = 0.62,
-      rim = 0.20,
-      rim_color = CORE,
-      specular = 0.0,
-    })
+  g.orb(c, cx, cy, radius * 0.55, radius * 0.55, g.shade(CORE, flare * 0.35), {
+    light = { 0, 0, 1 },
+    ambient = 0.62,
+    rim = 0.20,
+    rim_color = CORE,
+    specular = 0.0,
+  })
 
   -- Moon slides across from the left as occlude runs 0 -> 1.
   if occlude > 0.02 then
@@ -128,75 +126,113 @@ local function draw(pose)
   return c
 end
 
-local frames = {}
+local pose_sets = {}
 local layout = {}
+local frame_count = 0
 
+--- Records a state's poses and its 0-based frame index range.
+---
+--- Poses are cheap to build; drawing them is not. Nothing is rasterised here so
+--- that requiring this module — which every manifest does, and therefore so
+--- does every Neovim startup — stays close to free. Frames are drawn on first
+--- use by `frames()`.
 local function add(state, poses)
-  local start = #frames
-  for _, matrix in ipairs(g.render_poses(poses, draw)) do
-    frames[#frames + 1] = matrix
-  end
+  local start = frame_count
+  pose_sets[#pose_sets + 1] = poses
+  frame_count = frame_count + #poses
   local idx = {}
-  for i = 0, #poses - 1 do idx[i + 1] = start + i end
+  for i = 0, #poses - 1 do
+    idx[i + 1] = start + i
+  end
   layout[state] = idx
 end
 
 -- Shining: the disc breathes and the rays rotate a full step per cycle.
-add("shining", g.cycle(4, function(t)
-  return {
-    radius = 3.6 + 0.25 * sin(t * 2 * pi),
-    rays = 0.75 + 0.25 * sin(t * 2 * pi),
-    spin = t / 8,
-    corona = 0.18 + 0.10 * sin(t * 2 * pi),
-  }
-end))
+add(
+  "shining",
+  g.cycle(4, function(t)
+    return {
+      radius = 3.6 + 0.25 * sin(t * 2 * pi),
+      rays = 0.75 + 0.25 * sin(t * 2 * pi),
+      spin = t / 8,
+      corona = 0.18 + 0.10 * sin(t * 2 * pi),
+    }
+  end)
+)
 
 -- Eclipse: the moon crosses the disc, the corona flares as totality arrives.
-add("eclipse", g.sequence(5, function(t)
-  local e = g.ease(t)
-  return {
-    radius = 3.7,
-    rays = 0.6 * (1 - e),
-    corona = 0.15 + e * 0.85,
-    occlude = e,
-    spin = t / 12,
-  }
-end))
+add(
+  "eclipse",
+  g.sequence(5, function(t)
+    local e = g.ease(t)
+    return {
+      radius = 3.7,
+      rays = 0.6 * (1 - e),
+      corona = 0.15 + e * 0.85,
+      occlude = e,
+      spin = t / 12,
+    }
+  end)
+)
 
 -- Flare: a brightness surge with the rays thrown wide, then settling.
-add("flare", g.sequence(4, function(t)
-  local burst = sin(g.ease(t) * pi)
-  return {
-    radius = 3.5 + burst * 0.7,
-    rays = 0.7 + burst * 0.3,
-    corona = 0.2 + burst * 0.5,
-    flare = burst,
-    spin = t / 6,
-  }
-end))
+add(
+  "flare",
+  g.sequence(4, function(t)
+    local burst = sin(g.ease(t) * pi)
+    return {
+      radius = 3.5 + burst * 0.7,
+      rays = 0.7 + burst * 0.3,
+      corona = 0.2 + burst * 0.5,
+      flare = burst,
+      spin = t / 6,
+    }
+  end)
+)
 
 -- Rising: climbs out of the horizon, rays lengthening as it clears.
-add("rising", g.sequence(6, function(t)
-  local e = g.ease(t)
-  return {
-    radius = 3.2 + e * 0.5,
-    rays = e * 0.85,
-    corona = 0.30 - e * 0.12,
-    drop = 1 - e * 1.6,
-    horizon = 1 - e * 0.35,
-  }
-end))
+add(
+  "rising",
+  g.sequence(6, function(t)
+    local e = g.ease(t)
+    return {
+      radius = 3.2 + e * 0.5,
+      rays = e * 0.85,
+      corona = 0.30 - e * 0.12,
+      drop = 1 - e * 1.6,
+      horizon = 1 - e * 0.35,
+    }
+  end)
+)
 
 -- Setting: sinks back down, rays shortening and the band deepening.
-add("setting", g.sequence(6, function(t)
-  local e = g.ease(t)
-  return {
-    radius = 3.7 - e * 0.5,
-    rays = 0.85 * (1 - e),
-    corona = 0.18 + e * 0.24,
-    drop = -0.6 + e * 1.6,
-    horizon = 0.65 + e * 0.35,
-  }
-end))
+add(
+  "setting",
+  g.sequence(6, function(t)
+    local e = g.ease(t)
+    return {
+      radius = 3.7 - e * 0.5,
+      rays = 0.85 * (1 - e),
+      corona = 0.18 + e * 0.24,
+      drop = -0.6 + e * 1.6,
+      horizon = 0.65 + e * 0.35,
+    }
+  end)
+)
+
+-- Drawn once, on first use.
+local frames_cache = nil
+
+local function frames()
+  if not frames_cache then
+    frames_cache = {}
+    for _, poses in ipairs(pose_sets) do
+      for _, matrix in ipairs(g.render_poses(poses, draw)) do
+        frames_cache[#frames_cache + 1] = matrix
+      end
+    end
+  end
+  return frames_cache
+end
 
 return { frames = frames, layout = layout, width = W, height = H }

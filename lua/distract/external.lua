@@ -1,33 +1,115 @@
+--- Overlay backend: drives the compiled Rust engine over JSON-RPC on stdio.
+
 local M = {}
 
 local job_id = nil
 local config = {}
 local is_shutting_down = false
+local build_job = nil
 
 function M.setup(opts)
   config = opts or {}
 end
 
---- Locate the compiled Rust engine binary.
-local function get_binary_path()
-  local plugin_root = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h")
-  local is_win = vim.fn.has("win32") == 1
-  local ext = is_win and ".exe" or ""
-  local release_bin = plugin_root .. "/engine/target/release/distract-engine" .. ext
-  local debug_bin = plugin_root .. "/engine/target/debug/distract-engine" .. ext
-
-  if vim.fn.filereadable(release_bin) == 1 then
-    return release_bin
-  elseif vim.fn.filereadable(debug_bin) == 1 then
-    return debug_bin
-  else
-    return release_bin
-  end
+local function plugin_root()
+  return vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h")
 end
 
+local function exe_suffix()
+  return vim.fn.has("win32") == 1 and ".exe" or ""
+end
+
+--- Where a compiled engine binary may live, most preferred first.
+---
+--- `engine/bin` is where a binary downloaded from a GitHub release should be
+--- placed. The release workflow publishes per-platform archives, but nothing
+--- looked anywhere they could plausibly be installed, so the published binaries
+--- were unreachable and every user fell through to building from source.
+function M.binary_candidates()
+  local root = plugin_root()
+  local ext = exe_suffix()
+  return {
+    root .. "/engine/bin/distract-engine" .. ext,
+    root .. "/engine/target/release/distract-engine" .. ext,
+    root .. "/engine/target/debug/distract-engine" .. ext,
+  }
+end
+
+--- Locate the compiled Rust engine binary, or nil when none is installed.
+local function find_binary()
+  for _, path in ipairs(M.binary_candidates()) do
+    if vim.fn.executable(path) == 1 or vim.fn.filereadable(path) == 1 then
+      return path
+    end
+  end
+  return nil
+end
+
+function M.build_command()
+  return { "cargo", "build", "--release", "--manifest-path", plugin_root() .. "/engine/Cargo.toml" }
+end
 
 function M.is_running()
   return job_id ~= nil and job_id > 0
+end
+
+--- Compiles the engine without blocking the editor.
+---
+--- This used to be `vim.fn.system(...)`, which made Neovim completely
+--- unresponsive for however long a cold Rust build takes — minutes — with a
+--- single notification beforehand and no progress.
+--- @param on_success function|nil called after a successful build
+function M.build(on_success)
+  if build_job then
+    vim.notify("[Distract] Engine build already in progress.", vim.log.levels.INFO)
+    return
+  end
+
+  local cmd = M.build_command()
+  vim.notify(
+    "[Distract] Building the overlay engine in the background:\n  "
+      .. table.concat(cmd, " ")
+      .. "\nThis can take a few minutes on a cold build.",
+    vim.log.levels.INFO
+  )
+
+  local stderr_tail = {}
+  build_job = vim.fn.jobstart(cmd, {
+    on_stderr = function(_, data)
+      for _, line in ipairs(data or {}) do
+        if line ~= "" then
+          table.insert(stderr_tail, line)
+          -- Keep the last few lines only; a full cargo log is not a useful
+          -- notification.
+          if #stderr_tail > 20 then
+            table.remove(stderr_tail, 1)
+          end
+        end
+      end
+    end,
+    on_exit = function(_, code)
+      build_job = nil
+      if code == 0 then
+        vim.notify("[Distract] Engine built.", vim.log.levels.INFO)
+        if on_success then
+          on_success()
+        end
+      else
+        vim.notify(
+          "[Distract] Engine build failed (exit "
+            .. tostring(code)
+            .. "):\n"
+            .. table.concat(stderr_tail, "\n"),
+          vim.log.levels.ERROR
+        )
+      end
+    end,
+  })
+
+  if build_job <= 0 then
+    build_job = nil
+    vim.notify("[Distract] Could not start cargo. Is Rust installed?", vim.log.levels.ERROR)
+  end
 end
 
 function M.start()
@@ -36,17 +118,16 @@ function M.start()
   end
   is_shutting_down = false
 
-  local bin_path = get_binary_path()
-
-  if vim.fn.filereadable(bin_path) == 0 then
-    vim.notify("[Distract] Engine binary not found at " .. bin_path .. ". Compiling with cargo...", vim.log.levels.INFO)
-    local plugin_root = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h")
-    local build_cmd = "cargo build --release --manifest-path " .. plugin_root .. "/engine/Cargo.toml"
-    local build_out = vim.fn.system(build_cmd)
-    if vim.v.shell_error ~= 0 then
-      vim.notify("[Distract] Failed to compile engine:\n" .. build_out, vim.log.levels.ERROR)
-      return
-    end
+  local bin_path = find_binary()
+  if not bin_path then
+    -- Refuse and say exactly what to do, rather than freezing the editor on a
+    -- synchronous build the user did not ask for.
+    vim.notify(
+      "[Distract] Overlay engine is not built.\nRun :DistractBuild, or build it yourself:\n  "
+        .. table.concat(M.build_command(), " "),
+      vim.log.levels.WARN
+    )
+    return
   end
 
   job_id = vim.fn.jobstart({ bin_path }, {
@@ -57,10 +138,15 @@ function M.start()
         end
       end
     end,
+    -- Engine diagnostics. Two sources are filtered out because they are
+    -- unavoidable and not actionable: macOS emits an ApplePersistence warning
+    -- for any non-bundled process, and wgpu logs adapter selection at startup.
     on_stderr = function(_, data)
       for _, line in ipairs(data) do
         if line ~= "" and not line:match("ApplePersistence") and not line:match("wgpu") then
-          -- Log engine debug output
+          vim.schedule(function()
+            vim.notify("[Distract engine] " .. line, vim.log.levels.DEBUG)
+          end)
         end
       end
     end,
@@ -69,7 +155,10 @@ function M.start()
       job_id = nil
       is_shutting_down = false
       if not was_clean then
-        vim.notify("[Distract] Engine terminated unexpectedly (code " .. tostring(code) .. ")", vim.log.levels.WARN)
+        vim.notify(
+          "[Distract] Engine terminated unexpectedly (code " .. tostring(code) .. ")",
+          vim.log.levels.WARN
+        )
       end
     end,
   })
@@ -94,9 +183,15 @@ function M.handle_ipc_message(raw_json)
   if status == "ready" then
     vim.notify("[Distract] Engine v" .. tostring(msg.version) .. " active", vim.log.levels.INFO)
   elseif status == "spawned" then
-    vim.notify(string.format("[Distract] Spawned %s (#%d) [%s]", msg.asset_name, msg.id, msg.state), vim.log.levels.INFO)
+    vim.notify(
+      string.format("[Distract] Spawned %s (#%d) [%s]", msg.asset_name, msg.id, msg.state),
+      vim.log.levels.INFO
+    )
   elseif status == "action_triggered" then
-    vim.notify(string.format("[Distract] %s (#%d) -> %s", msg.asset_name, msg.id, msg.action), vim.log.levels.INFO)
+    vim.notify(
+      string.format("[Distract] %s (#%d) -> %s", msg.asset_name, msg.id, msg.action),
+      vim.log.levels.INFO
+    )
   elseif status == "despawned" then
     vim.notify(string.format("[Distract] Despawned entity #%d", msg.id), vim.log.levels.INFO)
   elseif status == "cleared" then
@@ -108,7 +203,17 @@ function M.handle_ipc_message(raw_json)
     else
       local lines = { string.format("[Distract] %d active entities:", count) }
       for _, ent in ipairs(msg.entities or {}) do
-        table.insert(lines, string.format("  • #%d %s (state: %s, pos: %.0f, %.0f)", ent.id, ent.asset_name, ent.state, ent.x, ent.y))
+        table.insert(
+          lines,
+          string.format(
+            "  • #%d %s (state: %s, pos: %.0f, %.0f)",
+            ent.id,
+            ent.asset_name,
+            ent.state,
+            ent.x,
+            ent.y
+          )
+        )
       end
       vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
     end
@@ -117,16 +222,28 @@ function M.handle_ipc_message(raw_json)
   end
 end
 
+--- Sends a command, if the engine is running.
+---
+--- Deliberately does not start the engine. It used to, so `:DistractClear` or
+--- `:DistractStatus` after `:DistractStop` spawned the overlay process again
+--- purely to answer a question about entities that no longer exist.
 function M.send_command(cmd_tbl)
   if not M.is_running() then
-    M.start()
-  end
-  if not M.is_running() then
-    return
+    return false
   end
 
   local encoded = vim.fn.json_encode(cmd_tbl)
   vim.fn.chansend(job_id, encoded .. "\n")
+  return true
+end
+
+--- Sends a command, starting the engine first if it is not up.
+--- Only for commands that are meant to bring the overlay to life.
+local function send_or_start(cmd_tbl)
+  if not M.is_running() then
+    M.start()
+  end
+  return M.send_command(cmd_tbl)
 end
 
 function M.spawn(entity_name, opts)
@@ -143,10 +260,9 @@ function M.spawn(entity_name, opts)
       if next(manifest_payload.spritesheet) == nil or not manifest_payload.spritesheet.path then
         manifest_payload.spritesheet = nil
       else
-        local plugin_root = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h")
         local p = manifest_payload.spritesheet.path
         if not p:match("^/") and not p:match("^%a:[/\\]") and not p:match("^~") then
-          manifest_payload.spritesheet.path = plugin_root .. "/" .. p
+          manifest_payload.spritesheet.path = plugin_root() .. "/" .. p
         else
           manifest_payload.spritesheet.path = vim.fn.expand(p)
         end
@@ -155,7 +271,7 @@ function M.spawn(entity_name, opts)
     end
   end
 
-  local spawn_cmd = {
+  send_or_start({
     command = "Spawn",
     entity_type = entity_name,
     path = abs_path,
@@ -163,9 +279,7 @@ function M.spawn(entity_name, opts)
     x = opts.x,
     y = opts.y,
     flip_x = opts.flip_x or false,
-  }
-
-  M.send_command(spawn_cmd)
+  })
 end
 
 function M.trigger_action(action_name, target)
@@ -179,49 +293,91 @@ function M.trigger_action(action_name, target)
     cmd.asset_name = target
   end
 
-  M.send_command(cmd)
+  send_or_start(cmd)
 end
 
 function M.despawn(id)
-  M.send_command({
-    command = "Despawn",
-    id = id,
-  })
+  M.send_command({ command = "Despawn", id = id })
 end
 
 function M.clear()
-  M.send_command({
-    command = "ClearAll",
-  })
+  if not M.send_command({ command = "ClearAll" }) then
+    vim.notify("[Distract] Overlay engine is not running.", vim.log.levels.INFO)
+  end
 end
 
 function M.get_status()
-  M.send_command({
-    command = "GetStatus",
-  })
+  if not M.send_command({ command = "GetStatus" }) then
+    vim.notify("[Distract] Overlay engine is not running.", vim.log.levels.INFO)
+  end
 end
 
 function M.send_event(event_type, context)
-  if not M.is_running() then
-    return
-  end
   M.send_command({
     command = "EditorEvent",
     event = event_type,
-    context = context or {},
+    context = context or vim.empty_dict(),
   })
 end
 
-function M.update_grid()
-  if not M.is_running() then
+--- Terminal cell size in physical pixels.
+---
+--- There is no portable way to ask a terminal for this from inside Neovim, and
+--- it was previously hardcoded to 10x20 on both sides — so on any font that is
+--- not exactly that, and never on a HiDPI display, overlay entities were
+--- positioned against a coordinate space that matched nothing on screen.
+---
+--- Resolution order:
+---   1. `cell_width` / `cell_height` from user config, if set.
+---   2. The terminal's own report, when it answers `CSI 16 t`.
+---   3. A documented 10x20 default.
+---
+--- See `:help distract-overlay`.
+local DEFAULT_CELL_W, DEFAULT_CELL_H = 10, 20
+local reported_cell = nil
+
+--- Records a cell size reported by the terminal via `CSI 16 t`.
+--- @param height number cell height in pixels
+--- @param width number cell width in pixels
+function M.set_reported_cell_size(height, width)
+  if type(width) == "number" and type(height) == "number" and width > 0 and height > 0 then
+    reported_cell = { width = width, height = height }
+  end
+end
+
+function M.cell_size()
+  local w = tonumber(config.cell_width)
+  local h = tonumber(config.cell_height)
+  if w and h and w > 0 and h > 0 then
+    return w, h
+  end
+  if reported_cell then
+    return reported_cell.width, reported_cell.height
+  end
+  return DEFAULT_CELL_W, DEFAULT_CELL_H
+end
+
+--- Asks the terminal for its cell size in pixels.
+---
+--- `CSI 16 t` is answered by kitty, WezTerm, Ghostty, foot and iTerm2, and
+--- silently ignored elsewhere — so this is best effort and never blocks.
+function M.query_cell_size()
+  if vim.fn.has("nvim-0.10") ~= 1 then
     return
   end
+  pcall(function()
+    io.stdout:write("\27[16t")
+  end)
+end
+
+function M.update_grid()
+  local cw, ch = M.cell_size()
   M.send_command({
     command = "UpdateGrid",
     width = vim.o.columns,
     height = vim.o.lines,
-    cell_width = 10,
-    cell_height = 20,
+    cell_width = cw,
+    cell_height = ch,
   })
 end
 

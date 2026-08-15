@@ -1,33 +1,65 @@
 use std::collections::HashMap;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
-use image::{ImageBuffer, Rgba, RgbaImage};
+
+use image::RgbaImage;
+
 use crate::manifest::AssetManifest;
+use crate::sprites;
+
+/// Upper bounds on what a single asset may decode to.
+///
+/// Without these a user-supplied GIF is decoded in full, every frame, at source
+/// resolution: the two samples in `assets/` are 1600x1200 and 1920x1080, so a
+/// 60-frame animation at that size is hundreds of megabytes of `RgbaImage`
+/// before anything else happens. Past the limit the load fails with a message
+/// naming the limit rather than exhausting memory.
+pub const MAX_FRAME_DIM: u32 = 1024;
+pub const MAX_FRAMES: usize = 512;
+pub const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Holds loaded and sliced frames for an asset.
+///
+/// Frames are stored once, in their authored orientation. Mirroring happens at
+/// blit time via [`crate::compositor::Compositor::blend_sprite`] and at draw
+/// time in the GPU path, rather than keeping a second flipped copy of every
+/// frame alive for the process lifetime.
 #[derive(Debug, Clone)]
 pub struct LoadedAsset {
     pub name: String,
     pub manifest: AssetManifest,
     pub frames: Vec<RgbaImage>,
-    pub flipped_frames: Vec<RgbaImage>,
     pub frame_w: u32,
     pub frame_h: u32,
+    /// Hash of the manifest this asset was built from, so a repeated
+    /// registration of the same manifest can be skipped.
+    pub manifest_hash: u64,
 }
 
 pub struct AssetManager {
     assets: HashMap<String, LoadedAsset>,
+    generation: u64,
 }
 
 impl AssetManager {
     pub fn new() -> Self {
         let mut mgr = Self {
             assets: HashMap::new(),
+            generation: 0,
         };
-        // Register default procedural assets
-        let _ = mgr.register_manifest(AssetManifest::default_cat());
-        let _ = mgr.register_manifest(AssetManifest::default_crab());
-        let _ = mgr.register_manifest(AssetManifest::default_sun());
+        // Register default procedural assets. These are built from the shared
+        // sprite generator and cannot fail.
+        for manifest in [
+            AssetManifest::default_cat(),
+            AssetManifest::default_crab(),
+            AssetManifest::default_sun(),
+        ] {
+            if let Err(err) = mgr.register_manifest(manifest) {
+                // A built-in failing to load is a bug, not a user error.
+                log::error!("built-in asset failed to load: {}", err);
+            }
+        }
         mgr
     }
 }
@@ -38,19 +70,65 @@ impl Default for AssetManager {
     }
 }
 
+/// Stable hash of a manifest.
+///
+/// Serialising through `serde_json::Value` first is deliberate: the manifest's
+/// `HashMap` fields have a per-instance iteration order, so hashing the direct
+/// JSON encoding would produce a different hash for two identical manifests.
+/// `Value`'s object type is ordered, so the encoding is canonical.
+fn manifest_hash(manifest: &AssetManifest) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    match serde_json::to_value(manifest) {
+        Ok(value) => value.to_string().hash(&mut hasher),
+        // An unserialisable manifest can never match a previous hash, which is
+        // the safe direction: it reloads rather than reusing stale frames.
+        Err(_) => (
+            manifest.name.as_str(),
+            std::ptr::addr_of!(*manifest) as usize,
+        )
+            .hash(&mut hasher),
+    }
+    hasher.finish()
+}
+
 impl AssetManager {
     pub fn get(&self, name: &str) -> Option<&LoadedAsset> {
         self.assets.get(name)
     }
 
-    pub fn register_manifest(&mut self, manifest: AssetManifest) -> Result<(), String> {
-        let name = manifest.name.clone();
-        let loaded = Self::load_asset(manifest)?;
-        self.assets.insert(name, loaded);
-        Ok(())
+    /// Every loaded asset, in unspecified order.
+    pub fn iter(&self) -> impl Iterator<Item = (&String, &LoadedAsset)> {
+        self.assets.iter()
     }
 
-    pub fn load_asset(manifest: AssetManifest) -> Result<LoadedAsset, String> {
+    /// Bumped whenever frames change. The GPU atlas rebuilds only when this
+    /// moves, so a spawn that re-sends an unchanged manifest costs nothing.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Registers a manifest, loading its frames.
+    ///
+    /// Neovim resends the manifest on every spawn, so an unchanged manifest is
+    /// a no-op: without this, spawning ten cats decodes the same spritesheet
+    /// ten times. Returns `true` when frames were actually (re)loaded.
+    pub fn register_manifest(&mut self, manifest: AssetManifest) -> Result<bool, String> {
+        let name = manifest.name.clone();
+        let hash = manifest_hash(&manifest);
+
+        if let Some(existing) = self.assets.get(&name) {
+            if existing.manifest_hash == hash {
+                return Ok(false);
+            }
+        }
+
+        let loaded = Self::load_asset(manifest, hash)?;
+        self.assets.insert(name, loaded);
+        self.generation += 1;
+        Ok(true)
+    }
+
+    pub fn load_asset(manifest: AssetManifest, hash: u64) -> Result<LoadedAsset, String> {
         let name = manifest.name.clone();
         let mut frames = Vec::new();
         let mut frame_w = 32;
@@ -59,352 +137,199 @@ impl AssetManager {
         if let Some(ref path_str) = manifest.spritesheet.path {
             let path = Path::new(path_str);
             if path.exists() {
-                if path_str.to_lowercase().ends_with(".gif") {
-                    if let Ok(file) = File::open(path) {
-                        use image::AnimationDecoder;
-                        if let Ok(decoder) = image::codecs::gif::GifDecoder::new(file) {
-                            if let Ok(gif_frames) = decoder.into_frames().collect_frames() {
-                                for frame in gif_frames {
-                                    let img = frame.buffer().clone();
-                                    frame_w = img.width();
-                                    frame_h = img.height();
-                                    frames.push(img);
-                                }
-                            }
-                        }
-                    }
-                } else if let Ok(img_dyn) = image::open(path) {
-                    let rgba = img_dyn.to_rgba8();
-                    let (img_w, img_h) = rgba.dimensions();
-
-                    let margin_x = manifest.spritesheet.margin_x.unwrap_or(0);
-                    let margin_y = manifest.spritesheet.margin_y.unwrap_or(0);
-                    let spacing_x = manifest.spritesheet.spacing_x.unwrap_or(0);
-                    let spacing_y = manifest.spritesheet.spacing_y.unwrap_or(0);
-
-                    let cols = manifest.spritesheet.columns.unwrap_or_else(|| {
-                        if let Some(fw) = manifest.spritesheet.frame_width {
-                            ((img_w.saturating_sub(margin_x) + spacing_x) / (fw + spacing_x)).max(1)
-                        } else {
-                            4
-                        }
-                    });
-
-                    let rows = manifest.spritesheet.rows.unwrap_or_else(|| {
-                        if let Some(fh) = manifest.spritesheet.frame_height {
-                            ((img_h.saturating_sub(margin_y) + spacing_y) / (fh + spacing_y)).max(1)
-                        } else {
-                            1
-                        }
-                    });
-
-                    let fw = manifest.spritesheet.frame_width.unwrap_or_else(|| {
-                        (img_w.saturating_sub(margin_x + spacing_x * cols.saturating_sub(1)) / cols).max(1)
-                    });
-                    let fh = manifest.spritesheet.frame_height.unwrap_or_else(|| {
-                        (img_h.saturating_sub(margin_y + spacing_y * rows.saturating_sub(1)) / rows).max(1)
-                    });
-
-                    frame_w = fw;
-                    frame_h = fh;
-
-                    for r in 0..rows {
-                        for c in 0..cols {
-                            let x = margin_x + c * (fw + spacing_x);
-                            let y = margin_y + r * (fh + spacing_y);
-                            if x + fw <= img_w && y + fh <= img_h {
-                                let sub_img = image::imageops::crop_imm(&rgba, x, y, fw, fh).to_image();
-                                frames.push(sub_img);
-                            }
-                        }
-                    }
-                }
-            } else if manifest.asset_type != "procedural" && name != "cat" && name != "crab" && name != "sun" {
+                let (loaded, w, h) = if path_str.to_lowercase().ends_with(".gif") {
+                    load_gif(path)?
+                } else {
+                    load_spritesheet(path, &manifest)?
+                };
+                frames = loaded;
+                frame_w = w;
+                frame_h = h;
+            } else if manifest.asset_type != "procedural" && !sprites::is_builtin(&name) {
                 return Err(format!("Spritesheet file not found at path '{}'", path_str));
             }
         }
 
-        // If no frames were loaded from file, generate procedural frames
+        // If no frames were loaded from file, draw the built-in procedural set.
         if frames.is_empty() {
-            let (gen_frames, w, h) = Self::generate_procedural(&name);
-            frames = gen_frames;
-            frame_w = w;
-            frame_h = h;
+            let set = sprites::get(&name);
+            frames = set.frames.clone();
+            frame_w = set.width;
+            frame_h = set.height;
         }
-
-
-        // Generate horizontally flipped copies for all frames
-        let flipped_frames: Vec<RgbaImage> = frames.iter().map(flip_image_horizontal).collect();
 
         Ok(LoadedAsset {
             name,
             manifest,
             frames,
-            flipped_frames,
             frame_w,
             frame_h,
+            manifest_hash: hash,
         })
     }
+}
 
-    /// Generates high quality pixel-art procedural sprites for built-in assets.
-    fn generate_procedural(name: &str) -> (Vec<RgbaImage>, u32, u32) {
-        match name {
-            "crab" => generate_procedural_crab(),
-            "sun" => generate_procedural_sun(),
-            _ => generate_procedural_cat(),
+fn check_dimensions(w: u32, h: u32, what: &str) -> Result<(), String> {
+    if w == 0 || h == 0 {
+        return Err(format!("{} has a zero dimension ({}x{})", what, w, h));
+    }
+    if w > MAX_FRAME_DIM || h > MAX_FRAME_DIM {
+        return Err(format!(
+            "{} is {}x{}, over the {}px per-side limit. Scale the asset down before using it.",
+            what, w, h, MAX_FRAME_DIM
+        ));
+    }
+    Ok(())
+}
+
+fn check_budget(frames: usize, w: u32, h: u32) -> Result<(), String> {
+    if frames > MAX_FRAMES {
+        return Err(format!(
+            "asset has more than {} frames; refusing to decode the rest",
+            MAX_FRAMES
+        ));
+    }
+    let total = frames as u64 * w as u64 * h as u64 * 4;
+    if total > MAX_TOTAL_BYTES {
+        return Err(format!(
+            "asset would decode to {} MiB, over the {} MiB limit",
+            total / (1024 * 1024),
+            MAX_TOTAL_BYTES / (1024 * 1024)
+        ));
+    }
+    Ok(())
+}
+
+/// Decodes a GIF frame by frame.
+///
+/// Frames are pulled lazily and checked as they arrive, so an oversized
+/// animation is rejected before the whole thing is in memory rather than after.
+/// Frame sizes are also validated against each other: taking the dimensions
+/// from whichever frame happened to decode last silently mis-sizes every
+/// earlier frame.
+fn load_gif(path: &Path) -> Result<(Vec<RgbaImage>, u32, u32), String> {
+    use image::AnimationDecoder;
+
+    let file =
+        File::open(path).map_err(|e| format!("Could not open '{}': {}", path.display(), e))?;
+    let decoder = image::codecs::gif::GifDecoder::new(file)
+        .map_err(|e| format!("Could not decode '{}' as a GIF: {}", path.display(), e))?;
+
+    let mut frames: Vec<RgbaImage> = Vec::new();
+    let (mut frame_w, mut frame_h) = (0u32, 0u32);
+
+    for (idx, frame) in decoder.into_frames().enumerate() {
+        let frame = frame.map_err(|e| format!("GIF frame {} failed to decode: {}", idx, e))?;
+        let img = frame.into_buffer();
+        let (w, h) = img.dimensions();
+
+        if idx == 0 {
+            check_dimensions(w, h, "GIF")?;
+            frame_w = w;
+            frame_h = h;
+        } else if w != frame_w || h != frame_h {
+            return Err(format!(
+                "GIF frame {} is {}x{} but frame 0 is {}x{}; frames must agree",
+                idx, w, h, frame_w, frame_h
+            ));
+        }
+
+        frames.push(img);
+        check_budget(frames.len(), frame_w, frame_h)?;
+    }
+
+    if frames.is_empty() {
+        return Err(format!("GIF '{}' contains no frames", path.display()));
+    }
+
+    Ok((frames, frame_w, frame_h))
+}
+
+/// Slices a still image into a grid of frames.
+fn load_spritesheet(
+    path: &Path,
+    manifest: &AssetManifest,
+) -> Result<(Vec<RgbaImage>, u32, u32), String> {
+    let img_dyn =
+        image::open(path).map_err(|e| format!("Could not decode '{}': {}", path.display(), e))?;
+    let rgba = img_dyn.to_rgba8();
+    let (img_w, img_h) = rgba.dimensions();
+
+    let sheet = &manifest.spritesheet;
+    let margin_x = sheet.margin_x.unwrap_or(0);
+    let margin_y = sheet.margin_y.unwrap_or(0);
+    let spacing_x = sheet.spacing_x.unwrap_or(0);
+    let spacing_y = sheet.spacing_y.unwrap_or(0);
+
+    let cols = sheet.columns.unwrap_or_else(|| {
+        if let Some(fw) = sheet.frame_width {
+            ((img_w.saturating_sub(margin_x) + spacing_x) / (fw + spacing_x)).max(1)
+        } else {
+            4
+        }
+    });
+
+    let rows = sheet.rows.unwrap_or_else(|| {
+        if let Some(fh) = sheet.frame_height {
+            ((img_h.saturating_sub(margin_y) + spacing_y) / (fh + spacing_y)).max(1)
+        } else {
+            1
+        }
+    });
+
+    let fw = sheet.frame_width.unwrap_or_else(|| {
+        (img_w.saturating_sub(margin_x + spacing_x * cols.saturating_sub(1)) / cols).max(1)
+    });
+    let fh = sheet.frame_height.unwrap_or_else(|| {
+        (img_h.saturating_sub(margin_y + spacing_y * rows.saturating_sub(1)) / rows).max(1)
+    });
+
+    check_dimensions(fw, fh, "spritesheet frame")?;
+    check_budget((cols as usize).saturating_mul(rows as usize), fw, fh)?;
+
+    let mut frames = Vec::new();
+    for r in 0..rows {
+        for c in 0..cols {
+            let x = margin_x + c * (fw + spacing_x);
+            let y = margin_y + r * (fh + spacing_y);
+            if x + fw <= img_w && y + fh <= img_h {
+                frames.push(image::imageops::crop_imm(&rgba, x, y, fw, fh).to_image());
+            }
         }
     }
+
+    if frames.is_empty() {
+        return Err(format!(
+            "spritesheet '{}' is {}x{}, too small for a {}x{} grid of {}x{} frames",
+            path.display(),
+            img_w,
+            img_h,
+            cols,
+            rows,
+            fw,
+            fh
+        ));
+    }
+
+    Ok((frames, fw, fh))
 }
 
 /// Helper to horizontally flip an RGBA image buffer.
+///
+/// Retained for tests and for callers that genuinely need a mirrored copy; the
+/// render paths mirror by reading the source column in reverse instead.
 pub fn flip_image_horizontal(img: &RgbaImage) -> RgbaImage {
-    let (w, h) = img.dimensions();
-    let mut flipped = ImageBuffer::new(w, h);
-    for y in 0..h {
-        for x in 0..w {
-            flipped.put_pixel(w - 1 - x, y, *img.get_pixel(x, y));
-        }
-    }
-    flipped
-}
-
-/// Generates procedural 4-frame cat sprite (Idle, Walk 1, Walk 2, Sleep).
-fn generate_procedural_cat() -> (Vec<RgbaImage>, u32, u32) {
-    let w = 32;
-    let h = 32;
-    let mut frames = Vec::new();
-
-    let orange = Rgba([245, 140, 40, 255]);
-    let dark_orange = Rgba([200, 100, 20, 255]);
-    let white = Rgba([255, 255, 255, 255]);
-    let pink = Rgba([255, 160, 180, 255]);
-    let eye_color = Rgba([40, 40, 40, 255]);
-
-    // Frame 0: Idle
-    let mut f0 = ImageBuffer::new(w, h);
-    draw_rect(&mut f0, 8, 14, 16, 10, orange); // Body
-    draw_rect(&mut f0, 18, 10, 10, 8, orange); // Head
-    draw_rect(&mut f0, 20, 7, 3, 3, dark_orange); // Left ear
-    draw_rect(&mut f0, 25, 7, 3, 3, dark_orange); // Right ear
-    draw_rect(&mut f0, 24, 12, 2, 2, eye_color); // Eye
-    draw_rect(&mut f0, 27, 14, 1, 1, pink); // Nose
-    draw_rect(&mut f0, 6, 12, 3, 6, dark_orange); // Tail up
-    draw_rect(&mut f0, 10, 24, 3, 5, orange); // Front paw
-    draw_rect(&mut f0, 19, 24, 3, 5, orange); // Back paw
-    draw_rect(&mut f0, 10, 27, 3, 2, white);
-    draw_rect(&mut f0, 19, 27, 3, 2, white);
-    frames.push(f0);
-
-    // Frame 1: Walk 1 (Legs forward/back)
-    let mut f1 = ImageBuffer::new(w, h);
-    draw_rect(&mut f1, 8, 13, 16, 10, orange);
-    draw_rect(&mut f1, 19, 9, 10, 8, orange);
-    draw_rect(&mut f1, 21, 6, 3, 3, dark_orange);
-    draw_rect(&mut f1, 26, 6, 3, 3, dark_orange);
-    draw_rect(&mut f1, 25, 11, 2, 2, eye_color);
-    draw_rect(&mut f1, 28, 13, 1, 1, pink);
-    draw_rect(&mut f1, 5, 14, 4, 4, dark_orange); // Tail wag
-    draw_rect(&mut f1, 8, 23, 3, 6, orange); // Leg extended back
-    draw_rect(&mut f1, 21, 23, 3, 6, orange); // Leg extended forward
-    draw_rect(&mut f1, 8, 27, 3, 2, white);
-    draw_rect(&mut f1, 21, 27, 3, 2, white);
-    frames.push(f1);
-
-    // Frame 2: Walk 2 (Legs alternate)
-    let mut f2 = ImageBuffer::new(w, h);
-    draw_rect(&mut f2, 8, 14, 16, 10, orange);
-    draw_rect(&mut f2, 18, 10, 10, 8, orange);
-    draw_rect(&mut f2, 20, 7, 3, 3, dark_orange);
-    draw_rect(&mut f2, 25, 7, 3, 3, dark_orange);
-    draw_rect(&mut f2, 24, 12, 2, 2, eye_color);
-    draw_rect(&mut f2, 27, 14, 1, 1, pink);
-    draw_rect(&mut f2, 6, 11, 3, 6, dark_orange);
-    draw_rect(&mut f2, 13, 23, 3, 6, orange); // Legs together/crossing
-    draw_rect(&mut f2, 16, 23, 3, 6, orange);
-    draw_rect(&mut f2, 13, 27, 3, 2, white);
-    draw_rect(&mut f2, 16, 27, 3, 2, white);
-    frames.push(f2);
-
-    // Frame 3: Sleep / Laying down
-    let mut f3 = ImageBuffer::new(w, h);
-    draw_rect(&mut f3, 6, 18, 18, 8, orange); // Laying body
-    draw_rect(&mut f3, 20, 17, 8, 7, orange); // Head resting
-    draw_rect(&mut f3, 21, 15, 2, 2, dark_orange);
-    draw_rect(&mut f3, 26, 15, 2, 2, dark_orange);
-    draw_rect(&mut f3, 24, 20, 3, 1, eye_color); // Closed eye line (sleeping)
-    draw_rect(&mut f3, 4, 19, 3, 5, dark_orange); // Curled tail
-    // Zzz
-    draw_rect(&mut f3, 18, 7, 4, 1, white);
-    draw_rect(&mut f3, 20, 8, 2, 1, white);
-    draw_rect(&mut f3, 18, 9, 4, 1, white);
-    frames.push(f3);
-
-    (frames, w, h)
-}
-
-/// Generates procedural 4-frame crab sprite (Stand, Walk, Claws open, Claws closed/clip).
-fn generate_procedural_crab() -> (Vec<RgbaImage>, u32, u32) {
-    let w = 32;
-    let h = 32;
-    let mut frames = Vec::new();
-
-    let red = Rgba([230, 50, 40, 255]);
-    let dark_red = Rgba([180, 30, 25, 255]);
-    let claw_color = Rgba([250, 100, 60, 255]);
-    let eye_white = Rgba([255, 255, 255, 255]);
-    let eye_black = Rgba([20, 20, 20, 255]);
-
-    // Frame 0: Stand
-    let mut f0 = ImageBuffer::new(w, h);
-    draw_rect(&mut f0, 8, 14, 16, 10, red); // Shell
-    draw_rect(&mut f0, 10, 16, 12, 6, dark_red);
-    // Eyestalks
-    draw_rect(&mut f0, 11, 9, 2, 5, red);
-    draw_rect(&mut f0, 19, 9, 2, 5, red);
-    draw_rect(&mut f0, 10, 8, 4, 3, eye_white);
-    draw_rect(&mut f0, 18, 8, 4, 3, eye_white);
-    draw_rect(&mut f0, 12, 9, 1, 1, eye_black);
-    draw_rect(&mut f0, 20, 9, 1, 1, eye_black);
-    // Left Claw
-    draw_rect(&mut f0, 2, 11, 5, 5, claw_color);
-    draw_rect(&mut f0, 6, 13, 3, 3, red);
-    // Right Claw
-    draw_rect(&mut f0, 25, 11, 5, 5, claw_color);
-    draw_rect(&mut f0, 23, 13, 3, 3, red);
-    // Legs
-    draw_rect(&mut f0, 6, 24, 2, 4, dark_red);
-    draw_rect(&mut f0, 10, 24, 2, 4, dark_red);
-    draw_rect(&mut f0, 20, 24, 2, 4, dark_red);
-    draw_rect(&mut f0, 24, 24, 2, 4, dark_red);
-    frames.push(f0.clone());
-
-    // Frame 1: Walk sideways (Legs shifted)
-    let mut f1 = ImageBuffer::new(w, h);
-    draw_rect(&mut f1, 8, 13, 16, 10, red);
-    draw_rect(&mut f1, 10, 15, 12, 6, dark_red);
-    draw_rect(&mut f1, 11, 8, 2, 5, red);
-    draw_rect(&mut f1, 19, 8, 2, 5, red);
-    draw_rect(&mut f1, 10, 7, 4, 3, eye_white);
-    draw_rect(&mut f1, 18, 7, 4, 3, eye_white);
-    draw_rect(&mut f1, 12, 8, 1, 1, eye_black);
-    draw_rect(&mut f1, 20, 8, 1, 1, eye_black);
-    draw_rect(&mut f1, 2, 10, 5, 5, claw_color);
-    draw_rect(&mut f1, 25, 10, 5, 5, claw_color);
-    // Legs angled sideways
-    draw_rect(&mut f1, 4, 23, 2, 5, dark_red);
-    draw_rect(&mut f1, 12, 23, 2, 5, dark_red);
-    draw_rect(&mut f1, 18, 23, 2, 5, dark_red);
-    draw_rect(&mut f1, 26, 23, 2, 5, dark_red);
-    frames.push(f1);
-
-    // Frame 2: Claw Clip Open
-    let mut f2 = f0.clone();
-    draw_rect(&mut f2, 1, 9, 6, 3, claw_color); // Open upper claw
-    draw_rect(&mut f2, 1, 14, 6, 3, claw_color); // Open lower claw
-    draw_rect(&mut f2, 25, 9, 6, 3, claw_color);
-    draw_rect(&mut f2, 25, 14, 6, 3, claw_color);
-    frames.push(f2);
-
-    // Frame 3: Claw Clip Closed / Snapped
-    let mut f3 = f0.clone();
-    draw_rect(&mut f3, 1, 11, 7, 4, dark_red); // Snapped pincers shut
-    draw_rect(&mut f3, 24, 11, 7, 4, dark_red);
-    frames.push(f3);
-
-    (frames, w, h)
-}
-
-/// Generates procedural 4-frame Sun / Celestial body (Pulse 1, Pulse 2, Eclipse start, Total Eclipse).
-fn generate_procedural_sun() -> (Vec<RgbaImage>, u32, u32) {
-    let w = 48;
-    let h = 48;
-    let mut frames = Vec::new();
-
-    let gold = Rgba([255, 215, 0, 255]);
-    let bright_yellow = Rgba([255, 250, 180, 255]);
-    let orange_glow = Rgba([255, 140, 20, 180]);
-    let moon_dark = Rgba([20, 20, 30, 250]);
-    let corona_glow = Rgba([255, 220, 100, 220]);
-
-    // Frame 0: Sun Pulse 1
-    let mut f0 = ImageBuffer::new(w, h);
-    draw_circle(&mut f0, 24, 24, 18, orange_glow);
-    draw_circle(&mut f0, 24, 24, 14, gold);
-    draw_circle(&mut f0, 24, 24, 9, bright_yellow);
-    // Solar rays
-    for i in 0..8 {
-        let angle = (i as f32) * std::f32::consts::PI / 4.0;
-        let rx = 24.0 + angle.cos() * 20.0;
-        let ry = 24.0 + angle.sin() * 20.0;
-        draw_rect(&mut f0, rx as i32 - 1, ry as i32 - 1, 3, 3, gold);
-    }
-    frames.push(f0);
-
-    // Frame 1: Sun Pulse 2
-    let mut f1 = ImageBuffer::new(w, h);
-    draw_circle(&mut f1, 24, 24, 20, orange_glow);
-    draw_circle(&mut f1, 24, 24, 15, gold);
-    draw_circle(&mut f1, 24, 24, 10, bright_yellow);
-    for i in 0..8 {
-        let angle = (i as f32) * std::f32::consts::PI / 4.0 + (std::f32::consts::PI / 8.0);
-        let rx = 24.0 + angle.cos() * 22.0;
-        let ry = 24.0 + angle.sin() * 22.0;
-        draw_rect(&mut f1, rx as i32 - 1, ry as i32 - 1, 3, 3, gold);
-    }
-    frames.push(f1);
-
-    // Frame 2: Partial Eclipse
-    let mut f2 = ImageBuffer::new(w, h);
-    draw_circle(&mut f2, 24, 24, 16, orange_glow);
-    draw_circle(&mut f2, 24, 24, 13, gold);
-    // Moon disc overlapping half of the sun
-    draw_circle(&mut f2, 20, 24, 12, moon_dark);
-    frames.push(f2);
-
-    // Frame 3: Total Eclipse with glowing Corona
-    let mut f3 = ImageBuffer::new(w, h);
-    draw_circle(&mut f3, 24, 24, 18, corona_glow);
-    draw_circle(&mut f3, 24, 24, 15, moon_dark); // Black moon disc blocking center
-    draw_circle(&mut f3, 24, 24, 13, Rgba([10, 10, 15, 255]));
-    // Diamond ring / flare bead
-    draw_circle(&mut f3, 36, 16, 4, bright_yellow);
-    frames.push(f3);
-
-    (frames, w, h)
-}
-
-fn draw_rect(img: &mut RgbaImage, x: i32, y: i32, width: u32, height: u32, color: Rgba<u8>) {
-    let (iw, ih) = img.dimensions();
-    for dy in 0..height as i32 {
-        for dx in 0..width as i32 {
-            let px = x + dx;
-            let py = y + dy;
-            if px >= 0 && px < iw as i32 && py >= 0 && py < ih as i32 {
-                img.put_pixel(px as u32, py as u32, color);
-            }
-        }
-    }
-}
-
-fn draw_circle(img: &mut RgbaImage, cx: i32, cy: i32, radius: i32, color: Rgba<u8>) {
-    let (iw, ih) = img.dimensions();
-    let r2 = radius * radius;
-    for dy in -radius..=radius {
-        for dx in -radius..=radius {
-            if dx * dx + dy * dy <= r2 {
-                let px = cx + dx;
-                let py = cy + dy;
-                if px >= 0 && px < iw as i32 && py >= 0 && py < ih as i32 {
-                    img.put_pixel(px as u32, py as u32, color);
-                }
-            }
-        }
-    }
+    image::imageops::flip_horizontal(img)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::{ImageBuffer, Rgba};
+
+    fn hash_of(m: &AssetManifest) -> u64 {
+        manifest_hash(m)
+    }
 
     #[test]
     fn test_asset_manager_init() {
@@ -416,24 +341,40 @@ mod tests {
     }
 
     #[test]
-    fn test_procedural_generation_outputs() {
+    fn builtins_use_the_shared_procedural_sprite_set() {
         let mgr = AssetManager::new();
 
         let cat = mgr.get("cat").unwrap();
-        assert_eq!(cat.frames.len(), 4);
-        assert_eq!(cat.flipped_frames.len(), 4);
-        assert_eq!(cat.frame_w, 32);
-        assert_eq!(cat.frame_h, 32);
+        assert_eq!(cat.frames.len(), sprites::cat_set().frames.len());
+        assert_eq!((cat.frame_w, cat.frame_h), (24, 16));
 
         let crab = mgr.get("crab").unwrap();
-        assert_eq!(crab.frames.len(), 4);
-        assert_eq!(crab.frame_w, 32);
-        assert_eq!(crab.frame_h, 32);
+        assert_eq!(crab.frames.len(), sprites::crab_set().frames.len());
 
         let sun = mgr.get("sun").unwrap();
-        assert_eq!(sun.frames.len(), 4);
-        assert_eq!(sun.frame_w, 48);
-        assert_eq!(sun.frame_h, 48);
+        assert_eq!((sun.frame_w, sun.frame_h), (16, 16));
+    }
+
+    #[test]
+    fn every_manifest_frame_index_resolves_to_real_art() {
+        // The overlay used to have four frames against manifests referencing up
+        // to 28, so states wrapped onto each other's pictures.
+        let mgr = AssetManager::new();
+        for name in ["cat", "crab", "sun"] {
+            let asset = mgr.get(name).unwrap();
+            for (state, def) in &asset.manifest.states {
+                for &idx in &def.animation.frames {
+                    assert!(
+                        idx < asset.frames.len(),
+                        "{}/{} references frame {} of {}",
+                        name,
+                        state,
+                        idx,
+                        asset.frames.len()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -454,9 +395,145 @@ mod tests {
         let mut mgr = AssetManager::new();
         let mut custom = AssetManifest::default_cat();
         custom.name = "robot_cat".to_string();
-        let result = mgr.register_manifest(custom);
-        assert!(result.is_ok());
+        assert_eq!(mgr.register_manifest(custom), Ok(true));
         assert!(mgr.get("robot_cat").is_some());
     }
-}
 
+    #[test]
+    fn identical_manifests_hash_identically() {
+        // Two separately built manifests have independently seeded HashMaps, so
+        // this is exactly the case a naive JSON hash would get wrong.
+        let a = AssetManifest::default_cat();
+        let b = AssetManifest::default_cat();
+        assert_eq!(hash_of(&a), hash_of(&b));
+    }
+
+    #[test]
+    fn changed_manifests_hash_differently() {
+        let a = AssetManifest::default_cat();
+        let mut b = AssetManifest::default_cat();
+        b.initial_state = "sleep".to_string();
+        assert_ne!(hash_of(&a), hash_of(&b));
+    }
+
+    #[test]
+    fn re_registering_an_unchanged_manifest_is_a_no_op() {
+        let mut mgr = AssetManager::new();
+        // The built-in cat is already registered from the same manifest.
+        assert_eq!(
+            mgr.register_manifest(AssetManifest::default_cat()),
+            Ok(false)
+        );
+
+        let mut changed = AssetManifest::default_cat();
+        changed.initial_state = "sleep".to_string();
+        assert_eq!(mgr.register_manifest(changed), Ok(true));
+    }
+
+    #[test]
+    fn a_missing_spritesheet_for_a_custom_asset_is_an_error() {
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "ghost".to_string();
+        manifest.asset_type = "sprite".to_string();
+        manifest.spritesheet.path = Some("/definitely/not/here.png".to_string());
+
+        let err = AssetManager::load_asset(manifest, 0).unwrap_err();
+        assert!(err.contains("not found"), "unexpected message: {}", err);
+    }
+
+    #[test]
+    fn oversized_frames_are_rejected_with_the_limit_named() {
+        let err = check_dimensions(MAX_FRAME_DIM + 1, 10, "spritesheet frame").unwrap_err();
+        assert!(err.contains(&MAX_FRAME_DIM.to_string()));
+    }
+
+    #[test]
+    fn zero_sized_frames_are_rejected() {
+        assert!(check_dimensions(0, 10, "GIF").is_err());
+        assert!(check_dimensions(10, 0, "GIF").is_err());
+    }
+
+    #[test]
+    fn frame_count_and_byte_budget_are_both_enforced() {
+        assert!(check_budget(MAX_FRAMES + 1, 8, 8).is_err());
+        // 512 frames of 1024x1024 RGBA is 2 GiB, well past the byte budget.
+        assert!(check_budget(MAX_FRAMES, MAX_FRAME_DIM, MAX_FRAME_DIM).is_err());
+        assert!(check_budget(8, 32, 32).is_ok());
+    }
+
+    #[test]
+    fn a_real_spritesheet_slices_into_the_declared_grid() {
+        let dir = std::env::temp_dir().join("distract_asset_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("sheet_4x1.png");
+
+        // 4 frames of 8x8 laid out in a row, each a distinct solid colour.
+        let mut sheet: RgbaImage = ImageBuffer::new(32, 8);
+        for (i, tone) in [40u8, 90, 140, 190].iter().enumerate() {
+            for y in 0..8 {
+                for x in 0..8 {
+                    sheet.put_pixel(i as u32 * 8 + x, y, Rgba([*tone, *tone, *tone, 255]));
+                }
+            }
+        }
+        sheet.save(&path).unwrap();
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "sheet_test".to_string();
+        manifest.spritesheet.path = Some(path.to_string_lossy().to_string());
+        manifest.spritesheet.frame_width = Some(8);
+        manifest.spritesheet.frame_height = Some(8);
+        manifest.spritesheet.columns = Some(4);
+        manifest.spritesheet.rows = Some(1);
+
+        let loaded = AssetManager::load_asset(manifest, 0).unwrap();
+        assert_eq!(loaded.frames.len(), 4);
+        assert_eq!((loaded.frame_w, loaded.frame_h), (8, 8));
+        // Frames must come out in sheet order, not all be the same crop.
+        assert_eq!(loaded.frames[0].get_pixel(0, 0)[0], 40);
+        assert_eq!(loaded.frames[3].get_pixel(0, 0)[0], 190);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_oversized_spritesheet_frame_is_refused_rather_than_decoded() {
+        let dir = std::env::temp_dir().join("distract_asset_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("huge_frame.png");
+
+        // One frame far wider than the per-side limit.
+        let sheet: RgbaImage = ImageBuffer::new(64, 8);
+        sheet.save(&path).unwrap();
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "huge".to_string();
+        manifest.spritesheet.path = Some(path.to_string_lossy().to_string());
+        manifest.spritesheet.frame_width = Some(MAX_FRAME_DIM + 1);
+        manifest.spritesheet.frame_height = Some(8);
+        manifest.spritesheet.columns = Some(1);
+        manifest.spritesheet.rows = Some(1);
+
+        let err = AssetManager::load_asset(manifest, 0).unwrap_err();
+        assert!(err.contains("limit"), "unexpected message: {}", err);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_corrupt_image_file_reports_rather_than_falling_back_silently() {
+        let dir = std::env::temp_dir().join("distract_asset_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("not_an_image.png");
+        std::fs::write(&path, b"this is not a PNG").unwrap();
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "broken".to_string();
+        manifest.spritesheet.path = Some(path.to_string_lossy().to_string());
+
+        let err = AssetManager::load_asset(manifest, 0).unwrap_err();
+        assert!(err.contains("decode"), "unexpected message: {}", err);
+
+        let _ = std::fs::remove_file(&path);
+    }
+}

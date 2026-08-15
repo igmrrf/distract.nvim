@@ -5,7 +5,8 @@ local hl_cache = {}
 
 --- Ensure a Neovim highlight group exists for foreground/background RGB colors
 function M.get_hl_group(fg_rgb, bg_rgb)
-  local key = string.format("Distract_%s_%s",
+  local key = string.format(
+    "Distract_%s_%s",
     fg_rgb and string.format("%02x%02x%02x", fg_rgb[1], fg_rgb[2], fg_rgb[3]) or "none",
     bg_rgb and string.format("%02x%02x%02x", bg_rgb[1], bg_rgb[2], bg_rgb[3]) or "none"
   )
@@ -40,6 +41,10 @@ local SPRITE_MODULES = {
 }
 
 -- Generation is not free, so each asset is drawn once on first use and cached.
+-- Requiring a sprite module only builds its pose curves and layout; the
+-- rasterisation happens the first time frames are actually asked for. Every
+-- manifest requires this module for its layout, so eager drawing cost ~10ms of
+-- every Neovim startup whether or not anything was ever spawned.
 local sprite_cache = {}
 
 local function load_sprite(asset_name)
@@ -55,8 +60,13 @@ local function load_sprite(asset_name)
 end
 
 --- Frame matrices for an asset. Unknown assets fall back to the cat.
+--- Draws the asset on first call.
 function M.get_pixel_frames(asset_name)
-  return load_sprite(asset_name).frames
+  local sprite = load_sprite(asset_name)
+  if type(sprite.frames) == "function" then
+    return sprite.frames()
+  end
+  return sprite.frames
 end
 
 --- State name -> 0-based frame indices, for a manifest to reference.
@@ -82,7 +92,9 @@ local LOWER_HALF = "\u{2584}"
 local function matrix_width(pixel_rows)
   local width = 0
   for _, row in ipairs(pixel_rows) do
-    if #row > width then width = #row end
+    if #row > width then
+      width = #row
+    end
   end
   return width
 end
@@ -135,6 +147,42 @@ function M.render_halfblock_frame(pixel_rows)
   end
 
   return lines, highlights, width, #lines
+end
+
+-- Rendering a frame depends only on `(asset, frame index)`, and the result is
+-- immutable, so it is built once instead of on every draw. At 30 FPS per entity
+-- that is the difference between rebuilding every sprite string ~30 times a
+-- second and never rebuilding it again.
+local render_cache = {}
+
+--- Cached `render_halfblock_frame` for one frame of an asset.
+--- Returns `lines, highlights, width, height`.
+function M.get_rendered_frame(asset_name, frame_idx)
+  local by_asset = render_cache[asset_name]
+  if not by_asset then
+    by_asset = {}
+    render_cache[asset_name] = by_asset
+  end
+
+  local entry = by_asset[frame_idx]
+  if not entry then
+    local frames = M.get_pixel_frames(asset_name)
+    local matrix = frames[frame_idx] or frames[1]
+    if not matrix then
+      return {}, {}, 0, 0
+    end
+    local lines, highlights, w, h = M.render_halfblock_frame(matrix)
+    entry = { lines = lines, highlights = highlights, width = w, height = h }
+    by_asset[frame_idx] = entry
+  end
+
+  return entry.lines, entry.highlights, entry.width, entry.height
+end
+
+--- Drops the render cache. Only needed by tests and by a colourscheme reload,
+--- since highlight groups are recreated lazily.
+function M.reset_cache()
+  render_cache = {}
 end
 
 return M

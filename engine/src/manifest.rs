@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::sprites;
+
 /// Bounding wrap mode when an entity hits the edge of the viewport.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -258,7 +260,6 @@ pub struct AssetManifest {
     pub z_index: Option<i32>,
 }
 
-
 fn default_asset_type() -> String {
     "sprite".to_string()
 }
@@ -283,7 +284,7 @@ impl AssetManifest {
             "idle".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0],
+                    frames: sprites::cat_set().frames_for("idle"),
                     fps: 2.0,
                     loop_anim: true,
                     flip_x: false,
@@ -315,7 +316,7 @@ impl AssetManifest {
             "walk".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![1, 2],
+                    frames: sprites::cat_set().frames_for("walk"),
                     fps: 6.0,
                     loop_anim: true,
                     flip_x: false,
@@ -344,7 +345,7 @@ impl AssetManifest {
             "walk_fast".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![1, 2],
+                    frames: sprites::cat_set().frames_for("walk_fast"),
                     fps: 12.0,
                     loop_anim: true,
                     flip_x: false,
@@ -370,7 +371,7 @@ impl AssetManifest {
             "jump".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![1],
+                    frames: sprites::cat_set().frames_for("jump"),
                     fps: 10.0,
                     loop_anim: false,
                     flip_x: false,
@@ -378,8 +379,8 @@ impl AssetManifest {
                 physics: PhysicsConfig {
                     target_vx: 2.0,
                     target_vy: 0.0,
-                    jump_impulse_y: Some(-4.0),
-                    gravity: 0.15,
+                    jump_impulse_y: Some(-2.2),
+                    gravity: 0.32,
                     wrap_mode: WrapMode::Bounce,
                     ..Default::default()
                 },
@@ -397,7 +398,7 @@ impl AssetManifest {
             "yawn".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0, 3, 0],
+                    frames: sprites::cat_set().frames_for("yawn"),
                     fps: 3.0,
                     loop_anim: false,
                     flip_x: false,
@@ -426,7 +427,7 @@ impl AssetManifest {
             "sleep".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![3],
+                    frames: sprites::cat_set().frames_for("sleep"),
                     fps: 1.0,
                     loop_anim: true,
                     flip_x: false,
@@ -510,7 +511,7 @@ impl AssetManifest {
             "idle".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0],
+                    frames: sprites::crab_set().frames_for("idle"),
                     fps: 2.0,
                     loop_anim: true,
                     flip_x: false,
@@ -540,7 +541,7 @@ impl AssetManifest {
             "walk".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0, 1],
+                    frames: sprites::crab_set().frames_for("walk"),
                     fps: 5.0,
                     loop_anim: true,
                     flip_x: false,
@@ -568,7 +569,7 @@ impl AssetManifest {
             "walk_fast".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0, 1],
+                    frames: sprites::crab_set().frames_for("walk_fast"),
                     fps: 10.0,
                     loop_anim: true,
                     flip_x: false,
@@ -594,7 +595,7 @@ impl AssetManifest {
             "clip_claws".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![2, 3, 2, 3],
+                    frames: sprites::crab_set().frames_for("clip_claws"),
                     fps: 6.0,
                     loop_anim: false,
                     flip_x: false,
@@ -619,7 +620,7 @@ impl AssetManifest {
             "burrow".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0, 3],
+                    frames: sprites::crab_set().frames_for("burrow"),
                     fps: 4.0,
                     loop_anim: false,
                     flip_x: false,
@@ -647,7 +648,7 @@ impl AssetManifest {
             "sleep".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![3],
+                    frames: sprites::crab_set().frames_for("sleep"),
                     fps: 1.0,
                     loop_anim: true,
                     flip_x: false,
@@ -735,7 +736,7 @@ impl AssetManifest {
             "shining".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0, 1],
+                    frames: sprites::sun_set().frames_for("shining"),
                     fps: 2.0,
                     loop_anim: true,
                     flip_x: false,
@@ -762,7 +763,7 @@ impl AssetManifest {
             "rising".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0],
+                    frames: sprites::sun_set().frames_for("rising"),
                     fps: 2.0,
                     loop_anim: true,
                     flip_x: false,
@@ -787,7 +788,7 @@ impl AssetManifest {
             "setting".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![0],
+                    frames: sprites::sun_set().frames_for("setting"),
                     fps: 2.0,
                     loop_anim: true,
                     flip_x: false,
@@ -812,7 +813,7 @@ impl AssetManifest {
             "eclipse".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![2, 3],
+                    frames: sprites::sun_set().frames_for("eclipse"),
                     fps: 1.0,
                     loop_anim: true,
                     flip_x: false,
@@ -836,7 +837,7 @@ impl AssetManifest {
             "flare".to_string(),
             StateDefinition {
                 animation: AnimationConfig {
-                    frames: vec![1, 0, 1],
+                    frames: sprites::sun_set().frames_for("flare"),
                     fps: 6.0,
                     loop_anim: false,
                     flip_x: false,
@@ -904,7 +905,6 @@ impl AssetManifest {
             z_index: Some(-10),
         }
     }
-
 }
 
 #[cfg(test)]
@@ -977,7 +977,8 @@ mod tests {
             }
         }"#;
 
-        let manifest: AssetManifest = serde_json::from_str(json_data).expect("Should deserialize valid manifest");
+        let manifest: AssetManifest =
+            serde_json::from_str(json_data).expect("Should deserialize valid manifest");
         assert_eq!(manifest.name, "custom_dragon");
         assert_eq!(manifest.spritesheet.frame_width, Some(64));
         assert_eq!(manifest.spritesheet.columns, Some(8));
@@ -1015,19 +1016,21 @@ mod tests {
     fn test_spritesheet_config_deserialization_formats() {
         // Empty array format from Lua json_encode({})
         let json_seq = r#"{"name":"crab","spritesheet":[],"initial_state":"idle"}"#;
-        let manifest_seq: AssetManifest = serde_json::from_str(json_seq).expect("Should deserialize empty seq spritesheet");
+        let manifest_seq: AssetManifest =
+            serde_json::from_str(json_seq).expect("Should deserialize empty seq spritesheet");
         assert_eq!(manifest_seq.name, "crab");
         assert_eq!(manifest_seq.spritesheet.path, None);
 
         // Empty object format
         let json_map = r#"{"name":"crab","spritesheet":{},"initial_state":"idle"}"#;
-        let manifest_map: AssetManifest = serde_json::from_str(json_map).expect("Should deserialize empty map spritesheet");
+        let manifest_map: AssetManifest =
+            serde_json::from_str(json_map).expect("Should deserialize empty map spritesheet");
         assert_eq!(manifest_map.name, "crab");
 
         // Null format
         let json_null = r#"{"name":"crab","spritesheet":null,"initial_state":"idle"}"#;
-        let manifest_null: AssetManifest = serde_json::from_str(json_null).expect("Should deserialize null spritesheet");
+        let manifest_null: AssetManifest =
+            serde_json::from_str(json_null).expect("Should deserialize null spritesheet");
         assert_eq!(manifest_null.name, "crab");
     }
 }
-
