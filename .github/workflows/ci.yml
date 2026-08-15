@@ -1,0 +1,210 @@
+name: CI & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  # =========================================================================
+  # 1. Neovim Lua Test Suite
+  # =========================================================================
+  test-lua:
+    name: Lua Tests (Neovim)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Neovim
+        uses: rhysd/action-setup-vim@v1
+        with:
+          neovim: true
+          version: stable
+
+      - name: Setup Plenary test dependency
+        run: |
+          mkdir -p .tests/site/pack/vendor/start
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim .tests/site/pack/vendor/start/plenary.nvim
+
+      - name: Run Lua test suite
+        run: |
+          nvim --headless -u NONE \
+            -c "set rtp+=.tests/site/pack/vendor/start/plenary.nvim" \
+            -c "set rtp+=." \
+            -c "runtime plugin/distract.lua" \
+            -c "luafile tests/run_tests.lua" \
+            -c "q"
+
+      - name: Run Plenary Busted tests
+        run: |
+          nvim --headless --noplugin -u tests/minimal_init.lua \
+            -c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua' }"
+
+  # =========================================================================
+  # 2. Rust Engine Unit & Integration Tests
+  # =========================================================================
+  test-rust:
+    name: Rust Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux GUI/Winit build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libwayland-dev \
+            libxkbcommon-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: engine
+
+      - name: Run Cargo Check
+        run: cargo check --manifest-path engine/Cargo.toml
+
+      - name: Run Cargo Tests
+        run: cargo test --manifest-path engine/Cargo.toml -- --nocapture
+
+  # =========================================================================
+  # 3. Cross-Platform Release Builds (Triggered on v* Tag)
+  # =========================================================================
+  build-engine-release:
+    name: Build Binary (${{ matrix.target }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test-lua, test-rust]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: distract-engine-linux-x86_64.tar.gz
+            bin_name: distract-engine
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact_name: distract-engine-macos-x86_64.tar.gz
+            bin_name: distract-engine
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: distract-engine-macos-aarch64.tar.gz
+            bin_name: distract-engine
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: distract-engine-windows-x86_64.zip
+            bin_name: distract-engine.exe
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libx11-dev \
+            libx11-xcb-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libwayland-dev \
+            libxkbcommon-dev
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }} --manifest-path engine/Cargo.toml
+
+      - name: Package Unix Binary
+        if: runner.os != 'Windows'
+        run: |
+          cd engine/target/${{ matrix.target }}/release
+          tar -czvf ../../../../${{ matrix.artifact_name }} ${{ matrix.bin_name }}
+          cd ../../../..
+          shasum -a 256 ${{ matrix.artifact_name }} > ${{ matrix.artifact_name }}.sha256
+
+      - name: Package Windows Binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cd engine/target/${{ matrix.target }}/release
+          Compress-Archive -Path ${{ matrix.bin_name }} -DestinationPath ../../../../${{ matrix.artifact_name }}
+          cd ../../../..
+          Get-FileHash -Algorithm SHA256 ${{ matrix.artifact_name }} | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ascii "${{ matrix.artifact_name }}.sha256"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            ${{ matrix.artifact_name }}
+            ${{ matrix.artifact_name }}.sha256
+
+  # =========================================================================
+  # 4. GitHub Release Publish
+  # =========================================================================
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-engine-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built binary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

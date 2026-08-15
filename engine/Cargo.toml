@@ -1,0 +1,29 @@
+[package]
+name = "distract-engine"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "distract_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "distract-engine"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+winit = "0.28.6"
+wgpu = "0.16"
+pollster = "0.3"
+bytemuck = { version = "1.13", features = ["derive"] }
+image = "0.24"
+log = "0.4"
+env_logger = "0.11"
+raw-window-handle = "0.5.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2.7"
+
+

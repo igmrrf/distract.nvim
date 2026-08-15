@@ -1,0 +1,41 @@
+# Build & Rust artifacts
+target/
+engine/target/
+*.rs.bk
+
+# Test artifacts & generated screenshots
+.tests/
+tests/screenshots/
+*.png
+!assets/*.png
+engine_render_screenshot.png
+
+# Temporary & scratch scripts
+*.py
+engine/test_window.rs
+
+# Agent review & planning artifacts
+code_review.md
+design_plan.md
+
+# Python caches
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+
+# Editor & IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.swn
+*.un~
+*~
+
+# macOS metadata
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
