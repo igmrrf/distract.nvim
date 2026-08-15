@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Git pre-commit hook for distract.nvim
+set -e
+
+echo "🔍 Running pre-commit validation..."
+
+# 1. Check Rust Engine formatting & tests if Rust files changed
+if git diff --cached --name-only | grep -E '^engine/' > /dev/null; then
+    echo "🦀 Testing Rust engine (cargo test)..."
+    cargo test --manifest-path engine/Cargo.toml --quiet
+    echo "  ✓ Rust tests passed"
+fi
+
+# 2. Check Lua plugin tests if Lua files changed
+if git diff --cached --name-only | grep -E '^(lua/|plugin/|tests/)' > /dev/null; then
+    echo "🌙 Running Neovim Lua test suite..."
+    nvim --headless -u NONE \
+        -c "set rtp+=." \
+        -c "runtime plugin/distract.lua" \
+        -c "luafile tests/run_tests.lua" \
+        -c "q" > /dev/null 2>&1
+    echo "  ✓ Lua tests passed"
+fi
+
+echo "✅ All pre-commit checks passed!"
+exit 0

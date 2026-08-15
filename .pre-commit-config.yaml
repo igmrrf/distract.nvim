@@ -1,0 +1,45 @@
+# Pre-commit configuration for distract.nvim
+# See https://pre-commit.com for more information
+
+default_stages: [pre-commit]
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ['--maxkb=2000']
+      - id: check-merge-conflict
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: Rust Format Check
+        entry: cargo fmt --manifest-path engine/Cargo.toml -- --check
+        language: system
+        files: ^engine/.*\.rs$
+        pass_filenames: false
+
+      - id: cargo-check
+        name: Rust Engine Check
+        entry: cargo check --manifest-path engine/Cargo.toml
+        language: system
+        files: ^engine/.*
+        pass_filenames: false
+
+      - id: cargo-test
+        name: Rust Engine Unit Tests
+        entry: cargo test --manifest-path engine/Cargo.toml
+        language: system
+        files: ^engine/.*
+        pass_filenames: false
+
+      - id: lua-tests
+        name: Neovim Lua Test Suite
+        entry: nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/run_tests.lua" -c "q"
+        language: system
+        files: ^(lua/|plugin/|tests/).*\.lua$
+        pass_filenames: false

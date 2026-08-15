@@ -65,7 +65,7 @@ function M.start()
       end
     end,
     on_exit = function(_, code)
-      local was_clean = is_shutting_down or code == 0
+      local was_clean = is_shutting_down or code == 0 or code == 143 or code == -1
       job_id = nil
       is_shutting_down = false
       if not was_clean then
@@ -160,8 +160,8 @@ function M.spawn(entity_name, opts)
     entity_type = entity_name,
     path = abs_path,
     manifest = manifest_payload,
-    x = opts.x or (vim.o.columns / 2 * 10),
-    y = opts.y or (vim.o.lines / 2 * 20),
+    x = opts.x,
+    y = opts.y,
     flip_x = opts.flip_x or false,
   }
 
@@ -228,16 +228,19 @@ end
 function M.stop()
   if M.is_running() then
     is_shutting_down = true
-    M.send_command({ command = "Shutdown" })
-
-    -- Give the process up to 300ms to shut down cleanly before jobstop
     local current_job = job_id
-    vim.defer_fn(function()
-      if job_id == current_job then
-        vim.fn.jobstop(current_job)
-        job_id = nil
-      end
-    end, 300)
+    pcall(function()
+      local encoded = vim.fn.json_encode({ command = "Shutdown" })
+      vim.fn.chansend(current_job, encoded .. "\n")
+    end)
+
+    -- Wait up to 100ms synchronously for clean process termination
+    local res = vim.fn.jobwait({ current_job }, 100)
+    if res and res[1] == -1 then
+      pcall(vim.fn.jobstop, current_job)
+    end
+    job_id = nil
+    is_shutting_down = false
   end
 end
 
