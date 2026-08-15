@@ -1,21 +1,30 @@
 # distract.nvim 🐾✨
 
-A high-performance, data-driven graphical rendering engine for **Neovim** (and terminal environments) capable of rendering smooth, animated entities and environmental concepts with custom capabilities and state machines.
+A high-performance, data-driven rendering engine for **Neovim** and terminal environments capable of rendering smooth, animated entities and environmental concepts with custom capabilities and state machines.
 
 ---
 
-## 🌟 Features
+## 🌟 Features & Multi-Backend Architecture
 
-- 🏎️ **Fixed 60 FPS Delta-Time Game Loop**: Battery-friendly, VSync-aligned frame rendering via Rust (`winit` + `pixels`).
-- 🎨 **Data-Driven Asset Manifests**: Define custom entities (e.g. Cats, Crabs, Celestial Suns, Weather) with declarative JSON / Lua schemas.
-- 🎭 **Custom Entity Capabilities & Actions**:
-  - **Cat**: Walk, sprint on typing, jump (with parabolic gravity physics), yawn, sleep, sit, wake.
-  - **Crab**: Sideways scuttle, snap pincers / clip claws, burrow into sand, sleep.
-  - **Sun**: Shining with pulsing corona, arc pathing, solar flares, sunrise/sunset, solar eclipses.
-- ⚡ **Bi-directional JSON-RPC IPC**: Instant communication between Neovim and the Rust background engine.
-- 🛡️ **Autocmd Event Throttling**: Debounced and throttled editor event emission (`TextChanged`, `CursorMoved`, `WinScrolled`, `VimResized`).
-- 🖼️ **Porter-Duff Alpha Compositing**: Correct multi-layer sprite transparency blending.
-- 🖥️ **Cross-Platform**: Designed for macOS, Linux (X11 / Wayland), and Windows.
+`distract.nvim` offers multiple rendering backends to suit your terminal environment:
+
+1. 🎨 **`halfblock` (In-Terminal Truecolor - Default)**:
+   - Renders rich 24-bit RGB pixel-art sprites directly inside Neovim using Unicode half-blocks (`▀` / `▄`) and native floating windows.
+   - **Zero OS window overlays**, 100% transparent background, works in any terminal emulator (Ghostty, WezTerm, Kitty, Alacritty, iTerm2, tmux, SSH).
+2. ⚡ **`kitty` (Ghostty & Kitty Graphics Protocol)**:
+   - In-band GPU image streaming supported natively by Ghostty, Kitty, and WezTerm.
+3. 📝 **`float` (ASCII / Minimal Unicode)**:
+   - Lightweight ASCII floating windows for low-spec or headless sessions.
+4. 🖥️ **`overlay` (Hardware-Accelerated GPU Window)**:
+   - Transparent, borderless WGPU desktop window overlay with 60 FPS Porter-Duff compositing.
+
+---
+
+## 🎭 Custom Entity Capabilities & Actions
+
+- **Cat**: Walk, sprint on typing, jump (with parabolic gravity physics & floor collision), yawn, sleep with Zzz, sit, wake.
+- **Crab**: Sideways scuttle, snap pincers / clip claws, burrow into editor code, sleep.
+- **Sun**: Shining with pulsing corona, sine pathing, solar flares, sunrise/sunset, solar eclipses.
 
 ---
 
@@ -26,9 +35,9 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 ```lua
 {
   "igmrrf/distract.nvim",
-  build = "cargo build --release --manifest-path engine/Cargo.toml",
   config = function()
     require("distract").setup({
+      backend = "halfblock",  -- "halfblock" (in-terminal Truecolor), "kitty", "float", or "overlay"
       idle_timeout_ms = 5000, -- Time before pets fall asleep
       debounce_ms = 50,       -- Keystroke event debounce
     })
@@ -42,11 +51,12 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 | Command | Description | Completion / Options |
 |---|---|---|
-| `:DistractStart` | Start the background render engine | |
-| `:DistractStop` | Stop the background render engine | |
+| `:DistractStart` | Start the active render engine | |
+| `:DistractStop` | Stop the render engine | |
 | `:DistractToggle` | Toggle the engine on / off | |
+| `:DistractBackend [name]` | View or switch active rendering backend | `halfblock`, `kitty`, `float`, `overlay` |
 | `:DistractSpawn [asset]` | Spawn an entity onto the screen | `cat`, `crab`, `sun`, or custom |
-| `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
+| `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `burrow`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
 | `:DistractClear` | Clear all active entities from the screen | |
 | `:DistractStatus` | Print active entities, states, and coordinates | |
 
@@ -54,21 +64,15 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 
 ## 🐾 Defining Custom Assets
 
-Assets are fully data-driven. You can provide your own spritesheets and define animations, physics, and state transitions in your Neovim configuration:
+Assets are fully data-driven. You can define custom animations, physics, and state transitions in your Neovim configuration:
 
 ```lua
 require("distract").setup({
+  backend = "halfblock",
   assets = {
     my_pet = {
       name = "my_pet",
       asset_type = "sprite",
-      spritesheet = {
-        path = vim.fn.expand("~/.config/nvim/assets/my_pet.png"),
-        frame_width = 32,
-        frame_height = 32,
-        columns = 4,
-        rows = 2,
-      },
       initial_state = "idle",
       states = {
         idle = {
@@ -82,7 +86,7 @@ require("distract").setup({
         },
         walk = {
           animation = { frames = { 2, 3 }, fps = 6.0, loop_anim = true },
-          physics = { target_vx = 1.5, wrap_mode = "wrap" },
+          physics = { target_vx = 1.5, wrap_mode = "bounce" },
         },
         run = {
           animation = { frames = { 2, 3 }, fps = 12.0, loop_anim = true },
@@ -95,8 +99,8 @@ require("distract").setup({
         },
       },
       custom_actions = {
-        pet = { target_state = "idle" },
         sleep = { target_state = "sleep" },
+        wake = { target_state = "idle" },
       },
     },
   },
@@ -107,36 +111,17 @@ require("distract").setup({
 
 ## 🧪 Testing
 
-Run the full Rust engine unit tests (25 tests):
+Run the full Rust engine unit tests (29 tests):
 ```bash
 cargo test --manifest-path engine/Cargo.toml
 ```
 
-Run the consolidated Neovim Lua test suite (30 assertions):
+Run the consolidated Neovim Lua test suite (31 tests):
 ```bash
-nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/run_tests.lua" -c "q"
-```
-
-Or run any individual section/file test spec:
-```bash
-# Core Module (init.lua)
-nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/init_spec.lua" -c "q"
-
-# External IPC & JSON-RPC (external.lua)
-nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/external_spec.lua" -c "q"
-
-# Autocmd Event Emitter & Debouncing (events.lua)
-nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/events_spec.lua" -c "q"
-
-# Asset Manifests (cat, crab, sun)
-nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/manifests_spec.lua" -c "q"
-
-# User Commands & Completions (plugin/distract.lua)
-nvim --headless -u NONE -c "set rtp+=." -c "runtime plugin/distract.lua" -c "luafile tests/plugin_commands_spec.lua" -c "q"
+nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
 ```
 
 ---
 
 ## 📄 License
 MIT
-

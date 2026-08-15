@@ -7,11 +7,30 @@ local distract = require("distract")
 
 vim.api.nvim_create_user_command("DistractStart", function()
   distract.start()
-end, { desc = "Start Distract graphical render engine" })
+end, { desc = "Start Distract render engine" })
 
 vim.api.nvim_create_user_command("DistractStop", function()
   distract.stop()
-end, { desc = "Stop Distract graphical render engine" })
+end, { desc = "Stop Distract render engine" })
+
+vim.api.nvim_create_user_command("DistractBackend", function(opts)
+  local backend = vim.trim(opts.args or "")
+  if backend == "" then
+    vim.notify(string.format("[Distract] Current backend: '%s' (available: halfblock, kitty, float, overlay)", distract.get_backend()), vim.log.levels.INFO)
+  else
+    distract.set_backend(backend)
+  end
+end, {
+  nargs = "?",
+  desc = "View or switch Distract rendering backend (e.g. halfblock, kitty, float, overlay)",
+  complete = function(_, line)
+    local parts = vim.split(line, "%s+")
+    if #parts <= 2 then
+      return distract.get_available_backends()
+    end
+    return {}
+  end,
+})
 
 vim.api.nvim_create_user_command("DistractSpawn", function(opts)
   local args = vim.split(vim.trim(opts.args), "%s+")
@@ -67,7 +86,8 @@ end, { desc = "Print status report of active entities" })
 
 vim.api.nvim_create_user_command("DistractToggle", function()
   local ext = require("distract.external")
-  if ext.is_running() then
+  local eng = require("distract.engine")
+  if ext.is_running() or eng.is_running() then
     distract.stop()
   else
     distract.start()

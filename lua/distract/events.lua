@@ -1,5 +1,6 @@
 local M = {}
 local external = require("distract.external")
+local engine = require("distract.engine")
 
 local group = vim.api.nvim_create_augroup("DistractEvents", { clear = true })
 local idle_timer = (vim.uv or vim.loop).new_timer()
@@ -8,10 +9,20 @@ local debounce_timer = (vim.uv or vim.loop).new_timer()
 local config = {
   idle_timeout_ms = 5000,
   debounce_ms = 50,
+  backend = "halfblock",
 }
 
 local current_event = nil
 local is_throttled = false
+
+local function dispatch_event(event_name)
+  if external.is_running() then
+    external.send_event(event_name)
+  end
+  if engine.is_running() then
+    engine.handle_editor_event(event_name)
+  end
+end
 
 function M.emit_debounced(event_name)
   M.reset_idle_timer()
@@ -19,7 +30,7 @@ function M.emit_debounced(event_name)
   if current_event ~= event_name or not is_throttled then
     current_event = event_name
     is_throttled = true
-    external.send_event(event_name)
+    dispatch_event(event_name)
 
     debounce_timer:stop()
     debounce_timer:start(config.debounce_ms, 0, vim.schedule_wrap(function()

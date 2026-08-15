@@ -4,9 +4,28 @@ local default_cat = require("distract.manifests.cat")
 local default_crab = require("distract.manifests.crab")
 local default_sun = require("distract.manifests.sun")
 
+local available_backends = { "halfblock", "kitty", "float", "overlay" }
+
+--- Normalize backend alias to canonical name
+local function normalize_backend(b)
+  if not b then return "halfblock" end
+  b = string.lower(vim.trim(b))
+  if b == "halfblock" or b == "tui" or b == "terminal" or b == "truecolor" then
+    return "halfblock"
+  elseif b == "kitty" or b == "ghostty" or b == "wezterm" then
+    return "kitty"
+  elseif b == "float" or b == "ascii" or b == "lua" or b == "window" then
+    return "float"
+  elseif b == "overlay" or b == "external" or b == "gpu" or b == "wgpu" then
+    return "overlay"
+  else
+    return "halfblock"
+  end
+end
+
 M.config = {
-  backend = "external", -- 'external' (Graphical Engine) or 'lua' (ASCII Floating Windows)
-  fps = 60,
+  backend = "halfblock", -- 'halfblock' (In-terminal Truecolor), 'kitty' (Ghostty Graphics), 'float' (ASCII Window), 'overlay' (GPU Overlay)
+  fps = 30,
   idle_timeout_ms = 5000,
   debounce_ms = 50,
   assets = {
@@ -21,9 +40,12 @@ local is_setup = false
 function M.setup(opts)
   opts = opts or {}
   M.config = vim.tbl_deep_extend("force", M.config, opts)
+  M.config.backend = normalize_backend(M.config.backend)
 
-  if M.config.backend == "external" then
+  if M.config.backend == "overlay" or M.config.backend == "external" then
     require("distract.external").setup(M.config)
+  else
+    require("distract.engine").setup(M.config)
   end
   is_setup = true
 
@@ -34,12 +56,41 @@ function M.setup(opts)
   })
 end
 
+function M.get_backend()
+  return M.config.backend
+end
+
+function M.get_available_backends()
+  return { "halfblock", "kitty", "float", "overlay" }
+end
+
+function M.set_backend(backend_name)
+  local norm = normalize_backend(backend_name)
+  if norm == M.config.backend then
+    vim.notify(string.format("[Distract] Backend is already '%s'", norm), vim.log.levels.INFO)
+    return
+  end
+
+  M.stop()
+  M.config.backend = norm
+  if norm == "overlay" then
+    require("distract.external").setup(M.config)
+  else
+    require("distract.engine").setup(M.config)
+  end
+  vim.notify(string.format("[Distract] Switched backend to '%s'", norm), vim.log.levels.INFO)
+end
+
+function M.is_overlay()
+  return M.config.backend == "overlay" or M.config.backend == "external"
+end
+
 function M.start()
   if not is_setup then
     M.setup()
   end
 
-  if M.config.backend == "external" then
+  if M.is_overlay() then
     require("distract.external").start()
   else
     require("distract.engine").start()
@@ -48,7 +99,7 @@ function M.start()
 end
 
 function M.stop()
-  if M.config.backend == "external" then
+  if M.is_overlay() then
     require("distract.external").stop()
   else
     require("distract.engine").stop()
@@ -62,10 +113,10 @@ function M.spawn(asset_name, opts)
   end
 
   asset_name = asset_name or "cat"
-  if M.config.backend == "external" then
+  if M.is_overlay() then
     require("distract.external").spawn(asset_name, opts)
   else
-    require("distract.engine").spawn(asset_name)
+    require("distract.engine").spawn(asset_name, opts)
   end
 end
 
@@ -74,26 +125,26 @@ function M.action(action_name, target)
     M.setup()
   end
 
-  if M.config.backend == "external" then
+  if M.is_overlay() then
     require("distract.external").trigger_action(action_name, target)
   else
-    vim.notify("Distract: Custom actions require the external graphical backend.", vim.log.levels.WARN)
+    require("distract.engine").trigger_action(action_name, target)
   end
 end
 
 function M.clear()
-  if M.config.backend == "external" then
+  if M.is_overlay() then
     require("distract.external").clear()
   else
-    require("distract.engine").stop()
+    require("distract.engine").clear()
   end
 end
 
 function M.status()
-  if M.config.backend == "external" then
+  if M.is_overlay() then
     require("distract.external").get_status()
   else
-    vim.notify("Distract: ASCII fallback running.", vim.log.levels.INFO)
+    require("distract.engine").get_status()
   end
 end
 
