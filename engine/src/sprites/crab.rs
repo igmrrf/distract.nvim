@@ -103,6 +103,8 @@ pub fn draw(p: &Pose) -> Canvas {
                 ambient: Some(0.46),
                 rim: Some(0.26),
                 specular: Some(0.32),
+                fill: Some(0.14),
+                dither: Some(0.06),
                 ..Default::default()
             },
         );
@@ -116,12 +118,17 @@ pub fn draw(p: &Pose) -> Canvas {
                 ambient: Some(0.46),
                 rim: Some(0.20),
                 specular: Some(0.24),
+                fill: Some(0.12),
                 ..Default::default()
             },
         );
+        // Snap sparkle when pincers close fully
+        if p.clamp > 0.85 {
+            c.spark(reach_x + side * 1.2, base_y, 1.0, [255, 245, 180]);
+        }
     }
 
-    // Shell, with a darker inner carapace band for depth.
+    // Shell, with a darker inner carapace band for depth and rich specular sheen.
     c.orb(
         cx,
         cy,
@@ -131,7 +138,9 @@ pub fn draw(p: &Pose) -> Canvas {
         &OrbOpts {
             ambient: Some(0.34),
             rim: Some(0.30),
-            specular: Some(0.34),
+            specular: Some(0.40),
+            fill: Some(0.15),
+            dither: Some(0.08),
             ..Default::default()
         },
     );
@@ -143,20 +152,19 @@ pub fn draw(p: &Pose) -> Canvas {
         SHELL_DARK,
         &OrbOpts {
             ambient: Some(0.42),
-            rim: Some(0.12),
-            specular: Some(0.16),
+            rim: Some(0.14),
+            specular: Some(0.22),
+            fill: Some(0.10),
             ..Default::default()
         },
     );
 
-    // Eyestalks rise out of the shell and carry the eyes.
+    // Eyestalks rise out of the shell and carry the eyes with catchlight highlights.
     for side in [-1.0f32, 1.0] {
         let sx = cx + side * 2.1;
         let top = cy - shell_ry - 1.0 - p.stalk * 2.0;
         c.limb(sx, cy - shell_ry * 0.6, sx, top + 0.6, 0.85, SHELL);
         if p.eye > 0.3 {
-            // A single-pixel pupil: at this size a wider one swallows the white
-            // and the eyestalk stops reading as an eye.
             c.orb(
                 sx,
                 top,
@@ -171,6 +179,7 @@ pub fn draw(p: &Pose) -> Canvas {
                 },
             );
             c.set(sx, top, EYE_DARK);
+            c.set(sx - 0.4, top - 0.4, [255, 255, 255]);
         } else {
             c.line(sx - 1.0, top, sx + 1.0, top, g::shade(SHELL_DARK, -0.25));
         }

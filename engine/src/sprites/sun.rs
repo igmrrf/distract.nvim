@@ -108,7 +108,7 @@ pub fn draw(p: &Pose) -> Canvas {
         }
     }
 
-    // The disc itself: lit head-on so the falloff is radial, giving a sphere.
+    // The disc itself: lit head-on so the falloff is radial, giving a smooth vector sphere.
     c.orb(
         cx,
         cy,
@@ -121,10 +121,11 @@ pub fn draw(p: &Pose) -> Canvas {
             rim: Some(0.55),
             rim_color: Some(LIMB),
             specular: Some(0.0),
+            dither: Some(0.06),
             ..Default::default()
         },
     );
-    // Hot core.
+    // Hot radiant core.
     c.orb(
         cx,
         cy,
@@ -159,6 +160,15 @@ pub fn draw(p: &Pose) -> Canvas {
                 ..Default::default()
             },
         );
+        // Diamond-ring sparkle at totality
+        if p.occlude > 0.82 {
+            c.spark(
+                cx + p.radius * 0.75,
+                cy - p.radius * 0.75,
+                2.0,
+                [255, 255, 240],
+            );
+        }
     }
 
     // Horizon band for sunrise and sunset.

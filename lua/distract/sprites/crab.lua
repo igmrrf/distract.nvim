@@ -76,7 +76,7 @@ local function draw(pose)
       2.2,
       1.5,
       CLAW,
-      { ambient = 0.46, rim = 0.26, specular = 0.32 }
+      { ambient = 0.46, rim = 0.26, specular = 0.32, fill = 0.14, dither = 0.06 }
     )
     g.orb(
       c,
@@ -85,14 +85,26 @@ local function draw(pose)
       2.2,
       1.5,
       g.shade(CLAW, -0.16),
-      { ambient = 0.46, rim = 0.20, specular = 0.24 }
+      { ambient = 0.46, rim = 0.20, specular = 0.24, fill = 0.12 }
     )
+    -- Snap sparkle when pincers close fully
+    if clamp > 0.85 then
+      g.spark(c, reach_x + side * 1.2, base_y, 1, { 255, 245, 180 })
+    end
   end
   claw_at(-1)
   claw_at(1)
 
-  -- Shell, with a darker inner carapace band for depth.
-  g.orb(c, cx, cy, shell_rx, shell_ry, SHELL, { ambient = 0.34, rim = 0.30, specular = 0.34 })
+  -- Shell, with a darker inner carapace band for depth and rich specular sheen.
+  g.orb(
+    c,
+    cx,
+    cy,
+    shell_rx,
+    shell_ry,
+    SHELL,
+    { ambient = 0.34, rim = 0.30, specular = 0.40, fill = 0.15, dither = 0.08 }
+  )
   g.orb(
     c,
     cx,
@@ -100,19 +112,18 @@ local function draw(pose)
     shell_rx * 0.66,
     shell_ry * 0.52,
     SHELL_DARK,
-    { ambient = 0.42, rim = 0.12, specular = 0.16 }
+    { ambient = 0.42, rim = 0.14, specular = 0.22, fill = 0.10 }
   )
 
-  -- Eyestalks rise out of the shell and carry the eyes.
+  -- Eyestalks rise out of the shell and carry the eyes with catchlight highlights.
   local function eyestalk(side)
     local sx = cx + side * 2.1
     local top = cy - shell_ry - 1.0 - stalk * 2.0
     g.limb(c, sx, cy - shell_ry * 0.6, sx, top + 0.6, 0.85, SHELL)
     if eye > 0.3 then
-      -- A single-pixel pupil: at this size a wider one swallows the white and
-      -- the eyestalk stops reading as an eye.
       g.orb(c, sx, top, 1.4, 1.4, EYE_WHITE, { ambient = 0.62, rim = 0.30, specular = 0.42 })
       g.set(c, sx, top, EYE_DARK)
+      g.set(c, sx - 0.4, top - 0.4, { 255, 255, 255 })
     else
       g.line(c, sx - 1, top, sx + 1, top, g.shade(SHELL_DARK, -0.25))
     end

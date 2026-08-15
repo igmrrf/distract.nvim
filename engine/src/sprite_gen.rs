@@ -139,18 +139,24 @@ impl Canvas {
     }
 
     // =====================================================================
-    // Volumetric shading
+    // Volumetric Shading & Vector Primitives
     // =====================================================================
 
-    /// Shaded ellipse, lit as a hemisphere. This is what makes a sprite read as
-    /// a rounded volume instead of a flat blob.
+    /// Shaded ellipse, lit as a hemisphere with multi-point lighting.
     pub fn orb(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, base: Rgb, opts: &OrbOpts) {
         let light = normalize(opts.light.unwrap_or(DEFAULT_LIGHT));
+        let fill_dir = normalize(
+            opts.fill_dir
+                .unwrap_or([-light[0] * 0.7, 0.8, -light[2] * 0.5]),
+        );
         let ambient = opts.ambient.unwrap_or(0.34);
         let rim_strength = opts.rim.unwrap_or(0.30);
         let rim_color = opts.rim_color.unwrap_or([220, 235, 255]);
+        let fill_strength = opts.fill.unwrap_or(0.15);
+        let fill_color = opts.fill_color.unwrap_or([255, 230, 200]);
         let spec_strength = opts.specular.unwrap_or(0.45);
         let shininess = opts.shininess.unwrap_or(12.0);
+        let dither_strength = opts.dither.unwrap_or(0.0);
         let flatten = opts.flatten.unwrap_or(0.0);
 
         let (rx, ry) = (rx.max(0.5), ry.max(0.5));
@@ -164,23 +170,29 @@ impl Canvas {
                     continue;
                 }
 
-                // Treat the disc as the silhouette of a hemisphere facing the
-                // viewer. The normal is (nx, ny, nz) in screen space, where +y
-                // points down, and `light` points from the surface toward the
-                // light source, so the Lambert term is a plain dot product.
                 let nz = (1.0 - r2).max(0.0).sqrt();
                 let diffuse = (nx * light[0] + ny * light[1] + nz * light[2]).max(0.0);
+                let fill_diffuse =
+                    (nx * fill_dir[0] + ny * fill_dir[1] + nz * fill_dir[2]).max(0.0);
 
-                let level = ambient + (1.0 - ambient) * diffuse;
+                let mut level = ambient + (1.0 - ambient) * diffuse;
+                if dither_strength > 0.0 {
+                    level += dither(cx + dx as f32, cy + dy as f32, dither_strength);
+                }
                 let mut color = shade(base, (level - 1.0) * 0.85);
 
-                // Rim light: strongest where the surface turns away from the viewer.
+                // Warm bounce fill light
+                if fill_strength > 0.0 {
+                    color = mix(color, fill_color, fill_diffuse * fill_strength);
+                }
+
+                // Rim light: strongest where the surface turns away from the viewer
                 if rim_strength > 0.0 {
                     let rim = (1.0 - nz).powi(3);
                     color = mix(color, rim_color, rim * rim_strength);
                 }
 
-                // Specular: a tight highlight where the surface points at the light.
+                // Specular: a tight highlight where the surface points at the light
                 if spec_strength > 0.0 {
                     let spec = diffuse.powf(shininess);
                     color = mix(color, [255, 255, 255], spec * spec_strength);
@@ -200,7 +212,7 @@ impl Canvas {
         self.limb_with(x0, y0, x1, y1, radius, base, &LimbOpts::default())
     }
 
-    #[allow(clippy::too_many_arguments)] // two endpoints, a radius, a colour and options
+    #[allow(clippy::too_many_arguments)]
     pub fn limb_with(
         &mut self,
         x0: f32,
@@ -217,19 +229,75 @@ impl Canvas {
             light: opts.light,
             ambient: Some(opts.ambient.unwrap_or(0.42)),
             rim: Some(opts.rim.unwrap_or(0.16)),
+            fill: Some(opts.fill.unwrap_or(0.10)),
             specular: Some(opts.specular.unwrap_or(0.12)),
             shininess: Some(opts.shininess.unwrap_or(8.0)),
+            dither: opts.dither,
             ..Default::default()
         };
         for i in 0..=steps {
             let t = i as f32 / steps as f32;
             let x = x0 + (x1 - x0) * t;
             let y = y0 + (y1 - y0) * t;
-            // Taper slightly toward the far end so limbs do not read as pipes.
             let r = radius * (1.0 - 0.25 * t);
             self.orb(x, y, r, r, base, &orb_opts);
         }
     }
+
+    /// 4-pointed micro sparkle / specular star.
+    pub fn spark(&mut self, cx: f32, cy: f32, radius: f32, color: Rgb) {
+        let (cx, cy) = (cx.floor() as i32, cy.floor() as i32);
+        let r = radius.floor() as i32;
+        self.set(cx as f32, cy as f32, color);
+        for d in 1..=r {
+            let fade = shade(color, -0.3 * d as f32);
+            self.set((cx + d) as f32, cy as f32, fade);
+            self.set((cx - d) as f32, cy as f32, fade);
+            self.set(cx as f32, (cy + d) as f32, fade);
+            self.set(cx as f32, (cy - d) as f32, fade);
+        }
+    }
+
+    /// Anti-aliased curved arc for coronal loops and facial curves.
+    #[allow(clippy::too_many_arguments)]
+    pub fn arc(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        rx: f32,
+        ry: f32,
+        start_angle: f32,
+        end_angle: f32,
+        color: Rgb,
+        steps: Option<u32>,
+    ) {
+        let steps = steps.unwrap_or(16);
+        let d_theta = (end_angle - start_angle) / steps as f32;
+        for i in 0..steps {
+            let a0 = start_angle + i as f32 * d_theta;
+            let a1 = start_angle + (i + 1) as f32 * d_theta;
+            let x0 = cx + a0.cos() * rx;
+            let y0 = cy + a0.sin() * ry;
+            let x1 = cx + a1.cos() * rx;
+            let y1 = cy + a1.sin() * ry;
+            self.line(x0, y0, x1, y1, color);
+        }
+    }
+}
+
+/// Bayer 4x4 ordered dithering matrix normalised to -0.5 .. 0.5.
+const BAYER_4X4: [[f32; 4]; 4] = [
+    [-0.46875, 0.03125, -0.34375, 0.15625],
+    [0.28125, -0.21875, 0.40625, -0.09375],
+    [-0.28125, 0.21875, -0.40625, 0.09375],
+    [0.46875, -0.03125, 0.34375, -0.15625],
+];
+
+/// Retrieves the Bayer dither offset for coordinate (x, y).
+pub fn dither(x: f32, y: f32, strength: f32) -> f32 {
+    let xi = (x.floor() as i32).rem_euclid(4) as usize;
+    let yi = (y.floor() as i32).rem_euclid(4) as usize;
+    BAYER_4X4[yi][xi] * strength
 }
 
 /// Options for [`Canvas::orb`]. Every field falls back to the documented
@@ -238,16 +306,24 @@ impl Canvas {
 pub struct OrbOpts {
     /// Direction the light comes from (default [`DEFAULT_LIGHT`]).
     pub light: Option<[f32; 3]>,
+    /// Direction the fill bounce light comes from.
+    pub fill_dir: Option<[f32; 3]>,
     /// Floor brightness in shadow, 0..1 (default 0.34).
     pub ambient: Option<f32>,
     /// Strength of the grazing-angle rim light, 0..1 (default 0.30).
     pub rim: Option<f32>,
     /// Colour of the rim light (default a cool white).
     pub rim_color: Option<Rgb>,
+    /// Strength of warm bounce fill light, 0..1 (default 0.15).
+    pub fill: Option<f32>,
+    /// Colour of the fill light.
+    pub fill_color: Option<Rgb>,
     /// Strength of the highlight, 0..1 (default 0.45).
     pub specular: Option<f32>,
     /// Specular exponent; higher is tighter (default 12).
     pub shininess: Option<f32>,
+    /// Dithering strength (default 0.0).
+    pub dither: Option<f32>,
     /// 0..1, blends the shading back toward flat (default 0).
     pub flatten: Option<f32>,
 }
@@ -257,8 +333,10 @@ pub struct LimbOpts {
     pub light: Option<[f32; 3]>,
     pub ambient: Option<f32>,
     pub rim: Option<f32>,
+    pub fill: Option<f32>,
     pub specular: Option<f32>,
     pub shininess: Option<f32>,
+    pub dither: Option<f32>,
 }
 
 // =========================================================================

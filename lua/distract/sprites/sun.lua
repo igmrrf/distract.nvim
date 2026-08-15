@@ -81,15 +81,16 @@ local function draw(pose)
     end
   end
 
-  -- The disc itself: lit head-on so the falloff is radial, giving a sphere.
+  -- The disc itself: lit head-on so the falloff is radial, giving a smooth vector sphere.
   g.orb(c, cx, cy, radius, radius, SURFACE, {
     light = { 0, 0, 1 },
     ambient = 0.30 + flare * 0.35,
     rim = 0.55,
     rim_color = LIMB,
     specular = 0.0,
+    dither = 0.06,
   })
-  -- Hot core.
+  -- Hot radiant core.
   g.orb(c, cx, cy, radius * 0.55, radius * 0.55, g.shade(CORE, flare * 0.35), {
     light = { 0, 0, 1 },
     ambient = 0.62,
@@ -108,6 +109,10 @@ local function draw(pose)
       rim_color = CORONA,
       specular = 0.0,
     })
+    -- Diamond-ring sparkle at totality
+    if occlude > 0.82 then
+      g.spark(c, cx + radius * 0.75, cy - radius * 0.75, 2, { 255, 255, 240 })
+    end
   end
 
   -- Horizon band for sunrise and sunset.

@@ -158,7 +158,7 @@ function M.line(c, x0, y0, x1, y1, color)
 end
 
 -- =========================================================================
--- Volumetric shading
+-- Volumetric Shading & Vector Primitives
 -- =========================================================================
 
 local function normalize(v)
@@ -169,25 +169,47 @@ local function normalize(v)
   return { v[1] / len, v[2] / len, v[3] / len }
 end
 
---- Shaded ellipse, lit as a hemisphere. This is what makes a sprite read as a
---- rounded volume instead of a flat blob.
+--- Bayer 4x4 ordered dithering matrix normalised to -0.5 .. 0.5.
+local BAYER_4X4 = {
+  { -0.46875, 0.03125, -0.34375, 0.15625 },
+  { 0.28125, -0.21875, 0.40625, -0.09375 },
+  { -0.28125, 0.21875, -0.40625, 0.09375 },
+  { 0.46875, -0.03125, 0.34375, -0.15625 },
+}
+
+--- Retrieves the Bayer dither offset for integer screen coordinate (x, y).
+function M.dither(x, y, strength)
+  strength = strength or 0.12
+  local xi = (floor(x) % 4) + 1
+  local yi = (floor(y) % 4) + 1
+  return BAYER_4X4[yi][xi] * strength
+end
+
+--- Shaded ellipse, lit as a hemisphere with multi-point lighting.
 ---
 --- opts:
----   light     {x, y, z} direction the light comes from (default DEFAULT_LIGHT)
----   ambient   floor brightness in shadow, 0..1 (default 0.34)
----   rim       strength of the grazing-angle rim light, 0..1 (default 0.30)
----   rim_color colour of the rim light (default a cool white)
----   specular  strength of the highlight, 0..1 (default 0.45)
----   shininess specular exponent; higher is tighter (default 12)
----   flatten   0..1, blends the shading back toward flat (default 0)
+---   light        {x, y, z} direction the key light comes from (default DEFAULT_LIGHT)
+---   ambient      floor brightness in shadow, 0..1 (default 0.34)
+---   rim          strength of the grazing-angle rim light, 0..1 (default 0.30)
+---   rim_color    colour of the rim light (default a cool white)
+---   fill         strength of warm bounce fill light, 0..1 (default 0.15)
+---   fill_color   colour of fill light (default { 255, 230, 200 })
+---   specular     strength of the highlight, 0..1 (default 0.45)
+---   shininess    specular exponent; higher is tighter (default 12)
+---   dither       subtle Bayer ordered dithering strength (default 0)
+---   flatten      0..1, blends the shading back toward flat (default 0)
 function M.orb(c, cx, cy, rx, ry, base, opts)
   opts = opts or {}
   local light = normalize(opts.light or M.DEFAULT_LIGHT)
+  local fill_dir = normalize(opts.fill_dir or { -light[1] * 0.7, 0.8, -light[3] * 0.5 })
   local ambient = opts.ambient or 0.34
   local rim_strength = opts.rim or 0.30
   local rim_color = opts.rim_color or { 220, 235, 255 }
+  local fill_strength = opts.fill or 0.15
+  local fill_color = opts.fill_color or { 255, 230, 200 }
   local spec_strength = opts.specular or 0.45
   local shininess = opts.shininess or 12
+  local dither_strength = opts.dither or 0
   local flatten = opts.flatten or 0
 
   rx, ry = max(rx, 0.5), max(ry, 0.5)
@@ -197,23 +219,28 @@ function M.orb(c, cx, cy, rx, ry, base, opts)
       local nx, ny = dx / rx, dy / ry
       local r2 = nx * nx + ny * ny
       if r2 <= 1.0 then
-        -- Treat the disc as the silhouette of a hemisphere facing the viewer.
-        -- The normal is (nx, ny, nz) in screen space, where +y points down, and
-        -- `light` points from the surface toward the light source, so the
-        -- Lambert term is a plain dot product of the two.
         local nz = sqrt(max(0, 1 - r2))
         local diffuse = max(0, nx * light[1] + ny * light[2] + nz * light[3])
+        local fill_diffuse = max(0, nx * fill_dir[1] + ny * fill_dir[2] + nz * fill_dir[3])
 
         local level = ambient + (1 - ambient) * diffuse
+        if dither_strength > 0 then
+          level = level + M.dither(cx + dx, cy + dy, dither_strength)
+        end
         local color = M.shade(base, (level - 1) * 0.85)
 
-        -- Rim light: strongest where the surface turns away from the viewer.
+        -- Warm bounce fill light
+        if fill_strength > 0 then
+          color = M.mix(color, fill_color, fill_diffuse * fill_strength)
+        end
+
+        -- Cool Rim light: strongest where the surface turns away from viewer
         if rim_strength > 0 then
           local rim = (1 - nz) ^ 3
           color = M.mix(color, rim_color, rim * rim_strength)
         end
 
-        -- Specular: a tight highlight where the surface points at the light.
+        -- Specular: tight highlight where surface reflects key light
         if spec_strength > 0 then
           local spec = diffuse ^ shininess
           color = M.mix(color, { 255, 255, 255 }, spec * spec_strength)
@@ -229,7 +256,7 @@ function M.orb(c, cx, cy, rx, ry, base, opts)
   end
 end
 
---- Shaded capsule along a horizontal axis; used for limbs and tails.
+--- Shaded capsule along an axis; used for limbs, antennae, and tails.
 function M.limb(c, x0, y0, x1, y1, radius, base, opts)
   opts = opts or {}
   local steps = max(1, floor(sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2) * 2))
@@ -237,15 +264,46 @@ function M.limb(c, x0, y0, x1, y1, radius, base, opts)
     local t = i / steps
     local x = x0 + (x1 - x0) * t
     local y = y0 + (y1 - y0) * t
-    -- Taper slightly toward the far end so limbs do not read as pipes.
     local r = radius * (1 - 0.25 * t)
     M.orb(c, x, y, r, r, base, {
       light = opts.light,
       ambient = opts.ambient or 0.42,
       rim = opts.rim or 0.16,
+      fill = opts.fill or 0.10,
       specular = opts.specular or 0.12,
       shininess = opts.shininess or 8,
+      dither = opts.dither or 0,
     })
+  end
+end
+
+--- 4-pointed micro sparkle / specular star.
+function M.spark(c, cx, cy, radius, color)
+  cx, cy = floor(cx), floor(cy)
+  color = color or { 255, 255, 255 }
+  local r = floor(radius or 2)
+  M.set(c, cx, cy, color)
+  for d = 1, r do
+    local fade = M.shade(color, -0.3 * d)
+    M.set(c, cx + d, cy, fade)
+    M.set(c, cx - d, cy, fade)
+    M.set(c, cx, cy + d, fade)
+    M.set(c, cx, cy - d, fade)
+  end
+end
+
+--- Anti-aliased curved arc for coronal loops and facial features.
+function M.arc(c, cx, cy, rx, ry, start_angle, end_angle, color, steps)
+  steps = steps or 16
+  local d_theta = (end_angle - start_angle) / steps
+  for i = 0, steps - 1 do
+    local a0 = start_angle + i * d_theta
+    local a1 = start_angle + (i + 1) * d_theta
+    local x0 = cx + math.cos(a0) * rx
+    local y0 = cy + math.sin(a0) * ry
+    local x1 = cx + math.cos(a1) * rx
+    local y1 = cy + math.sin(a1) * ry
+    M.line(c, x0, y0, x1, y1, color)
   end
 end
 

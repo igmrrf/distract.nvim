@@ -178,6 +178,9 @@ pub fn draw(p: &Pose) -> Canvas {
                     g::shade(FUR_DARK, -0.18 + row as f32 * 0.14),
                 );
             }
+            if row == 2 {
+                c.set(ex, head_cy - head_r - 1.1 + row as f32, NOSE);
+            }
         }
     }
 
@@ -190,6 +193,8 @@ pub fn draw(p: &Pose) -> Canvas {
         &OrbOpts {
             ambient: Some(0.38),
             rim: Some(0.30),
+            fill: Some(0.16),
+            dither: Some(0.08),
             ..Default::default()
         },
     );
@@ -204,16 +209,19 @@ pub fn draw(p: &Pose) -> Canvas {
             ambient: Some(0.56),
             rim: Some(0.14),
             specular: Some(0.20),
+            fill: Some(0.12),
             ..Default::default()
         },
     );
 
-    // Eyes: mostly dark with a small bright catchlight. Filling the eye with the
-    // lit colour instead reads as a pair of goggles at this size.
+    // Eyes: animated with catchlight and pupil
     for ex in [head_cx - 1.1, head_cx + 1.7] {
         if p.eye > 0.25 {
             c.set(ex, head_cy - 0.5, EYE);
             c.set(ex, head_cy - 1.5, if p.eye > 0.7 { EYE_LIT } else { EYE });
+            if p.eye > 0.7 {
+                c.set(ex + 0.5, head_cy - 1.5, [255, 255, 255]);
+            }
         } else {
             c.line(
                 ex - 1.0,
@@ -227,6 +235,26 @@ pub fn draw(p: &Pose) -> Canvas {
 
     // Nose, and a mouth that opens for the yawn.
     c.set(head_cx + 1.1, head_cy + 0.7, NOSE);
+
+    // Whiskers: delicate vector whiskers extending from muzzle
+    if p.curl < 0.6 {
+        let wcolor = g::shade(BELLY, 0.15);
+        c.line(
+            head_cx + 2.2,
+            head_cy + 0.9,
+            head_cx + 4.6,
+            head_cy + 0.4,
+            wcolor,
+        );
+        c.line(
+            head_cx + 2.2,
+            head_cy + 1.5,
+            head_cx + 4.6,
+            head_cy + 2.0,
+            wcolor,
+        );
+    }
+
     // Threshold kept low so the mouth shrinks out of existence rather than
     // popping off in one frame.
     if p.mouth > 0.04 {

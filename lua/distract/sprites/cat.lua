@@ -134,12 +134,20 @@ local function draw(pose)
           g.shade(FUR_DARK, -0.18 + row * 0.14)
         )
       end
+      if row == 2 then
+        g.set(c, ex, head_cy - head_r - 1.1 + row, NOSE)
+      end
     end
   end
   ear(head_cx - 1.6, -1)
   ear(head_cx + 1.6, 1)
 
-  g.orb(c, head_cx, head_cy, head_r, head_r * 0.94, FUR, { ambient = 0.38, rim = 0.30 })
+  g.orb(c, head_cx, head_cy, head_r, head_r * 0.94, FUR, {
+    ambient = 0.38,
+    rim = 0.30,
+    fill = 0.16,
+    dither = 0.08,
+  })
   -- Muzzle
   g.orb(
     c,
@@ -148,15 +156,17 @@ local function draw(pose)
     1.7,
     1.1,
     BELLY,
-    { ambient = 0.56, rim = 0.14, specular = 0.20 }
+    { ambient = 0.56, rim = 0.14, specular = 0.20, fill = 0.12 }
   )
 
-  -- Eyes: mostly dark with a small bright catchlight. Filling the eye with the
-  -- lit colour instead reads as a pair of goggles at this size.
+  -- Eyes: animated with catchlight and pupil
   local function eye_at(ex)
     if eye > 0.25 then
       g.set(c, ex, head_cy - 0.5, EYE)
       g.set(c, ex, head_cy - 1.5, eye > 0.7 and EYE_LIT or EYE)
+      if eye > 0.7 then
+        g.set(c, ex + 0.5, head_cy - 1.5, { 255, 255, 255 })
+      end
     else
       g.line(c, ex - 1, head_cy - 0.8, ex + 1, head_cy - 0.8, g.shade(FUR_DARK, -0.40))
     end
@@ -166,6 +176,14 @@ local function draw(pose)
 
   -- Nose, and a mouth that opens for the yawn.
   g.set(c, head_cx + 1.1, head_cy + 0.7, NOSE)
+
+  -- Whiskers: delicate vector whiskers extending from muzzle
+  if curl < 0.6 then
+    local wcolor = g.shade(BELLY, 0.15)
+    g.line(c, head_cx + 2.2, head_cy + 0.9, head_cx + 4.6, head_cy + 0.4, wcolor)
+    g.line(c, head_cx + 2.2, head_cy + 1.5, head_cx + 4.6, head_cy + 2.0, wcolor)
+  end
+
   -- Threshold kept low so the mouth shrinks out of existence rather than
   -- popping off in one frame.
   if mouth > 0.04 then
