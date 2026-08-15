@@ -26,251 +26,115 @@ function M.get_hl_group(fg_rgb, bg_rgb)
 end
 
 -- =========================================================================
--- Procedural Color Palettes
--- =========================================================================
-local O = { 245, 140, 40 }   -- Orange
-local DO = { 200, 100, 20 }  -- Dark Orange
-local W = { 255, 255, 255 }  -- White
-local P = { 255, 160, 180 }  -- Pink
-local K = { 40, 40, 40 }     -- Black / Dark Grey
-local R = { 230, 50, 40 }    -- Red
-local DR = { 180, 30, 25 }   -- Dark Red
-local CL = { 250, 100, 60 }  -- Claw Orange
-local G = { 255, 215, 0 }    -- Gold
-local Y = { 255, 250, 180 }  -- Bright Yellow
-local OG = { 255, 140, 20 }  -- Orange Glow
-local MD = { 20, 20, 30 }    -- Moon Dark
-local CG = { 255, 220, 100 } -- Corona Glow
-local _ = nil                -- Transparent
-
--- =========================================================================
--- Half-Block Pixel-Art Frame Matrices (16 columns x 8 character rows = 16x16 pixels)
+-- Generated sprite registry
 -- =========================================================================
 
--- CAT FRAMES (16x16 pixels -> 8 half-block rows)
-local cat_pixel_frames = {
-  -- Frame 1: Idle
-  {
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, _, _, _, _, _, DO, _, _, DO, _, _ },
-    { _, _, _, _, _, _, _, _, _, O, O, O, O, O, O, _ },
-    { _, _, _, _, _, _, _, _, _, O, K, O, O, K, O, _ },
-    { _, _, _, _, _, _, _, _, _, O, O, P, P, O, O, _ },
-    { _, _, DO, _, O, O, O, O, O, O, O, O, O, O, _, _ },
-    { _, _, DO, _, O, O, O, O, O, O, O, O, O, O, _, _ },
-    { _, _, _, _, W, W, _, _, _, _, W, W, _, _, _, _ },
-  },
-  -- Frame 2: Walk 1
-  {
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, _, _, _, _, _, DO, _, _, DO, _, _ },
-    { _, _, _, _, _, _, _, _, _, O, O, O, O, O, O, _ },
-    { _, _, _, _, _, _, _, _, _, O, K, O, O, K, O, _ },
-    { _, _, _, _, _, _, _, _, _, O, O, P, P, O, O, _ },
-    { _, DO, _, _, O, O, O, O, O, O, O, O, O, O, _, _ },
-    { _, _, DO, _, O, O, O, O, O, O, O, O, O, O, _, _ },
-    { _, W, W, _, _, _, _, _, _, _, _, _, W, W, _, _ },
-  },
-  -- Frame 3: Walk 2
-  {
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, _, _, _, _, _, DO, _, _, DO, _, _ },
-    { _, _, _, _, _, _, _, _, _, O, O, O, O, O, O, _ },
-    { _, _, _, _, _, _, _, _, _, O, K, O, O, K, O, _ },
-    { _, _, _, _, _, _, _, _, _, O, O, P, P, O, O, _ },
-    { _, _, _, DO, O, O, O, O, O, O, O, O, O, O, _, _ },
-    { _, _, DO, _, O, O, O, O, O, O, O, O, O, O, _, _ },
-    { _, _, _, _, _, W, W, _, _, W, W, _, _, _, _, _ },
-  },
-  -- Frame 4: Sleep
-  {
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, _, _, _, _, _, DO, _, DO, _, _, _ },
-    { _, _, _, _, _, _, _, _, _, O, O, O, O, O, _, _ },
-    { _, _, _, _, O, O, O, O, O, O, K, K, K, O, _, _ },
-    { _, DO, DO, O, O, O, O, O, O, O, O, O, O, O, _, _ },
-    { _, _, _, W, W, W, W, W, _, _, _, _, _, _, _, _ },
-  },
+-- Sprites are drawn procedurally by `distract.sprites.*` rather than stored as
+-- hand-authored pixel tables. Each module returns its frames plus a `layout`
+-- mapping state name -> 0-based frame indices, which the matching manifest
+-- references directly so indices cannot drift out of sync with the art.
+local SPRITE_MODULES = {
+  cat = "distract.sprites.cat",
+  crab = "distract.sprites.crab",
+  sun = "distract.sprites.sun",
 }
 
--- CRAB FRAMES
-local crab_pixel_frames = {
-  -- Frame 1: Stand
-  {
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, R, _, _, _, _, R, _, _, _, _, _ },
-    { _, _, _, _, W, K, _, _, _, W, K, _, _, _, _, _ },
-    { _, CL, CL, _, R, R, R, R, R, R, _, CL, CL, _, _, _ },
-    { CL, CL, _, R, R, DR, DR, DR, DR, R, R, _, CL, CL, _ },
-    { _, _, _, R, DR, DR, DR, DR, DR, DR, R, _, _, _, _ },
-    { _, _, DR, _, _, DR, _, _, DR, _, _, DR, _, _, _ },
-    { _, DR, _, _, DR, _, _, _, _, DR, _, _, DR, _, _ },
-  },
-  -- Frame 2: Walk Sideways
-  {
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, R, _, _, _, _, R, _, _, _, _, _ },
-    { _, _, _, _, W, K, _, _, _, W, K, _, _, _, _, _ },
-    { CL, CL, _, _, R, R, R, R, R, R, _, _, CL, CL, _ },
-    { _, CL, CL, R, R, DR, DR, DR, DR, R, R, CL, CL, _, _ },
-    { _, _, _, R, DR, DR, DR, DR, DR, DR, R, _, _, _, _ },
-    { _, DR, _, _, DR, _, _, _, _, DR, _, _, DR, _, _ },
-    { DR, _, _, DR, _, _, _, _, _, _, DR, _, _, DR, _ },
-  },
-  -- Frame 3: Clip Claws Open
-  {
-    { _, CL, _, _, _, _, _, _, _, _, _, _, _, CL, _, _ },
-    { CL, _, _, _, _, R, _, _, _, _, R, _, _, _, CL, _ },
-    { _, _, _, _, W, K, _, _, _, W, K, _, _, _, _, _ },
-    { _, CL, _, _, R, R, R, R, R, R, _, _, CL, _, _, _ },
-    { CL, _, _, R, R, DR, DR, DR, DR, R, R, _, _, CL, _ },
-    { _, _, _, R, DR, DR, DR, DR, DR, DR, R, _, _, _, _ },
-    { _, _, DR, _, _, DR, _, _, DR, _, _, DR, _, _, _ },
-    { _, DR, _, _, DR, _, _, _, _, DR, _, _, DR, _, _ },
-  },
-  -- Frame 4: Snapped Closed
-  {
-    { _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _ },
-    { _, _, _, _, _, R, _, _, _, _, R, _, _, _, _, _ },
-    { _, _, _, _, W, K, _, _, _, W, K, _, _, _, _, _ },
-    { _, DR, DR, DR, R, R, R, R, R, R, DR, DR, DR, _, _, _ },
-    { _, DR, DR, R, R, DR, DR, DR, DR, R, R, DR, DR, _, _ },
-    { _, _, _, R, DR, DR, DR, DR, DR, DR, R, _, _, _, _ },
-    { _, _, DR, _, _, DR, _, _, DR, _, _, DR, _, _, _ },
-    { _, DR, _, _, DR, _, _, _, _, DR, _, _, DR, _, _ },
-  },
-}
+-- Generation is not free, so each asset is drawn once on first use and cached.
+local sprite_cache = {}
 
--- SUN FRAMES
-local sun_pixel_frames = {
-  -- Frame 1: Pulse 1
-  {
-    { _, _, _, _, G, _, _, G, _, _, G, _, _, _, _, _ },
-    { _, _, OG, G, G, G, G, G, G, G, G, OG, _, _, _, _ },
-    { _, G, G, Y, Y, Y, Y, Y, Y, Y, G, G, _, _, _, _ },
-    { G, G, Y, Y, Y, Y, Y, Y, Y, Y, Y, G, G, _, _, _ },
-    { G, G, Y, Y, Y, Y, Y, Y, Y, Y, Y, G, G, _, _, _ },
-    { _, G, G, Y, Y, Y, Y, Y, Y, Y, G, G, _, _, _, _ },
-    { _, _, OG, G, G, G, G, G, G, G, G, OG, _, _, _, _ },
-    { _, _, _, _, G, _, _, G, _, _, G, _, _, _, _, _ },
-  },
-  -- Frame 2: Pulse 2
-  {
-    { _, G, _, _, _, G, _, _, G, _, _, _, G, _, _, _ },
-    { G, _, OG, G, G, G, G, G, G, G, G, OG, _, G, _, _ },
-    { _, G, G, Y, Y, Y, Y, Y, Y, Y, G, G, _, _, _, _ },
-    { _, G, Y, Y, Y, Y, Y, Y, Y, Y, Y, G, _, _, _, _ },
-    { _, G, Y, Y, Y, Y, Y, Y, Y, Y, Y, G, _, _, _, _ },
-    { _, G, G, Y, Y, Y, Y, Y, Y, Y, G, G, _, _, _, _ },
-    { G, _, OG, G, G, G, G, G, G, G, G, OG, _, G, _, _ },
-    { _, G, _, _, _, G, _, _, G, _, _, _, G, _, _, _ },
-  },
-  -- Frame 3: Partial Eclipse
-  {
-    { _, _, _, _, G, _, _, G, _, _, G, _, _, _, _, _ },
-    { _, _, OG, G, G, G, G, G, G, G, G, OG, _, _, _, _ },
-    { _, G, MD, MD, MD, MD, Y, Y, Y, Y, G, G, _, _, _, _ },
-    { G, MD, MD, MD, MD, MD, MD, Y, Y, Y, Y, G, G, _, _ },
-    { G, MD, MD, MD, MD, MD, MD, Y, Y, Y, Y, G, G, _, _ },
-    { _, G, MD, MD, MD, MD, Y, Y, Y, Y, G, G, _, _, _, _ },
-    { _, _, OG, G, G, G, G, G, G, G, G, OG, _, _, _, _ },
-    { _, _, _, _, G, _, _, G, _, _, G, _, _, _, _, _ },
-  },
-  -- Frame 4: Total Eclipse with Corona
-  {
-    { _, _, _, CG, CG, CG, CG, CG, CG, CG, CG, _, _, _, _, _ },
-    { _, CG, CG, MD, MD, MD, MD, MD, MD, MD, CG, CG, Y, _, _, _ },
-    { _, CG, MD, MD, MD, MD, MD, MD, MD, MD, MD, CG, Y, Y, _, _ },
-    { CG, MD, MD, MD, MD, MD, MD, MD, MD, MD, MD, CG, _, _, _, _ },
-    { CG, MD, MD, MD, MD, MD, MD, MD, MD, MD, MD, CG, _, _, _, _ },
-    { _, CG, MD, MD, MD, MD, MD, MD, MD, MD, MD, CG, _, _, _, _ },
-    { _, CG, CG, MD, MD, MD, MD, MD, MD, MD, CG, CG, _, _, _, _ },
-    { _, _, _, CG, CG, CG, CG, CG, CG, CG, CG, _, _, _, _, _ },
-  },
-}
+local function load_sprite(asset_name)
+  local cached = sprite_cache[asset_name]
+  if cached then
+    return cached
+  end
 
--- ASCII text fallback representations
-local ascii_sprites = {
-  cat = {
-    idle = { "(=^･ω･^=)", "(=^･ｪ･^=)" },
-    walk = { " ~(=^･ω･^)~", "~(=^･ｪ･^)~ " },
-    walk_fast = { ">>(=^･ω･^)>>", ">>(=^･ｪ･^)>>" },
-    jump = { "/\\_/\\ ( >.< )", "/\\_/\\ ( ^.^ )" },
-    yawn = { "(=^OωO^=)~", "(=^oωo^=)~" },
-    sleep = { "(= -ω- =) zZ", "(= -.- =) zZ" },
-  },
-  crab = {
-    idle = { "(V) (°,,,,°) (V)", "(V) ( °..° ) (V)" },
-    walk = { "(V) ( .. ) (V)", "(v) ( .. ) (v)" },
-    walk_fast = { ">>(V) ( .. ) (V)>>", ">>(v) ( .. ) (v)>>" },
-    clip_claws = { "(>) (°,,,,°) (<)", "(<) (°,,,,°) (>)" },
-    burrow = { ".. ( .. ) ..", "_.. ( .. ) .._" },
-    sleep = { "(v) (- -) (v) zZ", "(v) (..) (v) zZ" },
-  },
-  sun = {
-    shining = { "( ☼ )", "\\ ☼ /", "( ☼ )", "/ ☼ \\" },
-    rising = { "_/\\_ ☼", "  /\\ ☼" },
-    setting = { "☼ _/\\_", "☼ \\_ " },
-    eclipse = { "( ◐ )", "( 🌑 )" },
-    flare = { "*:.☼.:*", ".:*☼*:." },
-  },
-}
+  local module_path = SPRITE_MODULES[asset_name] or SPRITE_MODULES.cat
+  local sprite = require(module_path)
+  sprite_cache[asset_name] = sprite
+  return sprite
+end
 
---- Converts a pixel matrix into a table of half-block strings and extmark highlight spans
+--- Frame matrices for an asset. Unknown assets fall back to the cat.
+function M.get_pixel_frames(asset_name)
+  return load_sprite(asset_name).frames
+end
+
+--- State name -> 0-based frame indices, for a manifest to reference.
+function M.get_layout(asset_name)
+  return load_sprite(asset_name).layout
+end
+
+--- Canvas dimensions in pixels (not terminal cells).
+function M.get_dimensions(asset_name)
+  local sprite = load_sprite(asset_name)
+  return sprite.width, sprite.height
+end
+
+-- Both half-block glyphs are 3-byte UTF-8 sequences. Extmark columns are byte
+-- offsets, not character indices, so every cell advances the cursor by that
+-- much rather than by one.
+local UPPER_HALF = "\u{2580}"
+local LOWER_HALF = "\u{2584}"
+
+--- Widest row in the matrix. Rows are expected to be uniform, but a custom
+--- matrix may be ragged; padding to the maximum keeps every rendered line
+--- rectangular so the float window width stays correct.
+local function matrix_width(pixel_rows)
+  local width = 0
+  for _, row in ipairs(pixel_rows) do
+    if #row > width then width = #row end
+  end
+  return width
+end
+
+--- Converts a pixel matrix into half-block strings plus extmark highlight spans.
+---
+--- Returns `lines, highlights, width, height` where `width`/`height` are in
+--- terminal cells (suitable for `nvim_open_win`) and each highlight carries a
+--- byte offset `col` and byte length `len` (suitable for `nvim_buf_set_extmark`).
 function M.render_halfblock_frame(pixel_rows)
   local lines = {}
-  local highlights = {} -- list of {row, col_start, col_end, hl_group}
+  local highlights = {}
+  local width = matrix_width(pixel_rows)
 
   for r = 1, #pixel_rows, 2 do
     local top_row = pixel_rows[r] or {}
     local bot_row = pixel_rows[r + 1] or {}
     local line_chars = {}
     local row_idx = #lines -- 0-indexed for Neovim
+    local byte_col = 0
 
-    for c = 1, #top_row do
+    for c = 1, width do
       local top_color = top_row[c]
       local bot_color = bot_row[c]
+      local glyph, hl
 
       if top_color and bot_color then
-        table.insert(line_chars, "▀")
-        local hl = M.get_hl_group(top_color, bot_color)
-        table.insert(highlights, { row = row_idx, col = #line_chars - 1, hl = hl })
-      elseif top_color and not bot_color then
-        table.insert(line_chars, "▀")
-        local hl = M.get_hl_group(top_color, nil)
-        table.insert(highlights, { row = row_idx, col = #line_chars - 1, hl = hl })
-      elseif not top_color and bot_color then
-        table.insert(line_chars, "▄")
-        local hl = M.get_hl_group(bot_color, nil)
-        table.insert(highlights, { row = row_idx, col = #line_chars - 1, hl = hl })
+        glyph = UPPER_HALF
+        hl = M.get_hl_group(top_color, bot_color)
+      elseif top_color then
+        glyph = UPPER_HALF
+        hl = M.get_hl_group(top_color, nil)
+      elseif bot_color then
+        glyph = LOWER_HALF
+        hl = M.get_hl_group(bot_color, nil)
       else
-        table.insert(line_chars, " ")
+        -- Transparent cell: a space keeps the line rectangular and lets the
+        -- editor behind the float show through.
+        glyph = " "
       end
+
+      if hl then
+        table.insert(highlights, { row = row_idx, col = byte_col, len = #glyph, hl = hl })
+      end
+      table.insert(line_chars, glyph)
+      byte_col = byte_col + #glyph
     end
 
     table.insert(lines, table.concat(line_chars))
   end
 
-  return lines, highlights
-end
-
-function M.get_pixel_frames(asset_name)
-  if asset_name == "crab" then
-    return crab_pixel_frames
-  elseif asset_name == "sun" then
-    return sun_pixel_frames
-  else
-    return cat_pixel_frames
-  end
-end
-
-function M.get_ascii_sprite(asset_name, state_name, frame_idx)
-  local asset = ascii_sprites[asset_name] or ascii_sprites.cat
-  local state_frames = asset[state_name] or asset.idle or { "(^・ω・^)" }
-  local idx = ((frame_idx - 1) % #state_frames) + 1
-  return state_frames[idx]
+  return lines, highlights, width, #lines
 end
 
 return M

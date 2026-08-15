@@ -12,8 +12,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Multi-Backend Rendering Architecture**:
   - `halfblock` (Default): High-fidelity in-terminal 24-bit Truecolor pixel-art renderer using Unicode half-blocks (`▀` / `▄`) and native Neovim floating windows with zero external OS window overlays.
-  - `kitty`: In-band graphics protocol streaming supported natively by Ghostty, Kitty, and WezTerm.
-  - `float`: Lightweight ASCII/Unicode floating windows for minimal or headless sessions.
   - `overlay`: Hardware-accelerated WGPU transparent desktop overlay window.
 - **Hardware-Accelerated WGPU Rendering Engine**:
   - Native WebGPU/Metal rendering pipeline with explicit `CompositeAlphaMode::PostMultiplied` and `PreMultiplied` support, eliminating solid black background artifacts on macOS Retina/Metal surfaces.
@@ -25,7 +23,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `:DistractBackend [name]` with dynamic shell autocompletion for live backend switching.
   - Enhanced `:DistractToggle` to support both in-terminal and external overlay engines.
 
+### Fixed
+- **Half-block renderer was non-functional.** Transparent pixel-matrix cells used `nil`, which truncated every sprite row at the first hole, so `#lines[1]` was `0` and `nvim_open_win` raised `Invalid 'width'` on every tick at 30 FPS with no error handling.
+- Extmark highlight columns were character indices rather than byte offsets; each half-block glyph is 3 bytes, so all colour landed in the first few cells and `end_col` split codepoints.
+- `animation.frames` was ignored by the in-terminal renderer, which indexed art by animation position instead of sheet index — a sleeping cat drew its idle art and the sun's eclipse drew its shining art.
+- The Lua test runner exited 0 on failure (a trailing `-c "q"` in CI masked the error) and hung headless Neovim when the report raised. It now exits non-zero via `:cquit`.
+- Repeated render failures now stop the engine and report once instead of looping at the frame rate.
+- The overlay compositor silently skipped drawing when a manifest frame index exceeded the loaded sheet, rendering the entity invisible; it now wraps.
+
 ### Changed
+- **Sprites are generated procedurally** by `distract.sprite_gen` and `distract.sprites.*` instead of being stored as hand-authored pixel matrices. States are pose curves, so animation is smooth by construction; volume comes from a lit-hemisphere shading model with rim and specular terms. Frame counts went from 4 per asset to 29 (cat), 25 (crab), 25 (sun), giving every state its own art.
+- Manifests reference the generated `layout` table rather than hand-written frame indices, so the two cannot drift apart.
+- Sun `rising`, `setting` and `eclipse` are one-shot transitions rather than looping animations, which previously snapped back to the start pose.
+
+### Removed
+- The ASCII `float` backend and all text-art sprite data. `float`/`ascii` resolve to `halfblock` with a warning.
+- The `kitty` backend is no longer advertised — the graphics protocol was never implemented, and selecting it silently rendered plain ASCII. The alias resolves to `halfblock` with a warning.
+- Dead `lua/distract/pets/cat.lua`, which nothing referenced.
 - Modernized Rust crate dependencies (`wgpu 0.16`, `bytemuck 1.25`, `pollster 0.3`, `serde 1.0.229`, `image 0.24.9`).
 - Switched default rendering backend to `halfblock` for seamless, out-of-the-box compatibility with Ghostty, tmux, SSH, and all terminal environments.
 - Optimized process teardown during `VimLeavePre` with synchronous `jobwait` to prevent orphaned background processes.

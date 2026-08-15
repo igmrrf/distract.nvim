@@ -29,19 +29,17 @@ jobs:
 
       - name: Setup Plenary test dependency
         run: |
-          mkdir -p .tests/site/pack/vendor/start
-          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim .tests/site/pack/vendor/start/plenary.nvim
+          mkdir -p .tests/site/pack/deps/start
+          git clone --depth 1 https://github.com/nvim-lua/plenary.nvim .tests/site/pack/deps/start/plenary.nvim
 
+      # No trailing `-c "q"`: it would mask a failing suite and make the job
+      # exit 0. run_tests.lua terminates the editor itself via qall!/cquit.
       - name: Run Lua test suite
-        run: |
-          nvim --headless -u NONE \
-            -c "set rtp+=.tests/site/pack/vendor/start/plenary.nvim" \
-            -c "set rtp+=." \
-            -c "runtime plugin/distract.lua" \
-            -c "luafile tests/run_tests.lua" \
-            -c "q"
+        timeout-minutes: 5
+        run: nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
 
       - name: Run Plenary Busted tests
+        timeout-minutes: 5
         run: |
           nvim --headless --noplugin -u tests/minimal_init.lua \
             -c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua' }"

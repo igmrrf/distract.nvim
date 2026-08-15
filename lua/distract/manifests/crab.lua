@@ -1,3 +1,7 @@
+-- Frame indices come from the generated sprite layout rather than being
+-- written out by hand, so the manifest and the art cannot drift apart.
+local layout = require("distract.terminal_sprites").get_layout("crab")
+
 local M = {
   name = "crab",
   asset_type = "procedural",
@@ -6,7 +10,7 @@ local M = {
   z_index = 10,
   states = {
     idle = {
-      animation = { frames = { 0 }, fps = 2.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.idle, fps = 2.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 0.0, target_vy = 0.0, wrap_mode = "clamp" },
       transitions = {
         on_event = {
@@ -20,7 +24,7 @@ local M = {
       },
     },
     walk = {
-      animation = { frames = { 0, 1 }, fps = 5.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.walk, fps = 5.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 1.2, target_vy = 0.0, wrap_mode = "bounce" },
       transitions = {
         on_event = {
@@ -30,7 +34,7 @@ local M = {
       },
     },
     walk_fast = {
-      animation = { frames = { 0, 1 }, fps = 10.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.walk_fast, fps = 10.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 2.8, target_vy = 0.0, wrap_mode = "bounce" },
       transitions = {
         timeout_ms = 2000,
@@ -38,7 +42,7 @@ local M = {
       },
     },
     clip_claws = {
-      animation = { frames = { 2, 3, 2, 3 }, fps = 6.0, loop_anim = false, flip_x = false },
+      animation = { frames = layout.clip_claws, fps = 6.0, loop_anim = false, flip_x = false },
       physics = { target_vx = 0.0, target_vy = 0.0 },
       transitions = {
         on_finish = "idle",
@@ -47,7 +51,7 @@ local M = {
       },
     },
     burrow = {
-      animation = { frames = { 0, 3 }, fps = 4.0, loop_anim = false, flip_x = false },
+      animation = { frames = layout.burrow, fps = 4.0, loop_anim = false, flip_x = false },
       physics = { target_vx = 0.0, target_vy = 0.5 },
       transitions = {
         timeout_ms = 3000,
@@ -55,7 +59,7 @@ local M = {
       },
     },
     sleep = {
-      animation = { frames = { 3 }, fps = 1.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.sleep, fps = 1.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 0.0, target_vy = 0.0 },
       transitions = {
         on_event = {

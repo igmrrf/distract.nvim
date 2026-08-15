@@ -9,14 +9,54 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
 `distract.nvim` offers multiple rendering backends to suit your terminal environment:
 
 1. 🎨 **`halfblock` (In-Terminal Truecolor - Default)**:
-   - Renders rich 24-bit RGB pixel-art sprites directly inside Neovim using Unicode half-blocks (`▀` / `▄`) and native floating windows.
-   - **Zero OS window overlays**, 100% transparent background, works in any terminal emulator (Ghostty, WezTerm, Kitty, Alacritty, iTerm2, tmux, SSH).
-2. ⚡ **`kitty` (Ghostty & Kitty Graphics Protocol)**:
-   - In-band GPU image streaming supported natively by Ghostty, Kitty, and WezTerm.
-3. 📝 **`float` (ASCII / Minimal Unicode)**:
-   - Lightweight ASCII floating windows for low-spec or headless sessions.
-4. 🖥️ **`overlay` (Hardware-Accelerated GPU Window)**:
-   - Transparent, borderless WGPU desktop window overlay with 60 FPS Porter-Duff compositing.
+   - Renders 24-bit RGB pixel-art sprites directly inside Neovim using Unicode half-blocks (`▀` / `▄`) and native floating windows.
+   - **Zero OS window overlays**, transparent background, works in any truecolor terminal emulator (Ghostty, WezTerm, Kitty, Alacritty, iTerm2, tmux, SSH).
+2. 🖥️ **`overlay` (Hardware-Accelerated GPU Window)**:
+   - Transparent, borderless WGPU desktop window overlay with Porter-Duff compositing.
+
+> **Removed:** the ASCII `float` backend. Sprites are truecolor pixel art only;
+> `backend = "float"` resolves to `halfblock` and emits a warning.
+>
+> **Not implemented:** a Kitty/Ghostty graphics-protocol backend. `backend = "kitty"`
+> (and the `ghostty` / `wezterm` aliases) also resolve to `halfblock` with a warning.
+
+---
+
+## 🎨 Sprites
+
+Sprites are **drawn procedurally**, not stored as pixel tables. Each asset in
+[`lua/distract/sprites/`](lua/distract/sprites) exposes one `draw(pose)` routine
+taking a handful of scalars — body lift, gait phase, claw opening, eclipse
+progress — and each state samples those scalars along a curve. Frames are
+generated once on first use and cached.
+
+Two things follow from that:
+
+- **Animation is smooth by construction.** A state is a curve, not a set of
+  hand-drawn frames that have to line up by eye.
+- **Volume comes from lighting.** [`sprite_gen.orb`](lua/distract/sprite_gen.lua)
+  shades an ellipse as a lit hemisphere — Lambert diffuse from a shared key
+  light, a rim term at grazing angles, and a specular highlight — so flat pixel
+  art reads as a rounded, three-dimensional form.
+
+Each module also exports a `layout` mapping state name → frame indices, which
+the matching manifest references directly, so art and manifest cannot drift
+apart.
+
+| Asset | Canvas | Frames | States |
+|---|---|---|---|
+| cat | 24×16 px (24×8 cells) | 29 | idle, walk, walk_fast, jump, yawn, sleep |
+| crab | 24×16 px (24×8 cells) | 25 | idle, walk, walk_fast, clip_claws, burrow, sleep |
+| sun | 16×16 px (16×8 cells) | 25 | shining, eclipse, flare, rising, setting |
+
+Adding a state means adding a pose curve:
+
+```lua
+add("pounce", g.sequence(6, function(t)
+  local arc = math.sin(t * math.pi)
+  return { lift = arc, stretch = 0.9 * arc, leg = 0.3, eye = 1 }
+end))
+```
 
 ---
 
@@ -37,7 +77,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   "igmrrf/distract.nvim",
   config = function()
     require("distract").setup({
-      backend = "halfblock",  -- "halfblock" (in-terminal Truecolor), "kitty", "float", or "overlay"
+      backend = "halfblock",  -- "halfblock" (in-terminal Truecolor) or "overlay" (GPU window)
       idle_timeout_ms = 5000, -- Time before pets fall asleep
       debounce_ms = 50,       -- Keystroke event debounce
     })
@@ -54,7 +94,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 | `:DistractStart` | Start the active render engine | |
 | `:DistractStop` | Stop the render engine | |
 | `:DistractToggle` | Toggle the engine on / off | |
-| `:DistractBackend [name]` | View or switch active rendering backend | `halfblock`, `kitty`, `float`, `overlay` |
+| `:DistractBackend [name]` | View or switch active rendering backend | `halfblock`, `overlay` |
 | `:DistractSpawn [asset]` | Spawn an entity onto the screen | `cat`, `crab`, `sun`, or custom |
 | `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `burrow`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
 | `:DistractClear` | Clear all active entities from the screen | |
@@ -111,12 +151,12 @@ require("distract").setup({
 
 ## 🧪 Testing
 
-Run the full Rust engine unit tests (29 tests):
+Run the Rust engine tests:
 ```bash
 cargo test --manifest-path engine/Cargo.toml
 ```
 
-Run the consolidated Neovim Lua test suite (31 tests):
+Run the Neovim Lua test suite (exits non-zero on failure):
 ```bash
 nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
 ```

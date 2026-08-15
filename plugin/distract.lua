@@ -16,13 +16,14 @@ end, { desc = "Stop Distract render engine" })
 vim.api.nvim_create_user_command("DistractBackend", function(opts)
   local backend = vim.trim(opts.args or "")
   if backend == "" then
-    vim.notify(string.format("[Distract] Current backend: '%s' (available: halfblock, kitty, float, overlay)", distract.get_backend()), vim.log.levels.INFO)
+    vim.notify(string.format("[Distract] Current backend: '%s' (available: %s)",
+      distract.get_backend(), table.concat(distract.get_available_backends(), ", ")), vim.log.levels.INFO)
   else
     distract.set_backend(backend)
   end
 end, {
   nargs = "?",
-  desc = "View or switch Distract rendering backend (e.g. halfblock, kitty, float, overlay)",
+  desc = "View or switch Distract rendering backend (halfblock, float, overlay)",
   complete = function(_, line)
     local parts = vim.split(line, "%s+")
     if #parts <= 2 then

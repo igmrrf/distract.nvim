@@ -106,8 +106,13 @@ impl Compositor {
                         &asset.frames
                     };
 
-                    if raw_frame_idx < frame_list.len() {
-                        let sprite = &frame_list[raw_frame_idx];
+                    // A manifest may declare more frames than this asset's sheet
+                    // actually holds -- the in-terminal backend generates a
+                    // richer frame set than the overlay's procedural fallback.
+                    // Wrap rather than skip: skipping renders the entity
+                    // invisible for those states, which looks like a crash.
+                    if !frame_list.is_empty() {
+                        let sprite = &frame_list[raw_frame_idx % frame_list.len()];
                         Self::blend_sprite(frame, win_w, win_h, sprite, entity.x as i32, entity.y as i32);
                     }
                 }

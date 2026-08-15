@@ -8,11 +8,18 @@ local entity_counter = 0
 local is_running = false
 local config = {
   fps = 30,
-  backend = "halfblock", -- "halfblock", "float", "kitty", "overlay"
+  backend = "halfblock", -- "halfblock", "float" (in-terminal); "overlay" runs in distract.external
   assets = {},
 }
 
 local last_tick_time = nil
+
+-- A render fault repeats every tick, so an unguarded error becomes an error
+-- storm at `fps` messages per second that makes the editor unusable. Tolerate a
+-- short burst (transient state during a resize, say), then shut down and report
+-- once.
+local MAX_CONSECUTIVE_RENDER_FAILURES = 5
+local consecutive_render_failures = 0
 
 function M.setup(opts)
   if opts then
@@ -28,6 +35,7 @@ function M.start()
   if is_running then return end
   is_running = true
   last_tick_time = uv.hrtime()
+  consecutive_render_failures = 0
 
   local tick_rate = math.floor(1000 / (config.fps or 30))
   timer = uv.new_timer()
@@ -312,7 +320,21 @@ function M.tick()
     end
   end
 
-  renderer.draw(entities, config.backend)
+  local ok, err = pcall(renderer.draw, entities, config.backend)
+  if ok then
+    consecutive_render_failures = 0
+  else
+    consecutive_render_failures = consecutive_render_failures + 1
+    -- `==` not `>=`: the counter only crosses the limit once, so the user is
+    -- told once even if something keeps calling tick after the shutdown.
+    if consecutive_render_failures == MAX_CONSECUTIVE_RENDER_FAILURES then
+      M.stop()
+      vim.notify(
+        "[Distract] Rendering failed repeatedly; engine stopped.\n" .. tostring(err),
+        vim.log.levels.WARN
+      )
+    end
+  end
 end
 
 function M.get_status()

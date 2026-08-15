@@ -4,27 +4,55 @@ local default_cat = require("distract.manifests.cat")
 local default_crab = require("distract.manifests.crab")
 local default_sun = require("distract.manifests.sun")
 
-local available_backends = { "halfblock", "kitty", "float", "overlay" }
+local available_backends = { "halfblock", "overlay" }
 
---- Normalize backend alias to canonical name
-local function normalize_backend(b)
+-- Aliases that resolve to a backend which is genuinely implemented.
+local BACKEND_ALIASES = {
+  halfblock = "halfblock", tui = "halfblock", terminal = "halfblock", truecolor = "halfblock",
+  overlay = "overlay", external = "overlay", gpu = "overlay", wgpu = "overlay",
+}
+
+-- Names that no longer name a backend of their own.
+--   float/ascii  -- the ASCII art backend was removed in favour of truecolor
+--                   pixel sprites; there is no text-art rendering path left.
+--   kitty/ghostty/wezterm
+--                -- the Kitty graphics protocol backend is not implemented.
+-- Both used to resolve to something that silently drew the wrong thing. They
+-- now resolve to halfblock, and the substitution is reported rather than hidden.
+local SUBSTITUTED_ALIASES = {
+  float = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
+  ascii = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
+  lua = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
+  window = { to = "halfblock", why = "the ASCII backend was removed; sprites are truecolor pixel art now" },
+  kitty = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
+  ghostty = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
+  wezterm = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
+}
+
+local substitution_warned = {}
+
+--- Normalize backend alias to canonical name.
+--- @param b string|nil requested backend name or alias
+--- @param quiet boolean|nil suppress the substitution notice
+local function normalize_backend(b, quiet)
   if not b then return "halfblock" end
   b = string.lower(vim.trim(b))
-  if b == "halfblock" or b == "tui" or b == "terminal" or b == "truecolor" then
-    return "halfblock"
-  elseif b == "kitty" or b == "ghostty" or b == "wezterm" then
-    return "kitty"
-  elseif b == "float" or b == "ascii" or b == "lua" or b == "window" then
-    return "float"
-  elseif b == "overlay" or b == "external" or b == "gpu" or b == "wgpu" then
-    return "overlay"
-  else
-    return "halfblock"
+
+  local substitute = SUBSTITUTED_ALIASES[b]
+  if substitute then
+    if not quiet and not substitution_warned[b] then
+      substitution_warned[b] = true
+      vim.notify(string.format("[Distract] Backend '%s' is unavailable: %s. Using '%s' instead.",
+        b, substitute.why, substitute.to), vim.log.levels.WARN)
+    end
+    return substitute.to
   end
+
+  return BACKEND_ALIASES[b] or "halfblock"
 end
 
 M.config = {
-  backend = "halfblock", -- 'halfblock' (In-terminal Truecolor), 'kitty' (Ghostty Graphics), 'float' (ASCII Window), 'overlay' (GPU Overlay)
+  backend = "halfblock", -- 'halfblock' (In-terminal Truecolor), 'float' (ASCII Window), 'overlay' (GPU Overlay)
   fps = 30,
   idle_timeout_ms = 5000,
   debounce_ms = 50,
@@ -61,7 +89,7 @@ function M.get_backend()
 end
 
 function M.get_available_backends()
-  return { "halfblock", "kitty", "float", "overlay" }
+  return vim.deepcopy(available_backends)
 end
 
 function M.set_backend(backend_name)

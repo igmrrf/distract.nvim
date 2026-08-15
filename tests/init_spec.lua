@@ -15,7 +15,7 @@ describe("distract.init configuration and lifecycle", function()
 
   it("should merge user configuration options", function()
     distract.setup({
-      backend = "kitty",
+      backend = "overlay",
       idle_timeout_ms = 9000,
       debounce_ms = 120,
       assets = {
@@ -27,7 +27,7 @@ describe("distract.init configuration and lifecycle", function()
         }
       }
     })
-    assert.are.same("kitty", distract.get_backend())
+    assert.are.same("overlay", distract.get_backend())
     assert.are_equal(9000, distract.config.idle_timeout_ms)
     assert.are_equal(120, distract.config.debounce_ms)
     assert.is_not_nil(distract.config.assets.custom_bird)
@@ -36,20 +36,55 @@ describe("distract.init configuration and lifecycle", function()
 
   it("supports dynamic backend switching across all options", function()
     distract.setup()
-    local backends = distract.get_available_backends()
-    assert.are_equal(4, #backends)
-
+    for _, name in ipairs(distract.get_available_backends()) do
+      distract.set_backend(name)
+      assert.are.same(name, distract.get_backend())
+    end
     distract.set_backend("halfblock")
-    assert.are.same("halfblock", distract.get_backend())
+  end)
+end)
 
-    distract.set_backend("kitty")
-    assert.are.same("kitty", distract.get_backend())
+describe("distract.init backend availability", function()
+  local renderer = require("distract.renderer")
 
-    distract.set_backend("float")
-    assert.are.same("float", distract.get_backend())
+  it("only advertises backends that are actually implemented", function()
+    distract.setup()
+    for _, name in ipairs(distract.get_available_backends()) do
+      local implemented = (name == "overlay") or renderer.supports(name)
+      assert(implemented, string.format(
+        "backend '%s' is advertised but has no renderer implementation", name))
+    end
+  end)
 
-    distract.set_backend("overlay")
-    assert.are.same("overlay", distract.get_backend())
+  it("does not advertise the unimplemented kitty graphics backend", function()
+    distract.setup()
+    assert.is_false(vim.tbl_contains(distract.get_available_backends(), "kitty"),
+      "kitty graphics protocol is not implemented and must not be offered")
+  end)
+
+  it("resolves a kitty request to an implemented backend rather than silent ASCII", function()
+    distract.setup({ backend = "kitty" })
+    local resolved = distract.get_backend()
+    assert.are.same("halfblock", resolved)
+    assert.is_true(renderer.supports(resolved))
+    distract.setup({ backend = "halfblock" })
+  end)
+
+  it("tells the user when a requested backend was substituted", function()
+    local messages = {}
+    local original = vim.notify
+    vim.notify = function(msg) table.insert(messages, msg) end
+    local ok, err = pcall(distract.setup, { backend = "ghostty" })
+    vim.notify = original
+    assert(ok, tostring(err))
+
+    local mentioned = false
+    for _, msg in ipairs(messages) do
+      if tostring(msg):lower():match("kitty") then mentioned = true end
+    end
+    assert.is_true(mentioned,
+      "substituting an unavailable backend must be reported, not silent")
+    distract.setup({ backend = "halfblock" })
   end)
 end)
 

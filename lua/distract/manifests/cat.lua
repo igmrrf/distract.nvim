@@ -1,3 +1,7 @@
+-- Frame indices come from the generated sprite layout rather than being
+-- written out by hand, so the manifest and the art cannot drift apart.
+local layout = require("distract.terminal_sprites").get_layout("cat")
+
 local M = {
   name = "cat",
   asset_type = "sprite",
@@ -12,7 +16,7 @@ local M = {
   z_index = 10,
   states = {
     idle = {
-      animation = { frames = { 0 }, fps = 2.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.idle, fps = 2.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 0.0, target_vy = 0.0, friction = 0.1, wrap_mode = "clamp" },
       transitions = {
         on_event = {
@@ -26,7 +30,7 @@ local M = {
       },
     },
     walk = {
-      animation = { frames = { 1, 2 }, fps = 6.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.walk, fps = 6.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 1.5, target_vy = 0.0, wrap_mode = "wrap" },
       transitions = {
         on_event = {
@@ -37,7 +41,7 @@ local M = {
       },
     },
     walk_fast = {
-      animation = { frames = { 1, 2 }, fps = 12.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.walk_fast, fps = 12.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 3.5, target_vy = 0.0, wrap_mode = "wrap" },
       transitions = {
         on_event = {
@@ -49,7 +53,7 @@ local M = {
       },
     },
     jump = {
-      animation = { frames = { 1 }, fps = 10.0, loop_anim = false, flip_x = false },
+      animation = { frames = layout.jump, fps = 10.0, loop_anim = false, flip_x = false },
       physics = { target_vx = 2.0, target_vy = 0.0, jump_impulse_y = -4.0, gravity = 0.15, wrap_mode = "bounce" },
       is_locked = true,
       transitions = {
@@ -59,7 +63,7 @@ local M = {
     },
 
     yawn = {
-      animation = { frames = { 0, 3, 0 }, fps = 3.0, loop_anim = false, flip_x = false },
+      animation = { frames = layout.yawn, fps = 3.0, loop_anim = false, flip_x = false },
       physics = { target_vx = 0.0, target_vy = 0.0 },
       transitions = {
         on_finish = "sleep",
@@ -68,7 +72,7 @@ local M = {
       },
     },
     sleep = {
-      animation = { frames = { 3 }, fps = 1.0, loop_anim = true, flip_x = false },
+      animation = { frames = layout.sleep, fps = 1.0, loop_anim = true, flip_x = false },
       physics = { target_vx = 0.0, target_vy = 0.0, friction = 0.2 },
       transitions = {
         on_event = {
