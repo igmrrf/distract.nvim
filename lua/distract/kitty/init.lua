@@ -123,6 +123,7 @@ end
 --- `distract.backends.reset()` is the other half.
 function M.reset()
   kitty_renderer.reset()
+  renderer.unregister_backend(M.NAME)
   detect.reset()
   registered = false
   warned_no_truecolor = false

@@ -2,6 +2,7 @@
 
 local M = {}
 
+local asset_path = require("distract.asset_path")
 local locomotion = require("distract.locomotion")
 local position = require("distract.position")
 
@@ -21,7 +22,7 @@ function M.setup(opts)
 end
 
 local function plugin_root()
-  return vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h")
+  return asset_path.plugin_root()
 end
 
 local function exe_suffix()
@@ -282,12 +283,7 @@ function M.spawn(entity_name, opts)
       if next(manifest_payload.spritesheet) == nil or not manifest_payload.spritesheet.path then
         manifest_payload.spritesheet = nil
       else
-        local p = manifest_payload.spritesheet.path
-        if not p:match("^/") and not p:match("^%a:[/\\]") and not p:match("^~") then
-          manifest_payload.spritesheet.path = plugin_root() .. "/" .. p
-        else
-          manifest_payload.spritesheet.path = vim.fn.expand(p)
-        end
+        manifest_payload.spritesheet.path = asset_path.resolve(manifest_payload.spritesheet.path)
         abs_path = manifest_payload.spritesheet.path
       end
     end

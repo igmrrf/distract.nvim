@@ -109,6 +109,19 @@ function M.register_backend(name, build_surface, on_reset)
   BACKEND_RESET[name] = on_reset
 end
 
+--- Removes a backend this module was drawing for.
+---
+--- The registry is process-wide, so a backend that registers on proof it can
+--- draw -- and can lose that proof, in a test or on `reset` -- has to be able to
+--- take itself back out. A name `distract.backends` no longer offers while this
+--- module still answers `supports` for it is exactly the on-paper-only backend
+--- the two registries are kept in step to prevent.
+---@param name string
+function M.unregister_backend(name)
+  BACKEND_SURFACE[name] = nil
+  BACKEND_RESET[name] = nil
+end
+
 --- Drops every backend's cached art.
 ---
 --- `:colorscheme` runs `:hi clear`, which deletes the highlight groups the

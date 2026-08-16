@@ -19,6 +19,15 @@ pub const MAX_FRAME_DIM: u32 = 1024;
 pub const MAX_FRAMES: usize = 512;
 pub const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 
+/// How large a GIF's own canvas may be before it is resampled to the frame size
+/// its manifest declares.
+///
+/// A screen-sized animation is a legitimate source for a sprite that is drawn a
+/// few dozen pixels across, so the source bound is looser than the decoded one
+/// and matches `distract.gif`'s `MAX_CANVAS_DIM`. Without a declared frame size
+/// the source *is* the frame, and `MAX_FRAME_DIM` still applies.
+pub const MAX_SOURCE_DIM: u32 = 4096;
+
 /// Holds loaded and sliced frames for an asset.
 ///
 /// Frames are stored once, in their authored orientation. Mirroring happens at
@@ -32,6 +41,13 @@ pub struct LoadedAsset {
     pub frames: Vec<RgbaImage>,
     pub frame_w: u32,
     pub frame_h: u32,
+    /// How long each frame is shown for, when the source file says so.
+    ///
+    /// Only GIFs carry timing of their own; everything else leaves this empty
+    /// and is animated at whatever rate its manifest declares. `ecs.rs` applies
+    /// the same precedence `lua/distract/engine.lua` does, so one manifest runs
+    /// at one speed on both backends.
+    pub frame_delays_ms: Vec<u32>,
     /// Hash of the manifest this asset was built from, so a repeated
     /// registration of the same manifest can be skipped.
     pub manifest_hash: u64,
@@ -134,6 +150,7 @@ impl AssetManager {
     pub fn load_asset(manifest: AssetManifest, hash: u64) -> Result<LoadedAsset, String> {
         let name = manifest.name.clone();
         let mut frames = Vec::new();
+        let mut frame_delays_ms = Vec::new();
         let mut frame_w = 32;
         let mut frame_h = 32;
 
@@ -141,7 +158,9 @@ impl AssetManager {
             let path = Path::new(path_str);
             if path.exists() {
                 let (loaded, w, h) = if path_str.to_lowercase().ends_with(".gif") {
-                    load_gif(path)?
+                    let decoded = load_gif(path, declared_frame_size(&manifest))?;
+                    frame_delays_ms = decoded.delays_ms;
+                    (decoded.frames, decoded.width, decoded.height)
                 } else {
                     load_spritesheet(path, &manifest)?
                 };
@@ -159,6 +178,7 @@ impl AssetManager {
             frames = set.frames.clone();
             frame_w = set.width;
             frame_h = set.height;
+            frame_delays_ms.clear();
         }
 
         Ok(LoadedAsset {
@@ -167,6 +187,7 @@ impl AssetManager {
             frames,
             frame_w,
             frame_h,
+            frame_delays_ms,
             manifest_hash: hash,
         })
     }
@@ -203,14 +224,46 @@ fn check_budget(frames: usize, w: u32, h: u32) -> Result<(), String> {
     Ok(())
 }
 
-/// Decodes a GIF frame by frame.
+/// One decoded animation: its frames, their shared size, and their own timing.
+pub struct DecodedGif {
+    pub frames: Vec<RgbaImage>,
+    pub width: u32,
+    pub height: u32,
+    /// One entry per frame, in milliseconds.
+    pub delays_ms: Vec<u32>,
+}
+
+/// The frame size a manifest declares, when it declares both halves of one.
+fn declared_frame_size(manifest: &AssetManifest) -> Option<(u32, u32)> {
+    match (
+        manifest.spritesheet.frame_width,
+        manifest.spritesheet.frame_height,
+    ) {
+        (Some(width), Some(height)) => Some((width, height)),
+        _ => None,
+    }
+}
+
+/// Decodes a GIF frame by frame, resampled to the declared frame size.
 ///
 /// Frames are pulled lazily and checked as they arrive, so an oversized
 /// animation is rejected before the whole thing is in memory rather than after.
 /// Frame sizes are also validated against each other: taking the dimensions
 /// from whichever frame happened to decode last silently mis-sizes every
 /// earlier frame.
-fn load_gif(path: &Path) -> Result<(Vec<RgbaImage>, u32, u32), String> {
+///
+/// A GIF authored at screen size is a legitimate source for a sprite drawn a
+/// few dozen pixels across, so a declared frame size resamples the animation
+/// here rather than leaving the overlay to draw a 1600-cell-wide cat. The
+/// in-terminal decoder resamples to the same declared size, which is what keeps
+/// one manifest describing one footprint on every backend.
+///
+/// # Errors
+///
+/// Fails when the file cannot be opened or decoded, when the source canvas is
+/// over [`MAX_SOURCE_DIM`], when the resulting frame is over [`MAX_FRAME_DIM`],
+/// when frames disagree about their size, or when the animation is empty.
+fn load_gif(path: &Path, declared: Option<(u32, u32)>) -> Result<DecodedGif, String> {
     use image::AnimationDecoder;
 
     let file =
@@ -219,11 +272,13 @@ fn load_gif(path: &Path) -> Result<(Vec<RgbaImage>, u32, u32), String> {
         .map_err(|e| format!("Could not decode '{}' as a GIF: {}", path.display(), e))?;
 
     let mut frames: Vec<RgbaImage> = Vec::new();
+    let mut delays_ms: Vec<u32> = Vec::new();
     let (mut frame_w, mut frame_h) = (0u32, 0u32);
 
     for (idx, frame) in decoder.into_frames().enumerate() {
         let frame = frame.map_err(|e| format!("GIF frame {} failed to decode: {}", idx, e))?;
-        let img = frame.into_buffer();
+        let (numer, denom) = frame.delay().numer_denom_ms();
+        let img = resample_gif_frame(frame.into_buffer(), declared)?;
         let (w, h) = img.dimensions();
 
         if idx == 0 {
@@ -238,6 +293,7 @@ fn load_gif(path: &Path) -> Result<(Vec<RgbaImage>, u32, u32), String> {
         }
 
         frames.push(img);
+        delays_ms.push(numer.checked_div(denom).unwrap_or(0));
         check_budget(frames.len(), frame_w, frame_h)?;
     }
 
@@ -245,7 +301,37 @@ fn load_gif(path: &Path) -> Result<(Vec<RgbaImage>, u32, u32), String> {
         return Err(format!("GIF '{}' contains no frames", path.display()));
     }
 
-    Ok((frames, frame_w, frame_h))
+    Ok(DecodedGif {
+        frames,
+        width: frame_w,
+        height: frame_h,
+        delays_ms,
+    })
+}
+
+fn resample_gif_frame(image: RgbaImage, declared: Option<(u32, u32)>) -> Result<RgbaImage, String> {
+    let (source_w, source_h) = image.dimensions();
+    if source_w > MAX_SOURCE_DIM || source_h > MAX_SOURCE_DIM {
+        return Err(format!(
+            "GIF is {}x{}, over the {}px source limit",
+            source_w, source_h, MAX_SOURCE_DIM
+        ));
+    }
+
+    let Some((width, height)) = declared else {
+        return Ok(image);
+    };
+    if width == source_w && height == source_h {
+        return Ok(image);
+    }
+    check_dimensions(width, height, "declared GIF frame")?;
+
+    Ok(image::imageops::resize(
+        &image,
+        width,
+        height,
+        image::imageops::FilterType::Triangle,
+    ))
 }
 
 /// Slices a still image into a grid of frames.
@@ -497,6 +583,96 @@ mod tests {
         assert_eq!(loaded.frames[3].get_pixel(0, 0)[0], 190);
 
         let _ = std::fs::remove_file(&path);
+    }
+
+    /// Writes an `frames`-frame GIF of solid colours, each shown for `delay_ms`.
+    fn write_test_gif(path: &Path, size: (u32, u32), tones: &[u8]) {
+        use image::codecs::gif::{GifEncoder, Repeat};
+        use image::{Delay, Frame};
+
+        let file = File::create(path).unwrap();
+        let mut encoder = GifEncoder::new(file);
+        encoder.set_repeat(Repeat::Infinite).unwrap();
+
+        for tone in tones {
+            let mut buffer: RgbaImage = ImageBuffer::new(size.0, size.1);
+            for pixel in buffer.pixels_mut() {
+                *pixel = Rgba([*tone, *tone, *tone, 255]);
+            }
+            encoder
+                .encode_frame(Frame::from_parts(
+                    buffer,
+                    0,
+                    0,
+                    Delay::from_numer_denom_ms(80, 1),
+                ))
+                .unwrap();
+        }
+    }
+
+    fn gif_manifest(path: &Path, name: &str) -> AssetManifest {
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = name.to_string();
+        manifest.spritesheet.path = Some(path.to_string_lossy().to_string());
+        manifest.spritesheet.columns = None;
+        manifest.spritesheet.rows = None;
+        manifest.spritesheet.frame_width = None;
+        manifest.spritesheet.frame_height = None;
+        manifest
+    }
+
+    #[test]
+    fn a_gif_carries_the_delays_its_file_declares() {
+        let dir = std::env::temp_dir().join("distract_asset_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("delays.gif");
+        write_test_gif(&path, (8, 8), &[10, 200]);
+
+        let loaded = AssetManager::load_asset(gif_manifest(&path, "gif_delays"), 0).unwrap();
+
+        assert_eq!(loaded.frames.len(), 2);
+        assert_eq!(loaded.frame_delays_ms, vec![80, 80]);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_declared_frame_size_resamples_the_gif_to_it() {
+        let dir = std::env::temp_dir().join("distract_asset_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("resampled.gif");
+        write_test_gif(&path, (64, 32), &[128]);
+
+        let mut manifest = gif_manifest(&path, "gif_resampled");
+        manifest.spritesheet.frame_width = Some(16);
+        manifest.spritesheet.frame_height = Some(8);
+
+        let loaded = AssetManager::load_asset(manifest, 0).unwrap();
+
+        assert_eq!((loaded.frame_w, loaded.frame_h), (16, 8));
+        assert_eq!(loaded.frames[0].dimensions(), (16, 8));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn procedural_art_reports_no_source_timing() {
+        let loaded = AssetManager::load_asset(AssetManifest::default_cat(), 0).unwrap();
+        assert!(loaded.frame_delays_ms.is_empty());
+    }
+
+    #[test]
+    fn a_gif_over_the_source_limit_is_refused_before_it_is_resampled() {
+        let oversized: RgbaImage = ImageBuffer::new(MAX_SOURCE_DIM + 1, 1);
+        let err = resample_gif_frame(oversized, Some((16, 16))).unwrap_err();
+        assert!(err.contains(&MAX_SOURCE_DIM.to_string()));
+    }
+
+    #[test]
+    fn an_undeclared_gif_frame_still_answers_to_the_frame_limit() {
+        let oversized: RgbaImage = ImageBuffer::new(MAX_FRAME_DIM + 1, 8);
+        let passed_through = resample_gif_frame(oversized, None).unwrap();
+        assert!(check_dimensions(passed_through.width(), passed_through.height(), "GIF").is_err());
     }
 
     #[test]
