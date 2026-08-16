@@ -1,0 +1,26 @@
+# Clippy Configuration Standard
+#
+# Thresholds mirror the caps in CODING.md §4 and §5. Clippy warns when a value
+# EXCEEDS the threshold, so `too-many-arguments-threshold = 3` enforces the
+# documented "maximum 3 parameters" rule.
+too-many-lines-threshold = 60
+cognitive-complexity-threshold = 15
+enum-variant-size-threshold = 200
+pass-by-value-size-limit = 256
+trivial-copy-size-limit = 32
+
+# Populate per project. Typical entries: unbounded channel constructors,
+# blocking primitives inside async crates, `std::time::SystemTime::now`
+# where an injected clock is required.
+disallowed-types = []
+disallowed-methods = []
+
+# Identifiers `clippy::doc_markdown` must not flag as needing backticks.
+doc-valid-idents = [
+    "PostgreSQL",
+    "Redis",
+    "OAuth",
+    "OpenAPI",
+    "GraphQL",
+    "gRPC",
+]

@@ -1,37 +1,55 @@
 # Handoff — fidelity, transparency and kinematics work
 
-Working notes for whoever picks this up next. Written 2026-08-16, against a clean
-tree on `main` at `58394c4` plus the uncommitted changes described below.
+Working notes for whoever picks this up next. Rewritten 2026-08-16 against
+`main` at `83988a5`, with the uncommitted files listed in the last section.
+
+The authoritative design is
+[`docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md`](docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md).
+This file says where the work stopped and what to watch out for; the spec says
+what to build. Where they disagree, the spec wins — it has been corrected in
+place as decisions were settled, and each such decision is recorded in a
+"settled during implementation" subsection.
 
 ---
 
 ## The goal this work is serving
 
 A sprite that reads like [`assets/cat_walking_1.gif`](assets/cat_walking_1.gif)
-— but with a transparent background, and with configurable placement and motion:
-top, bottom, an explicit `(x, y)` or `(x, y, z)`, constrained by what the entity
-can physically do. The sun may drift anywhere; the cat and crab are bound by
-gravity.
+— transparent background, configurable placement and motion: top, bottom, an
+explicit `(x, y)` or `(x, y, z)`, constrained by what the entity can physically
+do. The sun may drift anywhere; the cat and crab are bound by gravity.
 
-A five-step plan came out of the review. **Steps 1 and 2 are done and verified.
-Steps 3–5 are not started.**
+---
 
-| Step | What | Status |
-|---|---|---|
-| 1 | Correctness bugs: flip, asset fallback, Lua/Rust physics divergence | **done** |
-| 2 | Per-frame buffer cache + genuine in-terminal transparency | **done** |
-| 3 | `locomotion` + `position` schema, per-asset capability gating | not started |
-| 4 | Silhouette-first art redo, quantised palette | not started |
-| 5 | Kitty graphics-protocol backend | not started |
+## Status
+
+Two numbering schemes are in play. The original review produced **steps 1–5**;
+the design doc replans the same ground as **phases P0–P5**. They are not the
+same partition — the table maps both.
+
+| Phase | Content | Step | Status |
+|---|---|---|---|
+| — | Correctness bugs: flip, asset fallback, physics divergence | 1 | **done** |
+| — | Per-frame buffer cache, in-terminal transparency | 2 | **done** |
+| P0 | Kitty protocol spike, throwaway | — | **done** (§ 7.3, § 7.4) |
+| P1 | `dt` seam, parity harness, goldens | 3 | **done** |
+| P2 | Locomotion, capabilities, paths, `on_land`, quiescence, spawn opts | 3 | **done** |
+| P3 | Position, anchors, floor, `z`, backend capability table | 3 | **not started** |
+| P4 | Kitty backend, procedural sprites | 5 | **not started** |
+| P5 | GIF decoder, `terminal_sprites` wiring, halfblock quantiser | 5 | **not started** |
+| — | Silhouette-first art redo, quantised palette | 4 | **not started** |
+
+Step 4 (art) is independent of P3–P5 and can be done in either order, but see
+the warning under it below.
 
 ---
 
 ## Verify the current state
 
-All four gates pass. Run them before and after any change.
+All four gates pass on `83988a5`. Run them before and after any change.
 
 ```bash
-nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
+nvim --headless --noplugin -u tests/minimal_init.lua -l tests/run_tests.lua
 ```
 
 ```bash
@@ -46,184 +64,182 @@ stylua --check lua plugin tests
 cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
 ```
 
-Expected: **145 Lua tests** (was 113 before this work), **102 Rust tests**
-(95 lib + 6 headless GPU + 1 screenshot; `parity_dump` is `#[ignore]`).
+Expected: **185 Lua tests**, **125 Rust tests** (116 lib + 6 headless GPU + 2
+parity + 1 screenshot; `parity_dump` is `#[ignore]`).
+
+Note the Lua invocation: `-l` with `--noplugin -u tests/minimal_init.lua`. The
+older `-c "luafile ..."` form in previous notes fails to resolve
+`distract.engine` because the runtimepath is set inside `minimal_init.lua`.
 
 `luacheck` is listed in the README as a gate but **is broken on this machine** —
-it fails to load under the installed Lua 5.5 (`luacheck/builtin_standards/love.lua`
-blows up inside `luarocks/loader.lua`). That is an environment problem, not a
-code problem. CI may still run it; do not assume a green local run means
-luacheck passed.
+it fails to load under the installed Lua 5.5. Environment problem, not a code
+problem. CI may still run it; a green local run does not mean luacheck passed.
 
 ---
 
-## Step 1 — what changed and why
+## The cross-engine parity harness — read this first
 
-### Sprites never mirrored in the terminal
+The recurring defect class in this project is `lua/distract/engine.lua` and
+`engine/src/ecs.rs` drifting apart while both file headers claim "one manifest
+describes one behaviour on both backends". Three such divergences had to be
+found by reading before the harness existed; it has since caught two more on
+its own (a stray `- 1` in the `clamp` ceiling, and the `ground_y` units bug).
 
-`engine.lua` set `entity.flip_x`; `renderer.lua` never read it, so a cat walking
-left was drawn facing right. Half of all locomotion looked wrong on the default
-backend. The overlay had always done it correctly (`gpu.rs`, `entity.flip_x ^
-anim.flip_x`).
+- `engine/tests/physics_parity.rs` generates the goldens and asserts Rust still
+  reproduces them.
+- `tests/physics_parity_spec.lua` asserts the Lua engine reproduces the same
+  numbers. Neither suite runs the other's toolchain; they meet at the JSON in
+  `tests/fixtures/physics/`.
+- Trajectories are stored in **terminal cells**. Lua integrates in cells, Rust
+  in pixels, so dividing Rust x by `cell_w` and y by `cell_h` puts both in one
+  frame with no fudge factor.
 
-- `terminal_sprites.mirror_matrix(rows)` mirrors a pixel matrix, padding ragged
-  rows first so mirrored art keeps its position inside its own bounding box.
-- `get_rendered_frame(asset, frame, flip_x)` takes facing as part of the cache
-  key. Mirroring the *rendered* output would mean reversing byte offsets in every
-  highlight span on every draw; mirroring the matrix once is free after the first
-  call.
-- `renderer.resolve_flip(entity)` XORs entity heading with `animation.flip_x`,
-  matching `build_instances`, so art authored facing left is not mirrored twice.
+**Any change to physics on either side means adding a fixture.** Regenerate
+after an intentional behaviour change:
 
-### Custom assets silently rendered as a cat
-
-`terminal_sprites.load_sprite` fell back to the cat module for any unknown name,
-with no warning. The `my_pet` example in the README is written against
-`backend = "halfblock"` and produced a cat.
-
-Resolution order is now: registered sprite set → built-in module →
-`require("distract.sprites.<name>")` on the runtimepath → cat, **with a warning
-emitted once per asset** (once per asset, not per draw — an unknown asset is
-asked for at 30 FPS).
-
-New public API, matching `future.md` §2.1:
-
-```lua
-require("distract").register_asset("my_pet", {
-  manifest = { ... },
-  sprites  = { frames = ..., layout = ..., width = n, height = n },
-})
+```bash
+UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test physics_parity
 ```
 
-`engine.spawn` also warns when it falls back to the cat *manifest*.
+Then run the Lua suite. If it disagrees, that is the point — read the reported
+step index before assuming the fixture is wrong.
 
-### The two engines ran different physics
-
-Despite both file headers claiming "one manifest describes one behaviour on both
-backends":
-
-| | Lua before | Rust |
-|---|---|---|
-| `wrap` | x only | x and y |
-| `bounce` | x only, no edge transitions | x and y, fires `on_edge_left` / `on_edge_right` |
-| `animation.flip_x` | ignored | XOR'd with heading |
-
-Lua now matches Rust on all three.
-
-### `accel_x` / `accel_y` were schema-only
-
-Declared in `manifest.rs`, read by nothing, absent from Lua entirely. A manifest
-could set them and watch them do nothing. Both engines now integrate them as
-constant acceleration applied after the friction lerp toward `target_vx`.
-
-Semantics, worth stating because they are a choice and not the only possible one:
-**`gravity` is `accel_y` under a name that also brings a floor with it.**
-`accel_y` is the floorless version. This matters for step 3 — ballistic and
-omnidirectional locomotion both want one or the other.
-
-### Spawn coordinates meant different things per backend
-
-`spawn { x = 40 }` meant column 40 in the terminal and pixel 40 — roughly column
-4 — on the overlay. **Spawn coordinates are now terminal cells on both
-backends**; `external.lua` multiplies by `cell_size()` on the way out. Manifest
-*velocities* remain sprite pixels per 60 FPS frame. Step 3 must not reintroduce a
-third unit.
-
-### `sprite_scale` was uniform
-
-A sprite pixel is one cell wide and **half** a cell tall, so a single scale factor
-is only correct on an exactly 2:1 cell. On a 16×36 HiDPI cell the overlay drew a
-16px sprite 7.1 cells tall where the terminal drew 8.
-
-`World.sprite_scale: u32` is gone, replaced by `sprite_scale_x: f32` /
-`sprite_scale_y: f32` (`cell_w` and `cell_h / 2`). `Compositor::blend_sprite_ex`
-takes `scale_x, scale_y`. Position integration uses `px` and `py` separately.
-
-### Colourscheme change wiped every sprite colour
-
-Found while working, not in the original review. `:colorscheme` runs `:hi clear`,
-which deletes the ~1,900 generated `Distract_*` groups. `hl_cache` still believed
-they existed, so every sprite rendered in the default foreground until restart.
-A `ColorScheme` autocmd now calls `reset_highlights()` + `reset_cache()` and
-re-declares the sprite background.
+Two fixtures deliberately avoid knife edges, and say so in their own
+`description` field so nobody "fixes" them back: `constant_velocity_wrap` uses
+`target_vx = 1.3` rather than a value that divides the width exactly, and
+`path_bezier` uses `freq = 0.47` so the loop wrap never lands on a sample. In
+both, f32 and f64 land either side of a discontinuity — a precision artefact of
+two runtimes, not a behavioural divergence.
 
 ---
 
-## Step 2 — what changed and why
+## Unit contract — load-bearing
 
-### Per-frame buffers
+- Positions (`x`, `y`, `ground_y`, path anchors) are in **terminal cells**.
+- Velocities, accelerations and path amplitudes are in **sprite pixels per
+  frame at 60 FPS**. One sprite pixel is one cell wide and half a cell tall.
+- `z` is dimensionless.
 
-A frame's content is immutable, but writing one cost `nvim_buf_set_lines` +
-`nvim_buf_clear_namespace` + one `nvim_buf_set_extmark` per coloured cell —
-**~92 API calls per entity per frame change**. Measured maxima: cat 93, crab 89,
-sun 99 extmarks per frame. A cat sprinting at 12 FPS spent ~1,100 calls a second
-redrawing pictures it had already drawn.
+Lua converts on integration (`CELLS_PER_SPRITE_PX_X = 1.0`, `_Y = 0.5`); Rust
+multiplies by `sprite_scale_x = cell_w`, `sprite_scale_y = cell_h / 2`. A
+*position* arriving from a manifest converts with `cell_w`/`cell_h`, not with
+the sprite scale — getting that wrong is exactly the `ground_y` bug fixed in
+`e70a53b`. `external.lua` owns the cells→pixels conversion at the IPC boundary.
 
-Each `(asset, frame, facing)` now gets one scratch buffer, populated once, with
-extmarks baked in. Entities showing the same frame share the buffer. Advancing
-the animation is a single `nvim_win_set_buf`.
+---
 
-Measured over a warm walk cycle: **0 extmarks, 0 line writes, 1 buffer swap.**
+## What P2 built (the shape P3 plugs into)
 
-`renderer.close_window` no longer deletes the buffer — frame buffers outlive any
-one window. `terminal_sprites.reset_cache` owns their lifetime. A cached handle
-is checked with `nvim_buf_is_valid` before use, since a user may `:bwipeout`
-anything.
+- `engine.step(dt, bounds)` — the pure simulation, with `dt` and screen size
+  injected. `engine.tick()` measures `dt` and calls it. This is what makes the
+  goldens possible.
+- `engine.is_quiescent()` mirrors `World::is_quiescent`. It gates the **redraw
+  only** — never the step. `ecs.rs` runs `World::update` unconditionally,
+  because an entity can need a boundary wrap while not moving under its own
+  power. Gating the step breaks vertical wrap; there is a test for it.
+- Path primitives `linear` / `sine` / `orbital` / `lissajous` / `bezier` with
+  `physics.path_params`. Phase advances at a base rate and per-axis frequency
+  multiplies *inside* the trig term.
+- `physics.locomotion` (`grounded` / `ballistic` / `omnidirectional`), derived
+  from gravity when omitted, defaultable at manifest level.
+- `transitions.on_land`, firing when a ballistic entity crosses its floor from
+  above.
+- `manifest.capabilities.locomotion`, validated once at load by
+  `AssetManifest::validate_capabilities` and `lua/distract/locomotion.lua`.
+- `:DistractSpawn cat x=10 y=5 flip_x=true`.
 
-### Genuine transparency
+`z=` and `anchor=` are **deliberately rejected** by `:DistractSpawn` today.
+Wiring them would have reached `engine.lua` alone — `external.lua` and
+`IpcCommand::Spawn` have no such field — shipping a flag that worked in the
+terminal and did nothing on the overlay. They arrive with P3, on both backends
+together. `tests/plugin_commands_spec.lua` asserts `z=42` warns; that test
+should be updated, not deleted, when P3 lands.
 
-Two surfaces, because neither alone can do it:
+---
 
-- A float paints **every** cell it covers, transparent ones included, so a
-  sprite-sized float blanks a sprite-sized rectangle of your code. Measured: a
-  buffer cell reading `E` reads ` ` once a float is over it.
-- Overlay virtual text touches only the cells it is given, but **cannot be placed
-  where there is no buffer line** — which is exactly where a pet usually walks.
+## P3 — position, anchors, floor, `z` (do this next)
 
-They are complementary, so the renderer uses both:
+Spec § 5. Preconditions are met.
 
-| Sprite rows | Surface |
-|---|---|
-| over buffer text | overlay extmarks, `virt_text_win_col` |
-| past the last line | float, `Normal` = `bg=NONE` |
+1. `setup({ position = { anchor, ground, parallax } })` with per-spawn override.
+2. Both floors computed **in Lua, for both backends**, because `external.lua`
+   already owns the IPC unit conversion and the overlay should never need a
+   buffer concept:
+   - `"screen"` — `lines - cmdheight - laststatus_rows - sprite_h`, recomputed
+     on `VimResized` and `OptionSet` for `cmdheight`/`laststatus`.
+   - `"text"` — screen row of the last buffer line, via the screen map step 2
+     built, gated on the `getwininfo()` fingerprint the overlay path already
+     uses.
+3. `UpdateGrid` gains `ground_y: Option<f32>` with `#[serde(default)]` for wire
+   compatibility. Pushed on change, never per frame.
+4. `z` = draw order (overrides `z_index`; the sorts already exist at
+   `compositor.rs:138`, `gpu.rs:61`, `renderer.lua:322`) **and** parallax
+   (`scale = clamp(1 + z * per_unit, min, max)`, damping both `vx` and `vy`).
+   `per_unit` defaults to `0.0` — **parallax stays off unless asked for**.
+5. Backend capability table replacing the `SUBSTITUTED_ALIASES` warning in
+   `init.lua`. `halfblock` with `per_unit ≠ 0` warns **once** and honours order
+   only — a declared degradation, not a silent divergence. Table-driven so the
+   P4 kitty backend registers rather than special-cases.
+6. `:DistractSpawn` gains `z=` and `anchor=`, on both backends together.
 
-Result over a screen of code:
+Add parity fixtures for the floor and for parallax damping. Note the § 11.4
+risk: the step-2 screen map only maps the row a line *starts* on, so
+`ground = "text"` must fall back to the screen floor where a row is unmappable.
 
-```
-overlay_rows=8 float_rows=0 marks=11 | sprite cells drawn=83 | buffer cells destroyed=0
+---
 
- 6 |ABCDEFGHIJABCDEFGHIJA▄▀▄E▄▀▄IJABCDEFGHIJ|
- 7 |ABCDEFGHIJABCDEFGHIJA▀▀▀▀▀▀▀IJABCDEFGHIJ|
-```
+## P4 — kitty graphics backend
 
-The `E` between the cat's ears survives. Previously the whole 24×8 rectangle went
-blank.
+Spec § 7. The P0 spike already settled the two things that could have sunk it,
+and the answers are **not** the obvious ones:
 
-Supporting pieces:
+- **Write mechanism.** `nvim_list_uis()[1].chan` is an RPC channel on nvim 0.12
+  and rejects raw bytes. Use `vim.v.stderr` as the primary, `io.stdout` as
+  fallback. § 7.3 has the verified table.
+- **Detection.** ghostty answers the `a=q` graphics query but exposes no
+  `$KITTY_WINDOW_ID`, so env detection is a fast path only — `a=q` is the
+  authority. § 7.4.
 
-- `terminal_sprites.get_frame_runs(asset, frame, flip)` — a frame as per-row runs
-  of *adjacent drawn cells*, merging neighbours that share a highlight. Padded
-  lines cannot be used: a run of spaces would occlude exactly what it is meant to
-  leave alone. A cat frame is ~11 extmarks, not ~90.
-- `renderer` keeps a screen-row → buffer-line map, rebuilt only when a
-  `getwininfo()` fingerprint changes. Building it costs a `screenpos` per visible
-  line, which is not something to pay 30 times a second for a screen that has not
-  scrolled.
-- Everything is guarded by a signature over
-  `(frame_buf, row, col, width, height, overlay_limit, screen_map_version)`. A
-  stationary sprite costs **zero** API calls.
+Placement via unicode placeholders (`U+10EEEE`, `U=1`), `f=32` raw RGBA,
+base64 chunked at 4096 with `m=1`/`m=0`, `c`/`r` for scaled placement, `z` for
+order, `a=d,d=i` to delete.
 
-`virt_text_win_col` is used rather than `virt_text_pos = "overlay"` because the
-latter needs the underlying line to be long enough to reach that column. It is
-measured from the window's first *text* column, so `wi.textoff` (the gutter) has
-to come out of the screen column.
+**Unrun:** nobody has yet confirmed a kitty placement actually renders in a real
+ghostty window. The user has ghostty installed. Get a human to look at the
+screen once P4 draws anything.
 
-**Known limits.** Two cases fall back to the float because a buffer line cannot
-address them: continuation rows of a wrapped line, and folded lines. Only the row
-a line *starts* on is mapped. `first_unmappable_row` treats the first failure as
-the start of a tail handed to the float; an isolated failure mid-sprite therefore
-costs a few rows of occluded text below it. That is never worse than the old
-behaviour, where every row was occluded.
+---
+
+## P5 — GIF support
+
+Spec § 8. Pure-Lua GIF decoder, `terminal_sprites` wiring, halfblock palette
+quantiser.
+
+**Check this first:** the overlay backend already decodes GIFs
+(`engine/src/asset.rs`, `load_gif`). Pointing a manifest's `spritesheet.path`
+at `assets/cat_walking_1.gif` should give reference fidelity on the overlay
+*today*, with no new code. If that covers the goal for the overlay, P5's scope
+is the in-terminal backends only.
+
+---
+
+## Step 4 — art
+
+Do **not** start by editing sprites. The same art exists twice —
+`lua/distract/sprites/*.lua` and `engine/src/sprites/*.rs` — with **no
+automated parity test** between them. `engine/tests/parity_dump.rs` is
+`#[ignore]` and dumps *geometry*, not physics; it is a dev aid needing
+`DUMP_TO`, and it is **not** covered by the physics parity harness above.
+Build an art parity harness first or the two will drift the moment either is
+touched. `future.md` § 5.8 names the tool: `validate_sprite_parity`.
+
+The art problem itself: at 24×16 the sprite is 24 columns × **8 rows**, and
+`sprite_gen.orb` spends five lighting terms (Lambert, rim, fill, specular,
+dither) across a body twelve pixels wide. At that size **silhouette is the only
+thing that reads** — the cat currently reads as a fox. Ears are 3-pixel stubs
+(`cat.lua`, `EAR_HALF = {0,1,1}`), the four legs are identical capsules,
+whiskers and muzzle are below the detail floor. Flat fills, a 1px dark contour
+and 2–3 tone bands will read better *and* collapse the highlight-group count.
 
 ---
 
@@ -231,147 +247,73 @@ behaviour, where every row was occluded.
 
 1. **`vim.fn.screenstring` lies inside `nvim -l` scripts.** It reads the current
    window's grid, not the composited screen, so floating windows appear at the
-   wrong place or not at all. I read this as a float-positioning bug and chased
-   it for a while. A **vanilla** float at `row=12, col=10` reproduces the exact
-   same artifact, while `nvim_win_get_position` correctly reports `{12, 10}`.
-   Attaching a real UI via a pty does **not** fix it.
+   wrong place or not at all. A **vanilla** float at `row=12, col=10` reproduces
+   the same artifact while `nvim_win_get_position` correctly reports
+   `{12, 10}`. Attaching a real UI via a pty does not fix it.
    - Assert on `nvim_win_get_position` / `nvim_win_get_config` for float rows.
    - `screenstring` **is** trustworthy for the extmark overlay path, because
      those are written into the current window's own buffer.
 
-2. **`engine.setup` merges with `vim.tbl_deep_extend("force", ...)`.** Registering
-   two test manifests under the same asset name lets the first one's `physics`
-   fields survive into the second. `tests/engine_spec.lua` gives each test its own
-   `probe_N` name for this reason. There is no way to *remove* a field via
-   `setup`.
+2. **`engine.setup` merges with `vim.tbl_deep_extend("force", ...)`.**
+   Registering two test manifests under the same asset name lets the first
+   one's `physics` fields survive into the second. Every spec that builds
+   probe manifests gives each test its own `probe_N` name for this reason.
+   There is no way to *remove* a field via `setup` — which is also why
+   `capabilities` (a list) merges rather than replaces, per spec § 11.5.
 
-3. **Wall-clock `dt` in Lua engine tests.** `engine.tick()` derives `dt` from real
-   elapsed time, so a tight loop of 20 ticks advances almost no simulated time.
-   Assert on direction (`vx > 0`) against a zero-accel control, not on magnitude.
+3. **Wall-clock `dt` in `engine.tick()`.** A tight loop of 20 ticks advances
+   almost no simulated time. Use `engine.step(dt, bounds)` for anything that
+   asserts on distance; `tick` is only for testing the timer path.
 
-4. **1,909 global highlight groups** exist for the three built-in assets alone,
+4. **Test probes inherit the cat's manifest.** Both parity runners and several
+   spec helpers start from `AssetManifest::default_cat()`. Since P2e the cat
+   declares `capabilities` and a manifest-level `locomotion = "grounded"`, so a
+   probe that orbits is *correctly* refused. Clear both fields on the probe —
+   `manifest.locomotion = None; manifest.capabilities = Default::default();`.
+   This caught three of P2c's own tests when the gate landed.
+
+5. **`vim.json.encode` writes an empty Lua table as `{}`, not `[]`.**
+   `path_params.points` is the first array-valued manifest field, so the Rust
+   deserialiser explicitly accepts both. Any future array-valued field needs
+   the same treatment or it will parse in the terminal and fail on the overlay.
+
+6. **1,909 global highlight groups** exist for the three built-in assets alone,
    created by `nvim_set_hl` and never released. Unbounded with community asset
    packs. Step 4's quantised palette should cut this by roughly 40×.
 
 ---
 
-## New/changed API surface
+## Uncommitted files
 
-**`lua/distract/terminal_sprites.lua`**
-`has_sprite(name)` · `register(name, sprite)` · `reset_highlights()` ·
-`mirror_matrix(rows)` · `get_rendered_frame(name, idx, flip_x)` (new arg) ·
-`get_frame_runs(name, idx, flip_x)` · `get_frame_buffer(name, idx, flip_x)` ·
-`frame_namespace()` · `reset_cache(name?)` (new optional arg)
+These were staged before this run of work started and are **not** in any of its
+commits, which touched only their own files:
 
-**`lua/distract/renderer.lua`**
-`resolve_flip(entity)` · `background_group()` · `refresh_highlights()` ·
-`overlay_namespace()` · `invalidate_screen_map()` ·
-`window_state(id)` now returns `{ row, col, width, height, buf, win, float_row,
-float_height, overlay_limit, overlay_marks }` — `win` is `nil` when no float was
-needed.
+- `CLAUDE.md`, `GEMINI.md`, `engine/CLAUDE.md`, `engine/GEMINI.md` — coding
+  standards.
+- `engine/rustfmt.toml` — active on disk; it is what reformatted
+  `engine/src/ipc.rs` (whitespace only, uncommitted).
+- `engine/clippy.toml` — **was invalid** and made `cargo clippy` error out
+  rather than lint, so earlier clean runs were cache artifacts. Fixed here:
+  dropped `cyclomatic-complexity-threshold` (a deprecated duplicate of
+  `cognitive-complexity-threshold`), corrected `enum-size-threshold` to
+  `enum-variant-size-threshold`, and removed `too-many-arguments-threshold`.
+  That last one was set to 3 per CODING.md § 4 and flagged 19 pre-existing
+  functions across atlas, compositor, gpu and ecs — `Entity::new` takes seven.
+  Tightening those signatures is a repo-wide refactor and belongs in its own
+  change.
+- `engine/.github/workflows/rust-ci.yml`
+- `REVIEW.md` (modified)
 
-**`lua/distract/init.lua`**
-`register_asset(name, { manifest, sprites })`
-
-**`engine/src/ecs.rs`**
-`World.sprite_scale` → `sprite_scale_x` / `sprite_scale_y`, both `f32`.
-
-**`engine/src/compositor.rs`**
-`blend_sprite_ex(..., scale_x, scale_y)`.
-
----
-
-## Files touched
-
-```
-README.md                      transparency section; units; register_asset
-engine/src/ecs.rs              per-axis scale, accel integration, 3 new tests
-engine/src/gpu.rs              per-axis instance sizing
-engine/src/compositor.rs       per-axis blit
-lua/distract/engine.lua        vertical wrap/bounce, edge transitions, accel, warn on fallback
-lua/distract/external.lua      spawn coords cells -> overlay pixels
-lua/distract/init.lua          register_asset, ColorScheme autocmd
-lua/distract/renderer.lua      screen map, overlay path, float tail, buffer swap
-lua/distract/terminal_sprites.lua  mirror, registry, runs, frame buffers, hl reset
-tests/transparency_spec.lua    NEW — 9 tests
-tests/{engine,external,renderer,review_fixes,sprite_assets}_spec.lua  new coverage
-tests/run_tests.lua            registers transparency_spec
-```
-
-**Nothing is committed.** 15 modified files + 1 new, ~1,400 insertions.
-
----
-
-## Step 3 — locomotion and position (do this next)
-
-Specified in `future.md` §4.2. Concrete shape:
-
-```lua
-physics = {
-  locomotion = "grounded",     -- "grounded" | "ballistic" | "omnidirectional"
-  path_type  = "lissajous",    -- "linear" | "sine" | "lissajous" | "bezier" | "orbital"
-  path_params = { freq_x, freq_y, amp_x, amp_y, phase_delta },
-}
-```
-
-```lua
-require("distract").setup({
-  position = { anchor = "bottom" },        -- "bottom" | "top" | { x = , y = }
-})
-```
-
-Requirements the review turned up:
-
-- `:DistractSpawn` currently **drops its opts** (`plugin/distract.lua` calls
-  `distract().spawn(pet_type)` and never passes x/y). Surface them.
-- Capability gating: the cat and crab must not accept `omnidirectional`; the sun
-  must not be forced into `grounded`. Gate in the manifest loader on both sides so
-  a bad manifest is an error, not silent nonsense.
-- `ground_y` is currently just "wherever the entity spawned". An anchor system
-  needs a real floor concept, recomputed on `VimResized`.
-- There is **no z axis**. `z_index` is draw order only. Decide whether `z` means
-  draw order, parallax scale, or both, before adding it to the schema.
-- `path_type` today accepts only the literal string `"sine"`, hardcoded in both
-  engines. Generalise once, in a way both can share.
-- Keep the unit contract: **spawn/position in terminal cells, velocity in sprite
-  pixels per 60 FPS frame.**
-
-Also worth doing here: the Lua engine has **no quiescence check**. `ecs.rs` has
-`is_quiescent`; `engine.lua:tick` returns early only when zero entities exist, so
-a screen of sleeping cats still wakes the editor loop 30×/sec forever.
-
-## Step 4 — art
-
-Do **not** start by editing sprites. The same art exists twice — `lua/distract/sprites/*.lua`
-and `engine/src/sprites/*.rs` — with **no automated parity test** between them
-(`engine/tests/parity_dump.rs` is `#[ignore]`, a dev aid needing `DUMP_TO`).
-Build the parity harness first or the two will drift the moment either is touched.
-`future.md` §5.8 already names the tool: `validate_sprite_parity`.
-
-The art problem itself: at 24×16 the sprite is 24 columns × **8 rows**, and
-`sprite_gen.orb` spends five lighting terms (Lambert, rim, fill, specular, dither)
-across a body twelve pixels wide. At that size **silhouette is the only thing that
-reads** — the cat currently reads as a fox. Ears are 3-pixel stubs
-(`cat.lua`, `EAR_HALF = {0,1,1}`), the four legs are identical capsules, whiskers
-and muzzle are below the detail floor. Flat fills, a 1px dark contour and 2–3 tone
-bands will read better *and* collapse the highlight-group count.
-
-## Step 5 — kitty graphics backend
-
-The only route to reference-GIF fidelity in-terminal: half-blocks give exactly two
-vertical subpixels per cell. `kitty` / `ghostty` / `wezterm` are currently
-`SUBSTITUTED_ALIASES` in `init.lua` that warn and resolve to `halfblock`.
-
-**Check this before building it:** the overlay backend already decodes GIFs
-(`engine/src/asset.rs`, `load_gif`). Pointing a manifest's `spritesheet.path` at
-`assets/cat_walking_1.gif` should give reference fidelity on the overlay *today*,
-with no new backend. If that covers the goal, step 5 may be unnecessary.
+Decide whether to commit these before starting P3; `clippy.toml` in particular
+is a working gate now and should not be left dangling.
 
 ---
 
 ## Open questions for the owner
 
-1. Does GIF-on-overlay cover the fidelity goal, or is an in-terminal
-   graphics-protocol backend required?
-2. Does `z` mean draw order, parallax, or both?
+1. Does GIF-on-overlay cover the fidelity goal, or is P4's in-terminal
+   graphics-protocol backend required regardless?
+2. Should the cat's `jump` return through `on_land` instead of its 1200 ms
+   timeout? It declares `ballistic` and the transition exists; it was left
+   alone because it changes how the jump feels.
 3. Should step 4 redo the crab and sun to match, or is the cat the priority?
