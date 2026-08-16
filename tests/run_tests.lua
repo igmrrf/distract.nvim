@@ -18,6 +18,7 @@ local SPECS = {
   "tests.renderer_spec",
   "tests.engine_spec",
   "tests.backends_spec",
+  "tests.kitty_spec",
   "tests.position_spec",
   "tests.review_fixes_spec",
   "tests.transparency_spec",

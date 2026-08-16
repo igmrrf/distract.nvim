@@ -86,6 +86,10 @@ end
 ---@type table<string, fun(entity: table): DistractFrameSurface|nil>
 local BACKEND_SURFACE = {}
 
+--- What each backend has to throw away when its cached art stops being valid.
+---@type table<string, fun()>
+local BACKEND_RESET = {}
+
 --- Registers the surface provider for an in-terminal backend.
 ---
 --- The provider supplies content only. Placement, the overlay/float split and
@@ -93,14 +97,27 @@ local BACKEND_SURFACE = {}
 --- rather than reimplementing them and drifting.
 ---@param name string canonical backend name
 ---@param build_surface fun(entity: table): DistractFrameSurface|nil
-function M.register_backend(name, build_surface)
+---@param on_reset fun() drops whatever the backend cached for its frames
+function M.register_backend(name, build_surface, on_reset)
   if type(name) ~= "string" or name == "" then
     error("distract.renderer.register_backend: name must be a non-empty string")
   end
-  if type(build_surface) ~= "function" then
-    error("distract.renderer.register_backend: build_surface must be a function")
+  if type(build_surface) ~= "function" or type(on_reset) ~= "function" then
+    error("distract.renderer.register_backend: build_surface and on_reset must be functions")
   end
   BACKEND_SURFACE[name] = build_surface
+  BACKEND_RESET[name] = on_reset
+end
+
+--- Drops every backend's cached art.
+---
+--- `:colorscheme` runs `:hi clear`, which deletes the highlight groups the
+--- half-block glyphs are painted with and the groups that name kitty's images.
+--- Anything built against them has to go with them, whichever backend built it.
+function M.reset_backends()
+  for _, on_reset in pairs(BACKEND_RESET) do
+    on_reset()
+  end
 end
 
 --- Drops the cached screen map. For tests, and for anything that changes the
@@ -423,7 +440,9 @@ local function halfblock_surface(entity)
   }
 end
 
-M.register_backend("halfblock", halfblock_surface)
+M.register_backend("halfblock", halfblock_surface, function()
+  sprites.reset_cache()
+end)
 
 function M.close_window(entity_id)
   local w = active_windows[entity_id]

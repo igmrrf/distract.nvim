@@ -381,9 +381,9 @@ New ones, from P3:
    anything gravity binds, centre for anything that drifts) or to a literal
    `"bottom"` for everything? `auto` is what "constrained by what the entity can
    physically do" reads as, and it keeps the sun in the sky, but it does mean
-   the same config places two assets differently.
+   the same config places two assets differently. - Yes, assets auto would keep them based on their features.
 2. Should a manifest be able to declare its own preferred anchor, the way it
    declares `z_index` and `locomotion`? The sun wanting the top of the screen is
    a property of a sun, not of a user's configuration. Not specified, so not
-   built.
-3. `cargo audit` in CI — see the uncommitted file above.
+   built. - Yes, again.
+3. `cargo audit` in CI — see the uncommitted file above. - commit the file, its for future actions

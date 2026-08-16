@@ -39,7 +39,7 @@ vim.api.nvim_create_user_command("DistractBackend", function(opts)
   end
 end, {
   nargs = "?",
-  desc = "View or switch Distract rendering backend (halfblock, overlay)",
+  desc = "View or switch Distract rendering backend (halfblock, kitty, overlay)",
   complete = function(_, line)
     local parts = vim.split(line, "%s+")
     if #parts <= 2 then

@@ -61,9 +61,21 @@ local function backend_module(backend)
   return require("distract.engine")
 end
 
+--- Lets a backend that has to prove itself register before a name is resolved.
+---
+--- The kitty renderer only exists if the terminal answers its query, so it is
+--- asked exactly when someone requests it. A session on any other backend never
+--- sends the probe and never waits for the answer.
+local function admit_conditional_backends(requested)
+  local kitty = require("distract.kitty")
+  kitty.ensure_offered()
+  kitty.ensure_registered(requested)
+end
+
 function M.setup(opts)
   opts = opts or {}
   M.config = vim.tbl_deep_extend("force", M.config, opts)
+  admit_conditional_backends(M.config.backend)
   M.config.backend = backends.resolve(M.config.backend)
   -- `tbl_deep_extend` copies into a plain table, so re-attach the lazy loader
   -- while keeping anything the user supplied.
@@ -88,10 +100,9 @@ function M.setup(opts)
   vim.api.nvim_create_autocmd("ColorScheme", {
     group = group,
     callback = function()
-      local sprites = require("distract.terminal_sprites")
-      sprites.reset_highlights()
-      sprites.reset_cache()
+      require("distract.terminal_sprites").reset_highlights()
       local renderer = require("distract.renderer")
+      renderer.reset_backends()
       renderer.clear_all()
       renderer.refresh_highlights()
       renderer.invalidate_screen_map()
@@ -104,6 +115,7 @@ function M.get_backend()
 end
 
 function M.get_available_backends()
+  admit_conditional_backends(nil)
   return backends.names()
 end
 
@@ -118,6 +130,7 @@ end
 --- Entities do not migrate: the two backends keep separate worlds. That is
 --- reported rather than left for the user to discover.
 function M.set_backend(backend_name)
+  admit_conditional_backends(backend_name)
   local norm = backends.resolve(backend_name)
   if norm == M.config.backend then
     vim.notify(string.format("[Distract] Backend is already '%s'", norm), vim.log.levels.INFO)
