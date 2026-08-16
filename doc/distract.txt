@@ -11,8 +11,9 @@ CONTENTS                                                    *distract-contents*
     5. Commands ............................. |distract-commands|
     6. Backends ............................. |distract-backends|
        6.1 halfblock ........................ |distract-halfblock|
-       6.2 overlay .......................... |distract-overlay|
-       6.3 Capabilities ..................... |distract-capabilities|
+       6.2 kitty ............................ |distract-kitty|
+       6.3 overlay .......................... |distract-overlay|
+       6.4 Capabilities ..................... |distract-capabilities|
     7. Assets and manifests ................. |distract-manifests|
        7.1 Locomotion ....................... |distract-locomotion|
        7.2 Paths ............................ |distract-paths|
@@ -58,7 +59,7 @@ engine, or a prebuilt binary. See |distract-overlay|.
 
 >lua
     require("distract").setup({
-      backend = "halfblock",   -- "halfblock" or "overlay"
+      backend = "halfblock",   -- "halfblock", "kitty" or "overlay"
       fps = 30,                -- simulation rate
       idle_timeout_ms = 5000,  -- quiet time before an `idle` event fires
       debounce_ms = 50,        -- minimum gap between repeats of one event
@@ -123,11 +124,14 @@ Every field can be overridden for one spawn:
 anchor~
     Where an entity starts.
 
-        "auto"      Decided by what the entity can physically do: something
-                    bound by gravity starts on the floor, something that
-                    drifts starts in the middle of the screen. This is why the
-                    cat and the crab walk along the bottom while the sun does
-                    not. See |distract-locomotion|.
+        "auto"      Decided by the asset, and failing that by what the entity
+                    can physically do. An asset may declare an `anchor` of its
+                    own -- the sun declares `"top"`, because a sun belongs in
+                    the sky -- and otherwise something bound by gravity starts
+                    on the floor while something that drifts starts in the
+                    middle of the screen. This is why the cat and the crab walk
+                    along the bottom. See |distract-locomotion| and
+                    |distract-manifest-anchor|.
         "bottom"    Standing on the floor.
         "top"       At row zero. It still owns the floor it will land on, so a
                     falling entity has somewhere to land.
@@ -231,8 +235,9 @@ z~
 ==============================================================================
 6. BACKENDS                                                 *distract-backends*
 
-Two renderers are available: `halfblock` and `overlay`. Both run the same state
-machine, the same physics and the same art.
+Three renderers are available: `halfblock`, `kitty` and `overlay`. All three run
+the same state machine, the same physics and the same art, and place a sprite in
+the same cells.
 
 ------------------------------------------------------------------------------
 6.1 halfblock                                              *distract-halfblock*
@@ -246,7 +251,38 @@ supports 24-bit colour. Each entity gets its own small floating window, which is
 what lets the editor show through everywhere the sprite is not.
 
 ------------------------------------------------------------------------------
-6.2 overlay                                                  *distract-overlay*
+6.2 kitty                                                      *distract-kitty*
+
+Draws real RGBA sprites through the terminal graphics protocol, so transparency
+is per pixel rather than per half-block cell and the terminal resamples the
+image when depth calls for it.
+
+A sprite occupies exactly the cells it would in `halfblock`: 24x16 sprite
+pixels are 24 columns by 8 rows either way. The extra fidelity is inside that
+rectangle, so placement, |distract-position-ground| and |distract-units| do not
+change when you switch to it.
+
+Requirements, all of which fail closed to `halfblock`:
+
+    - A terminal that answers the protocol's `a=q` query. Confirmed against
+      kitty and Ghostty; `ghostty` and `wezterm` resolve to this backend.
+    - `termguicolors`. A placeholder cell carries its image id in its
+      foreground colour, and without truecolor Neovim rounds that id to the
+      nearest palette entry.
+
+The backend offers itself automatically when `$TERM`, `$TERM_PROGRAM` or
+`$KITTY_WINDOW_ID` already names a terminal known to support it. Being offered
+is not being selected: >vim
+    :DistractBackend kitty
+<
+Asking for it by name on any other terminal sends the query and waits up to
+200ms for an answer. A session that never asks for kitty never sends anything.
+
+Note: Ghostty answers the query but sets no `$KITTY_WINDOW_ID`, which is why
+the environment is a shortcut rather than the test.
+
+------------------------------------------------------------------------------
+6.3 overlay                                                  *distract-overlay*
 
 Runs a separate Rust process that opens a transparent, always-on-top,
 click-through window over your whole screen and draws sprites on the GPU.
@@ -293,7 +329,7 @@ fullscreen always-on-top window from swallowing every mouse click on your
 desktop, and it is not available there. Use `halfblock`, or a Wayland session.
 
 ------------------------------------------------------------------------------
-6.3 CAPABILITIES                                        *distract-capabilities*
+6.4 CAPABILITIES                                        *distract-capabilities*
 
 Not every backend can draw everything. What each one can do is a table rather
 than a set of special cases, so a feature degrades in a stated way instead of
@@ -302,6 +338,7 @@ silently doing nothing:
     backend      sprite scaling   transparency   z
     ---------    --------------   ------------   -----------------
     halfblock    no               per cell       draw order
+    kitty        yes              per pixel      draw order + parallax
     overlay      yes              per pixel      draw order + parallax
 
 `:DistractBackend` with no argument prints this for the running backend.
@@ -324,6 +361,7 @@ how it moves, and what makes it change state.
       spritesheet = {},            -- see |distract-custom-art|
       initial_state = "idle",
       z_index = 10,
+      anchor = "bottom",           -- optional, see below
       states = {
         walk = {
           animation = { frames = { 4, 5, 6, 7 }, fps = 6.0, loop_anim = true },
@@ -346,6 +384,20 @@ positions in the animation. `wrap_mode` is one of `wrap`, `bounce`, `clamp`,
 
 Transition keys: `on_event`, `on_finish`, `timeout_ms` with `on_timeout`,
 `on_edge_left`, `on_edge_right` and `on_land` (see |distract-locomotion|).
+
+                                                     *distract-manifest-anchor*
+anchor~
+    Where this asset belongs, when nothing else has said. One of `"auto"`,
+    `"bottom"`, `"top"` or `"free"`; omitting it means `"auto"`.
+
+    A property of the asset rather than of anyone's configuration, in the same
+    way `z_index` and `locomotion` are: the built-in sun declares `"top"`,
+    because a sun belongs in the sky and `omnidirectional` on its own only says
+    it is free to leave the floor.
+
+    An `anchor` in |distract-position| or on a single spawn overrides it. An
+    anchor outside the four names above is an error at spawn rather than a
+    silent fallback.
 
 ------------------------------------------------------------------------------
 7.1 Locomotion                                             *distract-locomotion*

@@ -473,6 +473,43 @@ output; `script(1)` does **not** work in a sandboxed session
 (`tcgetattr/ioctl: Operation not supported on socket`) because it needs a
 controlling terminal to inherit.
 
+### 7.6 Settled during implementation
+
+- **Every command carries `q=2` except the probe.** Without it the terminal
+  answers each transmission with an `OK`, which arrives on Neovim's stdin and
+  is read as keystrokes. § 7.2 did not mention it and the P0 spike did not hit
+  it, because a spike writing to a captured pty never reads the reply back.
+- **Deletion uses `d=I`, not the `a=d,d=i` of § 7.2.** Lowercase drops the
+  placement and leaves the pixels resident for the life of the terminal, which
+  is the leak `reset_cache` exists to prevent.
+- **Registration is conditional and atomic.** The backend joins
+  `distract.backends` and `distract.renderer` together or not at all: a name
+  the capability table offers but the renderer cannot draw is exactly the
+  "advertised without existing" failure the table was introduced to prevent.
+  It also registers itself unasked when `$TERM`/`$TERM_PROGRAM` already names a
+  confirmed terminal, because a backend that only appears once you have typed
+  its name is one nobody discovers. Being offered is not being selected.
+- **`termguicolors` is a hard requirement.** A placeholder carries its image id
+  in the cell's foreground colour, and Neovim can only set a cell's foreground
+  through a highlight group. Without truecolor the id is rounded to the nearest
+  palette entry and names a different image.
+- **A placement is keyed on its scaled cell rectangle, not just the frame.**
+  `U=1` fixes `c` and `r` at transmission, so the same art at two depths is two
+  images. Declaring `scale = true` and then drawing unscaled would leave the
+  renderer out of step with an engine that already damps a distant entity's
+  movement and measures its floor against the scaled footprint.
+- **Image ids are allocated from a pid-derived base.** Ids are terminal-wide
+  rather than per-process, so two editors in one window would otherwise
+  overwrite each other's sprites from the first frame.
+- **Transparent cells are left out of the overlay runs**, resampled from the
+  same mask as the placement. A placeholder cell replaces the editor text under
+  it, so covering the whole bounding box would blank exactly the code the
+  per-pixel alpha exists to preserve.
+- **The 297-entry diacritic table is generated, not transcribed.** It is
+  kitty's own `gen/rowcolumn-diacritics.txt`; index N *is* how the terminal is
+  told "N", so a single wrong or missing entry draws every sprite scrambled and
+  nothing else would catch it.
+
 ---
 
 ## 8. GIF support

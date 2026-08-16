@@ -1,8 +1,7 @@
 # Handoff — fidelity, transparency and kinematics work
 
 Working notes for whoever picks this up next. Rewritten 2026-08-16 against
-`main` at `fdcfc32`. The working tree is clean apart from one file, named in
-the last section.
+`main` at `3739917`. The working tree is clean.
 
 The authoritative design is
 [`docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md`](docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md).
@@ -36,18 +35,15 @@ same partition — the table maps both.
 | P1 | `dt` seam, parity harness, goldens | 3 | **done** |
 | P2 | Locomotion, capabilities, paths, `on_land`, quiescence, spawn opts | 3 | **done** |
 | P3 | Position, anchors, floor, `z`, backend capability table | 3 | **done** |
-| P4 | Kitty backend, procedural sprites | 5 | **not started** |
+| P4 | Kitty backend | 5 | **done, unverified on screen** |
 | P5 | GIF decoder, `terminal_sprites` wiring, halfblock quantiser | 5 | **not started** |
 | — | Silhouette-first art redo, quantised palette | 4 | **not started** |
-
-Step 4 (art) is independent of P3–P5 and can be done in either order, but see
-the warning under it below.
 
 ---
 
 ## Verify the current state
 
-All four gates pass on `83988a5`. Run them before and after any change.
+All four gates pass on `3739917`. Run them before and after any change.
 
 ```bash
 nvim --headless --noplugin -u tests/minimal_init.lua -l tests/run_tests.lua
@@ -65,7 +61,7 @@ stylua --check lua plugin tests
 cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
 ```
 
-Expected: **228 Lua tests**, **137 Rust tests** (128 lib + 6 headless GPU + 2
+Expected: **269 Lua tests**, **137 Rust tests** (128 lib + 6 headless GPU + 2
 parity + 1 screenshot; `parity_dump` is `#[ignore]`).
 
 Note the Lua invocation: `-l` with `--noplugin -u tests/minimal_init.lua`. The
@@ -75,6 +71,35 @@ older `-c "luafile ..."` form in previous notes fails to resolve
 `luacheck` is listed in the README as a gate but **is broken on this machine** —
 it fails to load under the installed Lua 5.5. Environment problem, not a code
 problem. CI may still run it; a green local run does not mean luacheck passed.
+
+---
+
+## The one thing P4 cannot tell you
+
+**Nobody has watched a kitty placement render.** The backend is asserted byte
+for byte — chunk boundaries, base64 payloads, diacritic encoding, `q=2` on
+every command, `d=I` on every delete, one transmission per frame however many
+entities show it — and it places through the same code path the half-block
+renderer uses, with a test for that too. None of which is the same claim as *a
+cat appears on the screen*.
+
+The three ways it can be byte-correct and still wrong, in the order worth
+checking:
+
+1. **Neovim may not emit the placeholder unchanged.** `U+10EEEE` is plane-16
+   private use; if Neovim gives it a width other than 1, or normalises the
+   combining marks, the cells arrive scrambled.
+2. **`vim.v.stderr` may interleave** with the TUI's own output under load. § 7.3
+   measured that it *reaches* the terminal, not that a 4-chunk transmission
+   survives arriving mid-frame.
+3. **The float may cover the placeholders.** Rows below the last buffer line go
+   to a float; its `Normal` has `bg = "NONE"`, but a terminal that paints its
+   own background over a graphics placement would blank the sprite there and
+   leave the buffer-overlay rows visible. A cat cut off at the waist is this.
+
+The user has Ghostty. Get a human to look at the screen: `:DistractBackend
+kitty`, then `:DistractSpawn cat`. If it draws nothing at all, the first check
+is `:set termguicolors?` — the backend declines without it and says so.
 
 ---
 
@@ -111,8 +136,7 @@ subtracting the sprite height in its own units — arithmetic written twice and
 therefore worth pinning. `spawn.parallax` is applied to the entity *after* the
 spawn, alongside the `path_phase` zeroing and for the same reason: a fixture
 describes what the engine is given, not the `position` config and backend
-capabilities that would have produced it. The half-block backend flattens every
-parallax to 1, so going through the config would test nothing.
+capabilities that would have produced it.
 
 Two fixtures deliberately avoid knife edges, and say so in their own
 `description` field so nobody "fixes" them back: `constant_velocity_wrap` uses
@@ -136,9 +160,14 @@ multiplies by `sprite_scale_x = cell_w`, `sprite_scale_y = cell_h / 2`. A
 the sprite scale — getting that wrong is exactly the `ground_y` bug fixed in
 `e70a53b`. `external.lua` owns the cells→pixels conversion at the IPC boundary.
 
+**A kitty sprite occupies the same cells a half-block one does** — W columns by
+H/2 rows. That is deliberate and load-bearing: fidelity comes from pixel density
+inside the rectangle, not a bigger rectangle, so nothing above changes when the
+backend does.
+
 ---
 
-## What P2 and P3 built (the shape P4 plugs into)
+## The shape the next backend plugs into
 
 From P2:
 
@@ -149,115 +178,75 @@ From P2:
   only** — never the step. `ecs.rs` runs `World::update` unconditionally,
   because an entity can need a boundary wrap while not moving under its own
   power. Gating the step breaks vertical wrap; there is a test for it.
-- Path primitives `linear` / `sine` / `orbital` / `lissajous` / `bezier` with
-  `physics.path_params`. Phase advances at a base rate and per-axis frequency
-  multiplies *inside* the trig term.
-- `physics.locomotion` (`grounded` / `ballistic` / `omnidirectional`), derived
-  from gravity when omitted, defaultable at manifest level.
-- `transitions.on_land`, firing when a ballistic entity crosses its floor from
-  above.
-- `manifest.capabilities.locomotion`, validated once at load by
-  `AssetManifest::validate_capabilities` and `lua/distract/locomotion.lua`.
+- Path primitives, `physics.locomotion`, `transitions.on_land`, and
+  `manifest.capabilities.locomotion` validated once at load.
 
 From P3:
 
 - `lua/distract/position.lua` — anchors, both floors, and the parallax factor.
-  The pure arithmetic (`placement`, `parallax_factor`) is separate from the
-  parts that read `vim.o` and the backend registry, so most of it is testable
-  with no editor state at all.
-- `lua/distract/backends.lua` — the capability table. `register(name, caps,
-  aliases)` is how the P4 kitty renderer joins: it registers, stops being a
-  substitution, and `supports_parallax` starts returning true for it. Nothing
-  else needs editing. `reset()` exists because the registry is process-wide and
-  a spec that registers has to put it back.
-- **Neither engine measures its own floor.** `distract.spawn` and the
-  `VimResized` / `OptionSet` / `WinScrolled` / `TextChanged` autocommands call
-  `events.sync_floor`, which measures once and pushes the same number to
-  `engine.set_ground_row` and `external.set_ground_row`. The overlay gets it as
-  `UpdateGrid.ground_y`, in pixels, on change only. Read that direction before
-  changing anything here: an engine that measures for itself is exactly how the
-  two backends drift apart.
-- With **no** floor pushed, an entity's floor is its spawn point — the
-  behaviour from before P3, and what `World::spawn` does with `ground_y: None`.
-  The parity runners rely on it: a fixture without `ground_row` must behave
-  identically on both sides.
-- Moving the floor re-seats only entities standing on the *previous* world
-  floor. A manifest floor and the anchor a jump takes are their own.
-- `z` folds into `z_index` at spawn, so the three existing sorts were left
-  alone. `parallax` multiplies the displacement — never the stored velocity,
-  which would decay to zero — and the drawn size, and therefore the footprint
-  the boundary modes and the floor measure.
-- `:DistractSpawn cat x=10 y=5 z=2 anchor=bottom flip_x=true`.
-- The cat's jump now returns through `on_land`, and a landing cancels the
-  action that launched it. Handoff question 2, answered: a timeout tuned
-  against `gravity` and `jump_impulse_y` is a number that has to be re-tuned
-  by hand whenever either moves.
+- `lua/distract/backends.lua` — the capability table.
+- **Neither engine measures its own floor.** `events.sync_floor` measures once
+  and pushes the same number to `engine.set_ground_row` and
+  `external.set_ground_row`.
+- `z` folds into `z_index` at spawn; `parallax` multiplies the displacement,
+  the drawn size, and therefore the footprint the boundary modes and the floor
+  measure.
 
-### What P3 deliberately did not do
+From P4:
 
-- **`ground = "text"` uses `screenpos` on the current window**, not the
-  renderer's screen map. The map is keyed on rows a line *starts* on and is
-  rebuilt inside the terminal draw path, which the overlay never enters; one
-  `screenpos` call on the last visible line answers the same question for both
-  backends. The § 11.4 fallback is honoured: an unmappable row falls back to
-  the screen floor.
-- **Parallax does not scale path amplitudes**, only velocity integration and
-  the sprite. The spec says "damping both `vx` and `vy`"; a path is a
-  positional override, not a velocity, so leaving it alone was the reading that
-  changed the least. Revisit if a parallaxed sine looks wrong.
-- **`engine.lua` is now 909 lines** against a 400-line cap, and `M.spawn` and
-  `M.step` are both well over the 60-line function cap. Pre-existing and
-  already logged in `REVIEW.md` § 8, but P3 made it worse rather than better.
-  Decomposing it is its own change, with characterisation tests first.
+- **`distract.renderer` owns placement; a backend owns content.**
+  `register_backend(name, build_surface, on_reset)` takes a provider returning a
+  `DistractFrameSurface`: a buffer for the float, a `runs()` thunk for the
+  overlay extmarks, a cell size, and a `key` that changes exactly when the
+  picture does. Clamping, the overlay/float split and the
+  zero-API-calls-while-stationary guard are inherited, not reimplemented. A
+  fourth in-terminal backend is one more `register_backend` call.
+- `lua/distract/screen_map.lua` — where a buffer line sits on the screen, with
+  its own cache, invalidation and version counter. Both in-terminal backends
+  consult it.
+- `lua/distract/kitty/` — `protocol` (pure escapes), `writer` (the tty, with an
+  injectable sink), `detect` (env fast path, `a=q` authority, fails closed),
+  `frames` (RGBA plus a per-cell opacity mask), `renderer` (transmit-once and
+  the surface), `diacritics` (generated data), `init` (registration).
+- An asset may declare its own `anchor`. Precedence: the spawn or config, then
+  the asset, then locomotion. The sun declares `"top"`.
+
+### What P4 deliberately did not do
+
+- **No GIF, no new art.** P4 is the transport. Whether the cat *reads* better
+  in RGBA than in half-blocks is step 4's problem, and at 24×16 the answer is
+  probably "not much" — see the art section below.
+- **No placement ids.** Each distinct scaled rectangle is transmitted as its own
+  image rather than as a second placement of one image, which would need the
+  placement id encoded in the cell's underline colour. Distinct rectangles are
+  bounded by the sprite's own size, so this does not grow without limit.
+- **`engine.lua` is still 917 lines** against a 400-line cap, with `M.spawn` and
+  `M.step` well over the 60-line function cap. Owner's call, 2026-08-16: leave
+  it until the features are in, but no *new* file may break the standards.
+  `renderer.lua` is 488, down from the 496 it started P4 at.
 
 ---
 
-## P4 — kitty graphics backend (do this next)
-
-Spec § 7. Preconditions are met: P0 answered, P3 green.
-
-Start with `backends.register("kitty", { scale = true, alpha = "pixel" },
-{ "ghostty", "wezterm" })`. That one call takes `kitty` out of the substitution
-table, makes `:DistractBackend kitty` resolve to itself, and turns parallax on
-for it — the capability plumbing is already done and has a test.
-
-The P0 spike already settled the two things that could have sunk it, and the
-answers are **not** the obvious ones:
-
-- **Write mechanism.** `nvim_list_uis()[1].chan` is an RPC channel on nvim 0.12
-  and rejects raw bytes. Use `vim.v.stderr` as the primary, `io.stdout` as
-  fallback. § 7.3 has the verified table.
-- **Detection.** ghostty answers the `a=q` graphics query but exposes no
-  `$KITTY_WINDOW_ID`, so env detection is a fast path only — `a=q` is the
-  authority. § 7.4.
-
-Placement via unicode placeholders (`U+10EEEE`, `U=1`), `f=32` raw RGBA,
-base64 chunked at 4096 with `m=1`/`m=0`, `c`/`r` for scaled placement, `z` for
-order, `a=d,d=i` to delete.
-
-**Unrun:** nobody has yet confirmed a kitty placement actually renders in a real
-ghostty window. The user has ghostty installed. Get a human to look at the
-screen once P4 draws anything.
-
-`renderer.lua` dispatches through `BACKEND_DRAW`, which currently has one entry.
-A kitty draw function registers there the same way the capabilities do.
-
----
-
-## P5 — GIF support
+## P5 — GIF support (do this next)
 
 Spec § 8. Pure-Lua GIF decoder, `terminal_sprites` wiring, halfblock palette
 quantiser.
 
-Owner's answer to question 1: **both**. GIF-on-overlay does not remove the need
-for the in-terminal graphics-protocol backend, so P4 and P5 are both in scope
-rather than alternatives.
+Owner's answer to the earlier question: **both**. GIF-on-overlay does not remove
+the need for the in-terminal graphics-protocol backend, so P4 and P5 were both
+in scope rather than alternatives.
 
-**Check this first:** the overlay backend already decodes GIFs
-(`engine/src/asset.rs`, `load_gif`). Pointing a manifest's `spritesheet.path`
-at `assets/cat_walking_1.gif` should give reference fidelity on the overlay
-*today*, with no new code. If that covers the goal for the overlay, P5's scope
-is the in-terminal backends only.
+**Check this first, before writing a decoder:** the overlay backend already
+decodes GIFs (`engine/src/asset.rs`, `load_gif`). Pointing a manifest's
+`spritesheet.path` at `assets/cat_walking_1.gif` should give reference fidelity
+on the overlay *today*, with no new code. If that covers the goal for the
+overlay, P5's scope is the in-terminal backends only.
+
+P4 changes what P5 is worth on each backend. Kitty takes RGBA per pixel, so a
+decoded GIF frame goes to it essentially unaltered — `frames.describe` is the
+only place that would need to accept a decoded frame instead of a procedural
+matrix. Half-blocks still need § 8.3's quantiser, and still land two pixel rows
+per cell.
 
 ---
 
@@ -271,10 +260,10 @@ automated parity test** between them. `engine/tests/parity_dump.rs` is
 Build an art parity harness first or the two will drift the moment either is
 touched. `future.md` § 5.8 names the tool: `validate_sprite_parity`.
 
-Owner's answer to question 3: the redo covers **every asset, existing and
-future** — not the cat alone. That makes the art-parity harness
-(`validate_sprite_parity`) a precondition rather than a nicety, since three
-assets times two implementations is six files that can drift.
+Owner's answer: the redo covers **every asset, existing and future** — not the
+cat alone. That makes the art-parity harness a precondition rather than a
+nicety, since three assets times two implementations is six files that can
+drift.
 
 The art problem itself: at 24×16 the sprite is 24 columns × **8 rows**, and
 `sprite_gen.orb` spends five lighting terms (Lambert, rim, fill, specular,
@@ -301,8 +290,6 @@ and 2–3 tone bands will read better *and* collapse the highlight-group count.
    Registering two test manifests under the same asset name lets the first
    one's `physics` fields survive into the second. Every spec that builds
    probe manifests gives each test its own `probe_N` name for this reason.
-   There is no way to *remove* a field via `setup` — which is also why
-   `capabilities` (a list) merges rather than replaces, per spec § 11.5.
 
 3. **Wall-clock `dt` in `engine.tick()`.** A tight loop of 20 ticks advances
    almost no simulated time. Use `engine.step(dt, bounds)` for anything that
@@ -313,7 +300,6 @@ and 2–3 tone bands will read better *and* collapse the highlight-group count.
    declares `capabilities` and a manifest-level `locomotion = "grounded"`, so a
    probe that orbits is *correctly* refused. Clear both fields on the probe —
    `manifest.locomotion = None; manifest.capabilities = Default::default();`.
-   This caught three of P2c's own tests when the gate landed.
 
 5. **`vim.json.encode` writes an empty Lua table as `{}`, not `[]`.**
    `path_params.points` is the first array-valued manifest field, so the Rust
@@ -322,68 +308,52 @@ and 2–3 tone bands will read better *and* collapse the highlight-group count.
 
 6. **1,909 global highlight groups** exist for the three built-in assets alone,
    created by `nvim_set_hl` and never released. Unbounded with community asset
-   packs. Step 4's quantised palette should cut this by roughly 40×.
+   packs. Step 4's quantised palette should cut this by roughly 40×. Kitty adds
+   one group per transmitted image, which is 174 for the built-ins at one depth
+   — small beside that, but it is the same unbounded shape.
 
----
-
-## Traps P3 added
-
-7. **Neither engine measures its own floor.** `events.sync_floor` measures and
-   pushes; `engine.set_ground_row` and `external.set_ground_row` receive. A
-   change that has an engine call `position.floor_row` for itself reintroduces
-   the divergence class this whole harness exists to catch. The one exception
-   is a spawn naming its own `ground`, which is asking about a surface the
-   pushed floor does not describe.
+7. **Neither engine measures its own floor.** A change that has an engine call
+   `position.floor_row` for itself reintroduces the divergence class this whole
+   harness exists to catch. The one exception is a spawn naming its own
+   `ground`, which is asking about a surface the pushed floor does not describe.
 
 8. **`engine.lua` holds `floor_row` as module state**, so a spec that spawns
    after another spec's push inherits its floor. `tests/physics_parity_spec.lua`
-   calls `set_ground_row(nil)` before every fixture for exactly this reason.
-   Any new spec that asserts on `ground_y` must do the same.
+   calls `set_ground_row(nil)` before every fixture. Any new spec that asserts
+   on `ground_y` must do the same.
 
-9. **`backends` and `position` warn once, process-wide.** `reset_warnings()`
-   and `reset()` exist for tests. A spec that counts warnings and does not
-   reset first counts zero, passes, and proves nothing.
+9. **`backends`, `position` and `distract.kitty` warn once, process-wide, and
+   the registries are process-wide too.** `reset_warnings()`, `backends.reset()`
+   and `kitty.reset()` exist for tests. A spec that registers kitty and does not
+   put it back breaks `backends_spec`, which asserts the exact backend list; a
+   spec that counts warnings without resetting counts zero, passes, and proves
+   nothing.
 
 10. **`vim.tbl_deep_extend` cannot set a field to nil**, so a placement-request
     helper built with it cannot express "no floor measured". `position_spec`
     assigns `request.floor_row = nil` after building instead.
 
----
+11. **The kitty test seam is `writer.set_writer`, and every spec that uses it
+    must put it back.** A leaked capture silently swallows every subsequent
+    escape, and nothing fails — the assertions are all on what was captured.
+    `tests/kitty_spec.lua` wraps it in `captured()` / `with_kitty()` for this
+    reason; use those rather than calling `set_writer` directly.
 
-## Uncommitted files
-
-One file is left untracked on purpose:
-
-- `engine/.github/workflows/rust-ci.yml` — **inert where it sits.** GitHub only
-  reads `.github/workflows` at the repository root, so this has never run. The
-  root `ci.yml` already gates `cargo fmt`, `cargo clippy` and `cargo test`
-  across three platforms. Its one unique step is `cargo audit` via
-  `rustsec/audit-check`, which was not folded in blind: an advisory anywhere in
-  the wgpu dependency tree would turn CI red on a change that has nothing to do
-  with it. Adding it is a deliberate decision, either as a non-blocking job or
-  after checking the tree is clean. Delete the file or fold the step in; do not
-  commit it as-is.
-
-Everything else that was dangling — the coding standards, `rustfmt.toml`, the
-reformatted `ipc.rs`, `REVIEW.md` — landed in `6370c07`.
+12. **`detect.is_available()` answers once and caches.** Headless it is always
+    false, because there is no UI to answer the query. `detect.override(true)`
+    is how a test gets past that; `detect.reset()` puts it back.
 
 ---
 
 ## Open questions for the owner
 
-All three previous questions are answered and folded into the sections above:
-P4 **and** P5 are both required, the cat's jump now returns through `on_land`,
-and the art redo covers every asset rather than the cat alone.
-
-New ones, from P3:
-
-1. Should `position.anchor` default to `"auto"` (what it does today: bottom for
-   anything gravity binds, centre for anything that drifts) or to a literal
-   `"bottom"` for everything? `auto` is what "constrained by what the entity can
-   physically do" reads as, and it keeps the sun in the sky, but it does mean
-   the same config places two assets differently. - Yes, assets auto would keep them based on their features.
-2. Should a manifest be able to declare its own preferred anchor, the way it
-   declares `z_index` and `locomotion`? The sun wanting the top of the screen is
-   a property of a sun, not of a user's configuration. Not specified, so not
-   built. - Yes, again.
-3. `cargo audit` in CI — see the uncommitted file above. - commit the file, its for future actions
+1. **Should Ghostty and kitty users get the kitty backend by default?** It
+   registers itself when the environment names a confirmed terminal, but the
+   default backend is still `halfblock` — the user has to select it. Making it
+   the default would change what existing users see on upgrade without them
+   asking. Waiting for the on-screen confirmation above before deciding.
+2. **`cargo audit` in the root CI.** `engine/.github/workflows/rust-ci.yml` is
+   committed (`460292b`) and inert where it sits: GitHub only reads
+   `.github/workflows` at the repository root. Its one step the root workflow
+   lacks is `cargo audit`. Folding it in wants a non-blocking job — an advisory
+   anywhere in the wgpu tree would otherwise redden unrelated changes.

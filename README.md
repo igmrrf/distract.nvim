@@ -16,7 +16,17 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
      buffer — where virtual text cannot be placed — fall back to a float whose
      `Normal` has no background of its own. See [Transparency](#-transparency).
    - **Zero OS window overlays**, works in any truecolor terminal emulator (Ghostty, WezTerm, Kitty, Alacritty, iTerm2, tmux, SSH).
-2. 🖥️ **`overlay` (Hardware-Accelerated GPU Window)**:
+2. 🐱 **`kitty` (Terminal Graphics Protocol)**:
+   - Real RGBA sprites with **per-pixel alpha**, drawn by the terminal itself
+     rather than approximated with half-block glyphs.
+   - Occupies exactly the same cells as `halfblock` — a 24×16 sprite is 24
+     columns by 8 rows either way. The fidelity is in the pixel density inside
+     that rectangle, not in a bigger rectangle, so placement is unchanged.
+   - Can scale a sprite, so `z` means parallax here as well as draw order.
+   - Only offered when the terminal answers the protocol's `a=q` query, and only
+     with `termguicolors` set. Anything else falls back to `halfblock`.
+   - Confirmed against Ghostty; `ghostty` and `wezterm` are aliases for it.
+3. 🖥️ **`overlay` (Hardware-Accelerated GPU Window)**:
    - Transparent, borderless, click-through wgpu desktop window.
    - Draws one instanced quad per entity from a sprite atlas uploaded once, and
      skips the frame entirely when nothing has moved, so an idle overlay costs
@@ -29,8 +39,8 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
 > **Removed:** the ASCII `float` backend. Sprites are truecolor pixel art only;
 > `backend = "float"` resolves to `halfblock` and emits a warning.
 >
-> **Not implemented:** a Kitty/Ghostty graphics-protocol backend. `backend = "kitty"`
-> (and the `ghostty` / `wezterm` aliases) also resolve to `halfblock` with a warning.
+> `backend = "kitty"` on a terminal that does not answer the graphics query also
+> resolves to `halfblock`, with a warning saying why.
 
 ---
 
@@ -95,7 +105,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   "igmrrf/distract.nvim",
   config = function()
     require("distract").setup({
-      backend = "halfblock",  -- "halfblock" (in-terminal Truecolor) or "overlay" (GPU window)
+      backend = "halfblock",  -- "halfblock" (in-terminal Truecolor), "kitty" (terminal graphics), or "overlay" (GPU window)
       idle_timeout_ms = 5000, -- Time before pets fall asleep
       debounce_ms = 50,       -- Keystroke event debounce
       position = {
@@ -117,7 +127,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 | `:DistractStart` | Start the active render engine | |
 | `:DistractStop` | Stop the render engine | |
 | `:DistractToggle` | Toggle the engine on / off | |
-| `:DistractBackend [name]` | View or switch active rendering backend | `halfblock`, `overlay` |
+| `:DistractBackend [name]` | View or switch active rendering backend | `halfblock`, `kitty`, `overlay` |
 | `:DistractSpawn [asset] [opts]` | Spawn an entity onto the screen | `cat`, `crab`, `sun`, or custom; `x=`, `y=`, `z=`, `anchor=`, `flip_x=` |
 | `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `burrow`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
 | `:DistractClear` | Clear all active entities from the screen | |
@@ -141,10 +151,12 @@ require("distract").spawn("cat", { anchor = "bottom", ground = "text" })
 :DistractSpawn sun anchor=top z=-3
 ```
 
-- **`anchor`** — `"auto"` places by what the entity can physically do: gravity
-  binds the cat and the crab to the floor, while the sun drifts wherever it is
-  put. `"bottom"`, `"top"` and `"free"` say so explicitly, and `{ x, y, z }` is
-  an exact position in terminal cells.
+- **`anchor`** — `"auto"` asks the asset first and its physics second. An asset
+  may declare an anchor of its own (the sun declares `"top"`, because a sun
+  belongs in the sky); failing that, gravity binds the cat and the crab to the
+  floor while anything omnidirectional drifts wherever it is put. `"bottom"`,
+  `"top"` and `"free"` say so explicitly and override the asset, and
+  `{ x, y, z }` is an exact position in terminal cells.
 - **`ground`** — `"screen"` is the bottom of the usable screen; `"text"` is the
   row the last line of your buffer starts on, so entities walk along the end of
   the file. A wrapped or folded last line has no addressable row, and the text
@@ -155,8 +167,9 @@ require("distract").spawn("cat", { anchor = "bottom", ground = "text" })
   is off until asked for.
 
 The half-block renderer cannot scale a sprite, so it honours draw order and
-reports once that it is ignoring parallax rather than diverging in silence.
-`:DistractBackend` prints what the running backend can do.
+reports once that it is ignoring parallax rather than diverging in silence. The
+`kitty` and `overlay` backends scale, and honour both. `:DistractBackend` prints
+what the running backend can do.
 
 ---
 
