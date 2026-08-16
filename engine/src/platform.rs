@@ -47,20 +47,22 @@ impl From<winit::error::OsError> for OverlayError {
     }
 }
 
-/// Creates a transparent, borderless, always-on-top overlay window across
-/// macOS, Linux and Windows.
+/// Describes the overlay window.
 ///
-/// Fails rather than returning a window that cannot be clicked through.
-pub fn create_overlay_window<T>(
-    target: &EventLoopWindowTarget<T>,
-    width: u32,
-    height: u32,
-) -> Result<Window, OverlayError> {
+/// `with_active(false)` is load-bearing, not cosmetic: winit's default is an
+/// active window, which on macOS is created with `makeKeyAndOrderFront` and on
+/// every platform pulls keyboard focus off whatever the user was typing into.
+/// An inactive window is ordered front instead, so the overlay appears above
+/// the editor without the editor losing focus. `ActivationPolicy::Accessory`
+/// does not cover this — it keeps the process out of the Dock and menu bar, and
+/// has no bearing on which window is key.
+fn overlay_window_builder(width: u32, height: u32) -> WindowBuilder {
     #[allow(unused_mut)]
     let mut builder = WindowBuilder::new()
         .with_title("Distract Overlay")
         .with_transparent(true)
         .with_decorations(false)
+        .with_active(false)
         .with_window_level(WindowLevel::AlwaysOnTop)
         .with_position(PhysicalPosition::new(0, 0))
         .with_inner_size(PhysicalSize::new(width, height));
@@ -75,7 +77,19 @@ pub fn create_overlay_window<T>(
             .with_fullsize_content_view(true);
     }
 
-    let window = builder.build(target)?;
+    builder
+}
+
+/// Creates a transparent, borderless, always-on-top overlay window across
+/// macOS, Linux and Windows.
+///
+/// Fails rather than returning a window that cannot be clicked through.
+pub fn create_overlay_window<T>(
+    target: &EventLoopWindowTarget<T>,
+    width: u32,
+    height: u32,
+) -> Result<Window, OverlayError> {
+    let window = overlay_window_builder(width, height).build(target)?;
 
     make_click_through(&window).map_err(OverlayError::ClickThrough)?;
     configure_layer_transparency(&window);
@@ -183,5 +197,15 @@ mod tests {
             reason: "nope".to_string(),
         });
         assert_eq!(e.to_string(), "nope");
+    }
+
+    #[test]
+    fn the_overlay_window_does_not_take_focus_when_it_appears() {
+        let described = format!("{:?}", overlay_window_builder(800, 600));
+        assert!(
+            described.contains("active: false"),
+            "an active window is made key on creation, which pulls focus off the \
+             editor and forces the user to click back into it; got {described}"
+        );
     }
 }

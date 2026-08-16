@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>distract.nvim Sprite Gallery</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:system-ui,-apple-system,sans-serif;
+padding:2rem;max-width:1200px;margin:0 auto}
+header{text-align:center;margin-bottom:2rem}
+h1{font-size:1.5rem;letter-spacing:0.04em;color:#f0f0f0}
+.subtitle{font-size:0.85rem;color:#888;margin-top:0.25rem}
+#tabs{display:flex;gap:0.5rem;justify-content:center;margin-bottom:1.5rem}
+.tab{background:#2a2a4a;border:1px solid #3a3a5a;color:#ccc;padding:0.5rem 1.25rem;
+border-radius:6px;cursor:pointer;font-size:0.9rem;transition:all 0.15s}
+.tab:hover{background:#3a3a5a}
+.tab.active{background:#4a4a7a;color:#fff;border-color:#6a6aaa}
+.panel{animation:fadeIn 0.2s ease}
+.panel[hidden]{display:none}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.controls{display:flex;gap:0.5rem;align-items:center;margin-bottom:1.25rem;
+padding:0.75rem;background:#222244;border-radius:8px}
+.controls button,.controls select{background:#3a3a5a;border:1px solid #4a4a6a;
+color:#ddd;padding:0.4rem 0.75rem;border-radius:4px;cursor:pointer;font-size:0.85rem}
+.controls button:hover,.controls select:hover{background:#4a4a7a}
+.preview-strip{display:flex;align-items:center;justify-content:center;gap:1rem;
+min-height:200px;background:#12122a;border-radius:8px;margin-bottom:1.5rem;padding:1rem}
+.preview-strip img{image-rendering:pixelated;width:192px;height:auto;
+border:2px solid #3a3a5a;border-radius:4px;background:#0a0a1a}
+.state-group{margin-bottom:1.5rem}
+.state-group h3{font-size:0.95rem;color:#aaa;margin-bottom:0.5rem;
+border-bottom:1px solid #2a2a4a;padding-bottom:0.25rem}
+.frame-grid{display:flex;flex-wrap:wrap;gap:0.75rem}
+.frame-cell{display:flex;flex-direction:column;align-items:center;gap:0.25rem;
+padding:0.5rem;background:#1e1e3a;border-radius:6px;border:2px solid transparent;
+cursor:pointer;transition:border-color 0.15s}
+.frame-cell:hover{border-color:#5a5a8a}
+.frame-cell.active{border-color:#7a7aba}
+.frame-cell img{image-rendering:pixelated;width:96px;height:auto}
+.frame-label{font-size:0.7rem;color:#666}
+</style>
+</head>
+<body>
+<header>
+<h1>distract.nvim Sprite Gallery</h1>
+<p class="subtitle">Procedurally generated assets &mdash; all states and frames</p>
+</header>
+<nav id="tabs"><button class="tab active" data-asset="cat">cat</button>
+<button class="tab" data-asset="crab">crab</button>
+<button class="tab" data-asset="sun">sun</button></nav>
+<main id="panels"><section class="panel" data-asset="cat">
+<div class="controls">
+<button class="btn-play" data-playing="false">&#9654; Play</button>
+<button class="btn-step">Step &raquo;</button>
+<select class="speed-select">
+<option value="0.5">0.5x</option>
+<option value="1" selected>1x</option>
+<option value="2">2x</option>
+</select>
+</div>
+<div class="preview-strip" data-asset="cat"></div>
+<div class="state-group">
+<h3>idle</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="cat" data-state="idle" data-frame="0">
+<img src="cat/svg/idle_0.svg" alt="cat idle frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="cat" data-state="idle" data-frame="1">
+<img src="cat/svg/idle_1.svg" alt="cat idle frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="cat" data-state="idle" data-frame="2">
+<img src="cat/svg/idle_2.svg" alt="cat idle frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="cat" data-state="idle" data-frame="3">
+<img src="cat/svg/idle_3.svg" alt="cat idle frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>walk</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="cat" data-state="walk" data-frame="0">
+<img src="cat/svg/walk_0.svg" alt="cat walk frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="cat" data-state="walk" data-frame="1">
+<img src="cat/svg/walk_1.svg" alt="cat walk frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="cat" data-state="walk" data-frame="2">
+<img src="cat/svg/walk_2.svg" alt="cat walk frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="cat" data-state="walk" data-frame="3">
+<img src="cat/svg/walk_3.svg" alt="cat walk frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>walk_fast</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="cat" data-state="walk_fast" data-frame="0">
+<img src="cat/svg/walk_fast_0.svg" alt="cat walk_fast frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="cat" data-state="walk_fast" data-frame="1">
+<img src="cat/svg/walk_fast_1.svg" alt="cat walk_fast frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="cat" data-state="walk_fast" data-frame="2">
+<img src="cat/svg/walk_fast_2.svg" alt="cat walk_fast frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="cat" data-state="walk_fast" data-frame="3">
+<img src="cat/svg/walk_fast_3.svg" alt="cat walk_fast frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>jump</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="0">
+<img src="cat/svg/jump_0.svg" alt="cat jump frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="1">
+<img src="cat/svg/jump_1.svg" alt="cat jump frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="2">
+<img src="cat/svg/jump_2.svg" alt="cat jump frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="3">
+<img src="cat/svg/jump_3.svg" alt="cat jump frame 3">
+<span class="frame-label">#3</span>
+</div><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="4">
+<img src="cat/svg/jump_4.svg" alt="cat jump frame 4">
+<span class="frame-label">#4</span>
+</div><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="5">
+<img src="cat/svg/jump_5.svg" alt="cat jump frame 5">
+<span class="frame-label">#5</span>
+</div><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="6">
+<img src="cat/svg/jump_6.svg" alt="cat jump frame 6">
+<span class="frame-label">#6</span>
+</div><div class="frame-cell" data-asset="cat" data-state="jump" data-frame="7">
+<img src="cat/svg/jump_7.svg" alt="cat jump frame 7">
+<span class="frame-label">#7</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>yawn</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="cat" data-state="yawn" data-frame="0">
+<img src="cat/svg/yawn_0.svg" alt="cat yawn frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="cat" data-state="yawn" data-frame="1">
+<img src="cat/svg/yawn_1.svg" alt="cat yawn frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="cat" data-state="yawn" data-frame="2">
+<img src="cat/svg/yawn_2.svg" alt="cat yawn frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="cat" data-state="yawn" data-frame="3">
+<img src="cat/svg/yawn_3.svg" alt="cat yawn frame 3">
+<span class="frame-label">#3</span>
+</div><div class="frame-cell" data-asset="cat" data-state="yawn" data-frame="4">
+<img src="cat/svg/yawn_4.svg" alt="cat yawn frame 4">
+<span class="frame-label">#4</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>sleep</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="cat" data-state="sleep" data-frame="0">
+<img src="cat/svg/sleep_0.svg" alt="cat sleep frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="cat" data-state="sleep" data-frame="1">
+<img src="cat/svg/sleep_1.svg" alt="cat sleep frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="cat" data-state="sleep" data-frame="2">
+<img src="cat/svg/sleep_2.svg" alt="cat sleep frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="cat" data-state="sleep" data-frame="3">
+<img src="cat/svg/sleep_3.svg" alt="cat sleep frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div></section>
+<section class="panel hidden" data-asset="crab">
+<div class="controls">
+<button class="btn-play" data-playing="false">&#9654; Play</button>
+<button class="btn-step">Step &raquo;</button>
+<select class="speed-select">
+<option value="0.5">0.5x</option>
+<option value="1" selected>1x</option>
+<option value="2">2x</option>
+</select>
+</div>
+<div class="preview-strip" data-asset="crab"></div>
+<div class="state-group">
+<h3>idle</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="crab" data-state="idle" data-frame="0">
+<img src="crab/svg/idle_0.svg" alt="crab idle frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="crab" data-state="idle" data-frame="1">
+<img src="crab/svg/idle_1.svg" alt="crab idle frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="crab" data-state="idle" data-frame="2">
+<img src="crab/svg/idle_2.svg" alt="crab idle frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="crab" data-state="idle" data-frame="3">
+<img src="crab/svg/idle_3.svg" alt="crab idle frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>walk</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="crab" data-state="walk" data-frame="0">
+<img src="crab/svg/walk_0.svg" alt="crab walk frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="crab" data-state="walk" data-frame="1">
+<img src="crab/svg/walk_1.svg" alt="crab walk frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="crab" data-state="walk" data-frame="2">
+<img src="crab/svg/walk_2.svg" alt="crab walk frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="crab" data-state="walk" data-frame="3">
+<img src="crab/svg/walk_3.svg" alt="crab walk frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>walk_fast</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="crab" data-state="walk_fast" data-frame="0">
+<img src="crab/svg/walk_fast_0.svg" alt="crab walk_fast frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="crab" data-state="walk_fast" data-frame="1">
+<img src="crab/svg/walk_fast_1.svg" alt="crab walk_fast frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="crab" data-state="walk_fast" data-frame="2">
+<img src="crab/svg/walk_fast_2.svg" alt="crab walk_fast frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="crab" data-state="walk_fast" data-frame="3">
+<img src="crab/svg/walk_fast_3.svg" alt="crab walk_fast frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>clip_claws</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="crab" data-state="clip_claws" data-frame="0">
+<img src="crab/svg/clip_claws_0.svg" alt="crab clip_claws frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="crab" data-state="clip_claws" data-frame="1">
+<img src="crab/svg/clip_claws_1.svg" alt="crab clip_claws frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="crab" data-state="clip_claws" data-frame="2">
+<img src="crab/svg/clip_claws_2.svg" alt="crab clip_claws frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="crab" data-state="clip_claws" data-frame="3">
+<img src="crab/svg/clip_claws_3.svg" alt="crab clip_claws frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>burrow</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="crab" data-state="burrow" data-frame="0">
+<img src="crab/svg/burrow_0.svg" alt="crab burrow frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="crab" data-state="burrow" data-frame="1">
+<img src="crab/svg/burrow_1.svg" alt="crab burrow frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="crab" data-state="burrow" data-frame="2">
+<img src="crab/svg/burrow_2.svg" alt="crab burrow frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="crab" data-state="burrow" data-frame="3">
+<img src="crab/svg/burrow_3.svg" alt="crab burrow frame 3">
+<span class="frame-label">#3</span>
+</div><div class="frame-cell" data-asset="crab" data-state="burrow" data-frame="4">
+<img src="crab/svg/burrow_4.svg" alt="crab burrow frame 4">
+<span class="frame-label">#4</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>sleep</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="crab" data-state="sleep" data-frame="0">
+<img src="crab/svg/sleep_0.svg" alt="crab sleep frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="crab" data-state="sleep" data-frame="1">
+<img src="crab/svg/sleep_1.svg" alt="crab sleep frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="crab" data-state="sleep" data-frame="2">
+<img src="crab/svg/sleep_2.svg" alt="crab sleep frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="crab" data-state="sleep" data-frame="3">
+<img src="crab/svg/sleep_3.svg" alt="crab sleep frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div></section>
+<section class="panel hidden" data-asset="sun">
+<div class="controls">
+<button class="btn-play" data-playing="false">&#9654; Play</button>
+<button class="btn-step">Step &raquo;</button>
+<select class="speed-select">
+<option value="0.5">0.5x</option>
+<option value="1" selected>1x</option>
+<option value="2">2x</option>
+</select>
+</div>
+<div class="preview-strip" data-asset="sun"></div>
+<div class="state-group">
+<h3>shining</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="sun" data-state="shining" data-frame="0">
+<img src="sun/svg/shining_0.svg" alt="sun shining frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="sun" data-state="shining" data-frame="1">
+<img src="sun/svg/shining_1.svg" alt="sun shining frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="sun" data-state="shining" data-frame="2">
+<img src="sun/svg/shining_2.svg" alt="sun shining frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="sun" data-state="shining" data-frame="3">
+<img src="sun/svg/shining_3.svg" alt="sun shining frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>eclipse</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="sun" data-state="eclipse" data-frame="0">
+<img src="sun/svg/eclipse_0.svg" alt="sun eclipse frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="sun" data-state="eclipse" data-frame="1">
+<img src="sun/svg/eclipse_1.svg" alt="sun eclipse frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="sun" data-state="eclipse" data-frame="2">
+<img src="sun/svg/eclipse_2.svg" alt="sun eclipse frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="sun" data-state="eclipse" data-frame="3">
+<img src="sun/svg/eclipse_3.svg" alt="sun eclipse frame 3">
+<span class="frame-label">#3</span>
+</div><div class="frame-cell" data-asset="sun" data-state="eclipse" data-frame="4">
+<img src="sun/svg/eclipse_4.svg" alt="sun eclipse frame 4">
+<span class="frame-label">#4</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>flare</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="sun" data-state="flare" data-frame="0">
+<img src="sun/svg/flare_0.svg" alt="sun flare frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="sun" data-state="flare" data-frame="1">
+<img src="sun/svg/flare_1.svg" alt="sun flare frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="sun" data-state="flare" data-frame="2">
+<img src="sun/svg/flare_2.svg" alt="sun flare frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="sun" data-state="flare" data-frame="3">
+<img src="sun/svg/flare_3.svg" alt="sun flare frame 3">
+<span class="frame-label">#3</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>rising</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="sun" data-state="rising" data-frame="0">
+<img src="sun/svg/rising_0.svg" alt="sun rising frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="sun" data-state="rising" data-frame="1">
+<img src="sun/svg/rising_1.svg" alt="sun rising frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="sun" data-state="rising" data-frame="2">
+<img src="sun/svg/rising_2.svg" alt="sun rising frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="sun" data-state="rising" data-frame="3">
+<img src="sun/svg/rising_3.svg" alt="sun rising frame 3">
+<span class="frame-label">#3</span>
+</div><div class="frame-cell" data-asset="sun" data-state="rising" data-frame="4">
+<img src="sun/svg/rising_4.svg" alt="sun rising frame 4">
+<span class="frame-label">#4</span>
+</div><div class="frame-cell" data-asset="sun" data-state="rising" data-frame="5">
+<img src="sun/svg/rising_5.svg" alt="sun rising frame 5">
+<span class="frame-label">#5</span>
+</div></div>
+</div>
+<div class="state-group">
+<h3>setting</h3>
+<div class="frame-grid"><div class="frame-cell" data-asset="sun" data-state="setting" data-frame="0">
+<img src="sun/svg/setting_0.svg" alt="sun setting frame 0">
+<span class="frame-label">#0</span>
+</div><div class="frame-cell" data-asset="sun" data-state="setting" data-frame="1">
+<img src="sun/svg/setting_1.svg" alt="sun setting frame 1">
+<span class="frame-label">#1</span>
+</div><div class="frame-cell" data-asset="sun" data-state="setting" data-frame="2">
+<img src="sun/svg/setting_2.svg" alt="sun setting frame 2">
+<span class="frame-label">#2</span>
+</div><div class="frame-cell" data-asset="sun" data-state="setting" data-frame="3">
+<img src="sun/svg/setting_3.svg" alt="sun setting frame 3">
+<span class="frame-label">#3</span>
+</div><div class="frame-cell" data-asset="sun" data-state="setting" data-frame="4">
+<img src="sun/svg/setting_4.svg" alt="sun setting frame 4">
+<span class="frame-label">#4</span>
+</div><div class="frame-cell" data-asset="sun" data-state="setting" data-frame="5">
+<img src="sun/svg/setting_5.svg" alt="sun setting frame 5">
+<span class="frame-label">#5</span>
+</div></div>
+</div></section></main>
+<script>
+const MANIFEST = {
+  "cat": {
+    "height": 16,
+    "states": {
+      "idle": [
+        "idle_0",
+        "idle_1",
+        "idle_2",
+        "idle_3"
+      ],
+      "jump": [
+        "jump_0",
+        "jump_1",
+        "jump_2",
+        "jump_3",
+        "jump_4",
+        "jump_5",
+        "jump_6",
+        "jump_7"
+      ],
+      "sleep": [
+        "sleep_0",
+        "sleep_1",
+        "sleep_2",
+        "sleep_3"
+      ],
+      "walk": [
+        "walk_0",
+        "walk_1",
+        "walk_2",
+        "walk_3"
+      ],
+      "walk_fast": [
+        "walk_fast_0",
+        "walk_fast_1",
+        "walk_fast_2",
+        "walk_fast_3"
+      ],
+      "yawn": [
+        "yawn_0",
+        "yawn_1",
+        "yawn_2",
+        "yawn_3",
+        "yawn_4"
+      ]
+    },
+    "total_frames": 29,
+    "width": 24
+  },
+  "crab": {
+    "height": 16,
+    "states": {
+      "burrow": [
+        "burrow_0",
+        "burrow_1",
+        "burrow_2",
+        "burrow_3",
+        "burrow_4"
+      ],
+      "clip_claws": [
+        "clip_claws_0",
+        "clip_claws_1",
+        "clip_claws_2",
+        "clip_claws_3"
+      ],
+      "idle": [
+        "idle_0",
+        "idle_1",
+        "idle_2",
+        "idle_3"
+      ],
+      "sleep": [
+        "sleep_0",
+        "sleep_1",
+        "sleep_2",
+        "sleep_3"
+      ],
+      "walk": [
+        "walk_0",
+        "walk_1",
+        "walk_2",
+        "walk_3"
+      ],
+      "walk_fast": [
+        "walk_fast_0",
+        "walk_fast_1",
+        "walk_fast_2",
+        "walk_fast_3"
+      ]
+    },
+    "total_frames": 25,
+    "width": 24
+  },
+  "sun": {
+    "height": 16,
+    "states": {
+      "eclipse": [
+        "eclipse_0",
+        "eclipse_1",
+        "eclipse_2",
+        "eclipse_3",
+        "eclipse_4"
+      ],
+      "flare": [
+        "flare_0",
+        "flare_1",
+        "flare_2",
+        "flare_3"
+      ],
+      "rising": [
+        "rising_0",
+        "rising_1",
+        "rising_2",
+        "rising_3",
+        "rising_4",
+        "rising_5"
+      ],
+      "setting": [
+        "setting_0",
+        "setting_1",
+        "setting_2",
+        "setting_3",
+        "setting_4",
+        "setting_5"
+      ],
+      "shining": [
+        "shining_0",
+        "shining_1",
+        "shining_2",
+        "shining_3"
+      ]
+    },
+    "total_frames": 25,
+    "width": 16
+  }
+};
+
+(function(){
+  const tabs = document.querySelectorAll('.tab');
+  const panels = document.querySelectorAll('.panel');
+
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){t.classList.remove('active')});
+      panels.forEach(function(p){p.hidden = true});
+      tab.classList.add('active');
+      var target = tab.getAttribute('data-asset');
+      document.querySelector('.panel[data-asset="'+target+'"]').hidden = false;
+    });
+  });
+
+  panels.forEach(function(panel){
+    var asset = panel.getAttribute('data-asset');
+    var strip = panel.querySelector('.preview-strip');
+    var playBtn = panel.querySelector('.btn-play');
+    var stepBtn = panel.querySelector('.btn-step');
+    var speedSel = panel.querySelector('.speed-select');
+    var cells = panel.querySelectorAll('.frame-cell');
+    var frames = [];
+    var currentIndex = 0;
+    var intervalId = null;
+
+    cells.forEach(function(cell){
+      frames.push(cell.querySelector('img').src);
+    });
+
+    function showFrame(idx){
+      currentIndex = idx % frames.length;
+      strip.innerHTML = '<img src="'+frames[currentIndex]+'" alt="preview">';
+      cells.forEach(function(c,ci){
+        c.classList.toggle('active', ci === currentIndex);
+      });
+    }
+
+    cells.forEach(function(cell, ci){
+      cell.addEventListener('click', function(){
+        stopAnim();
+        showFrame(ci);
+      });
+    });
+
+    function stopAnim(){
+      if(intervalId){clearInterval(intervalId);intervalId=null;}
+      playBtn.innerHTML = '&#9654; Play';
+      playBtn.setAttribute('data-playing','false');
+    }
+
+    function startAnim(){
+      var speed = parseFloat(speedSel.value);
+      var ms = Math.round(200 / speed);
+      intervalId = setInterval(function(){
+        showFrame(currentIndex + 1);
+      }, ms);
+      playBtn.innerHTML = '&#9646;&#9646; Pause';
+      playBtn.setAttribute('data-playing','true');
+    }
+
+    playBtn.addEventListener('click', function(){
+      if(playBtn.getAttribute('data-playing') === 'true'){
+        stopAnim();
+      } else {
+        startAnim();
+      }
+    });
+
+    stepBtn.addEventListener('click', function(){
+      stopAnim();
+      showFrame(currentIndex + 1);
+    });
+
+    speedSel.addEventListener('change', function(){
+      if(playBtn.getAttribute('data-playing') === 'true'){
+        stopAnim();
+        startAnim();
+      }
+    });
+
+    if(frames.length > 0) showFrame(0);
+  });
+})();
+
+</script>
+</body>
+</html>

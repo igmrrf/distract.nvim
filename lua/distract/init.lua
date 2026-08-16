@@ -7,7 +7,7 @@ local position = require("distract.position")
 --- load: each one pulls in its sprite module for the frame layout, and eagerly
 --- loading all three used to be paid on every Neovim start whether or not
 --- anything was ever spawned.
-local BUILTIN_ASSETS = { "cat", "crab", "sun" }
+local BUILTIN_ASSETS = { "cat", "crab", "sun", "cat_walking" }
 
 --- Loads a built-in manifest, or nil if there is no such asset.
 local function load_builtin_manifest(name)
@@ -169,7 +169,8 @@ function M.set_backend(backend_name)
     M.start()
     vim.notify(
       string.format(
-        "[Distract] Switched backend to '%s' and restarted. Entities do not carry over; spawn again with :DistractSpawn.",
+        "[Distract] Switched backend to '%s' and restarted. "
+          .. "Entities do not carry over; spawn again with :DistractSpawn.",
         norm
       ),
       vim.log.levels.INFO

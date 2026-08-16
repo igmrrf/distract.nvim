@@ -8,20 +8,32 @@
 use std::f32::consts::PI;
 
 use super::SpriteSet;
-use crate::sprite_gen::{self as g, Canvas, LimbOpts, OrbOpts, Rgb};
+use crate::sprite_gen::{self as g, Canvas, CelOrbOpts, Rgb};
 
 const W: u32 = 24;
 const H: u32 = 16;
 
-const FUR: Rgb = [236, 142, 56];
-const FUR_DARK: Rgb = [176, 92, 28];
-const BELLY: Rgb = [252, 226, 196];
-const PAW: Rgb = [250, 244, 236];
-const NOSE: Rgb = [255, 154, 176];
-const EYE: Rgb = [38, 34, 46];
-const EYE_LIT: Rgb = [126, 232, 214];
-const ZZZ: Rgb = [186, 214, 255];
-const MOUTH: Rgb = [122, 46, 62];
+const FUR: Rgb = [238, 142, 54];
+const FUR_DARK: Rgb = [164, 76, 24];
+const FUR_LIGHT: Rgb = [255, 186, 92];
+const FUR_SPEC: Rgb = [255, 214, 140];
+const CONTOUR: Rgb = [54, 28, 22];
+const BELLY: Rgb = [254, 246, 238];
+const BELLY_DARK: Rgb = [218, 202, 190];
+const BELLY_SHADOW: Rgb = [184, 168, 156];
+const PAW: Rgb = [255, 255, 255];
+const PAW_SHADOW: Rgb = [204, 196, 192];
+const NOSE: Rgb = [255, 140, 160];
+const EAR_INNER: Rgb = [255, 172, 188];
+const EAR_SHADOW: Rgb = [216, 128, 144];
+const EAR_LIGHT: Rgb = [255, 204, 216];
+const EYE: Rgb = [28, 24, 36];
+const EYE_LIT: Rgb = [64, 224, 172];
+const WHITE: Rgb = [255, 255, 255];
+const MOUTH: Rgb = [188, 54, 72];
+const MOUTH_DARK: Rgb = [132, 28, 44];
+const ZZZ: Rgb = [176, 212, 255];
+const ZZZ_FADE: Rgb = [140, 180, 235];
 
 /// One cat pose.
 #[derive(Debug, Clone, Copy)]
@@ -62,225 +74,220 @@ impl Default for Pose {
     }
 }
 
-pub fn draw(p: &Pose) -> Canvas {
-    let mut c = Canvas::new(W, H);
-
-    // Ground line drops as the body lifts; curling flattens the whole silhouette.
-    let base_y = 12.0 - p.lift * 3.0 + p.curl * 1.5;
-    let body_cx = 10.0 + p.stretch * 0.8;
-    let body_cy = base_y - 2.6 + p.curl * 1.2;
-    let body_rx = 6.0 + p.stretch * 1.4 + p.curl * 1.0;
-    let body_ry = 3.4 - p.stretch * 0.5 - p.curl * 0.7;
-
-    // Tail: sweeps back from the hip and curls upward. The horizontal reach is
-    // kept strictly leftward so the tail always clears the body silhouette
-    // instead of curling back inside it.
+fn draw_tail(c: &mut Canvas, body_cx: f32, body_cy: f32, body_rx: f32, curl: f32, tail: f32) {
     let tail_base_x = body_cx - body_rx + 0.8;
-    let tail_opts = OrbOpts {
-        ambient: Some(0.42),
-        rim: Some(0.20),
-        specular: Some(0.12),
+    let opts = CelOrbOpts {
+        shadow: Some(CONTOUR),
+        highlight: Some(FUR),
+        outline: Some(CONTOUR),
+        outline_threshold: Some(0.82),
         ..Default::default()
     };
     for i in 1..=6 {
         let t = i as f32 / 6.0;
-        let curve = (0.55 + p.tail * 0.45) * t * t;
-        let tx = tail_base_x - t * (4.2 - p.curl * 1.6);
-        let ty = body_cy - curve * (4.4 - p.curl * 2.6) + p.curl * 0.8;
-        let r = 1.45 - t * 0.6;
-        c.orb(tx, ty, r, r, FUR_DARK, &tail_opts);
+        let curve = (0.55 + tail * 0.45) * t * t;
+        let tx = tail_base_x - t * (4.2 - curl * 1.6);
+        let ty = body_cy - curve * (4.4 - curl * 2.6) + curl * 0.8;
+        c.cel_orb(tx, ty, 1.45 - t * 0.6, 1.45 - t * 0.6, FUR_DARK, &opts);
     }
+}
 
-    // Legs: two pairs in counter-phase, so the gait reads as a four-beat walk.
-    if p.curl < 0.6 {
-        for (hip_x, phase) in [
-            (body_cx - 3.2, 0.5),
-            (body_cx + 3.0, 0.0),
-            (body_cx - 1.6, 0.0),
-            (body_cx + 4.4, 0.5),
-        ] {
-            let swing = ((p.leg + phase) * 2.0 * PI).sin();
-            let knee_x = hip_x + swing * (1.6 + p.stretch * 1.4);
-            let foot_y = base_y + 2.4 - p.lift * 1.2 - p.curl * 2.2;
-            let lifted =
-                ((p.leg + phase) * 2.0 * PI + PI / 2.0).sin().max(0.0) * (0.9 + p.stretch * 0.8);
-            c.limb_with(
-                hip_x,
-                body_cy + body_ry * 0.6,
-                knee_x,
-                foot_y - lifted,
-                1.35,
-                FUR,
-                &LimbOpts::default(),
-            );
-            c.orb(
-                knee_x,
-                foot_y - lifted,
-                1.5,
-                1.1,
-                PAW,
-                &OrbOpts {
-                    ambient: Some(0.58),
-                    rim: Some(0.20),
-                    specular: Some(0.16),
-                    ..Default::default()
-                },
-            );
-        }
+fn draw_legs(c: &mut Canvas, body_cx: f32, body_cy: f32, body_ry: f32, base_y: f32, p: &Pose) {
+    if p.curl >= 0.6 {
+        return;
     }
-
-    // Body, then a lighter belly band to suggest a second surface.
-    c.orb(
-        body_cx,
-        body_cy,
-        body_rx,
-        body_ry,
-        FUR,
-        &OrbOpts {
-            ambient: Some(0.36),
-            rim: Some(0.26),
-            ..Default::default()
-        },
-    );
-    c.orb(
-        body_cx + 0.4,
-        body_cy + body_ry * 0.45,
-        body_rx * 0.68,
-        body_ry * 0.44,
-        BELLY,
-        &OrbOpts {
-            ambient: Some(0.52),
-            rim: Some(0.10),
-            specular: Some(0.14),
-            ..Default::default()
-        },
-    );
-
-    // Head sits forward of and above the body. It is deliberately smaller than
-    // the body and lifted clear of it, otherwise the two orbs merge into one
-    // loaf-shaped silhouette with no readable neck.
-    let head_cx = body_cx + body_rx * 0.92 + p.stretch * 1.0;
-    let head_cy = body_cy - 3.4 + p.head_dip * 1.6 + p.curl * 2.0;
-    let head_r = 2.9;
-
-    // Ears: triangles that taper to a point at the top and sit *on* the skull.
-    // The run widens as it descends -- widening upward would render a solid slab
-    // across the head -- and the base overlaps the head orb, because a gap there
-    // makes the pair read as antlers rather than ears.
-    const EAR_HALF: [i32; 3] = [0, 1, 1];
-    for (ex, lean) in [(head_cx - 1.6, -1.0f32), (head_cx + 1.6, 1.0)] {
-        for row in 0..3i32 {
-            let half = EAR_HALF[row as usize];
-            for dx in -half..=half {
-                c.set(
-                    ex + dx as f32 + lean * (2 - row) as f32 * 0.35,
-                    head_cy - head_r - 1.1 + row as f32,
-                    g::shade(FUR_DARK, -0.18 + row as f32 * 0.14),
-                );
-            }
-            if row == 2 {
-                c.set(ex, head_cy - head_r - 1.1 + row as f32, NOSE);
-            }
-        }
+    let leg_opts = CelOrbOpts {
+        shadow: Some(FUR_DARK),
+        highlight: Some(FUR_LIGHT),
+        outline: Some(CONTOUR),
+        ..Default::default()
+    };
+    let paw_opts = CelOrbOpts {
+        shadow: Some(PAW_SHADOW),
+        highlight: Some(WHITE),
+        outline: Some(CONTOUR),
+        ..Default::default()
+    };
+    for (hip_x, phase) in [
+        (body_cx - 3.2, 0.5),
+        (body_cx + 3.0, 0.0),
+        (body_cx - 1.6, 0.0),
+        (body_cx + 4.4, 0.5),
+    ] {
+        let swing = ((p.leg + phase) * 2.0 * PI).sin();
+        let knee_x = hip_x + swing * (1.6 + p.stretch * 1.4);
+        let foot_y = base_y + 2.4 - p.lift * 1.2 - p.curl * 2.2;
+        let lifted =
+            (((p.leg + phase) * 2.0 * PI + PI / 2.0).sin().max(0.0)) * (0.9 + p.stretch * 0.8);
+        c.cel_limb(
+            [hip_x, body_cy + body_ry * 0.6],
+            [knee_x, foot_y - lifted],
+            1.35,
+            FUR,
+            &leg_opts,
+        );
+        c.cel_orb(knee_x, foot_y - lifted, 1.5, 1.1, PAW, &paw_opts);
     }
+}
 
-    c.orb(
-        head_cx,
-        head_cy,
-        head_r,
-        head_r * 0.94,
-        FUR,
-        &OrbOpts {
-            ambient: Some(0.38),
-            rim: Some(0.30),
-            fill: Some(0.16),
-            dither: Some(0.08),
-            ..Default::default()
-        },
-    );
-    // Muzzle
-    c.orb(
-        head_cx + 1.1,
-        head_cy + 1.3,
-        1.7,
-        1.1,
-        BELLY,
-        &OrbOpts {
-            ambient: Some(0.56),
-            rim: Some(0.14),
-            specular: Some(0.20),
-            fill: Some(0.12),
-            ..Default::default()
-        },
-    );
+fn draw_ears(c: &mut Canvas, head_cx: f32, head_cy: f32, head_r: f32, stretch: f32, mouth: f32) {
+    let lean = -stretch * 0.3 + mouth * 0.2;
+    for (ex, side) in [(head_cx - 1.8, -1.0_f32), (head_cx + 1.6, 1.0_f32)] {
+        let top_x = ex + side * 0.6 + lean * 1.2;
+        let top_y = head_cy - head_r - 2.2;
+        c.triangle(
+            [ex - 1.2, head_cy - head_r + 0.4],
+            [ex + 1.2, head_cy - head_r + 0.4],
+            [top_x, top_y],
+            CONTOUR,
+        );
+        c.triangle(
+            [ex - 0.8, head_cy - head_r + 0.2],
+            [ex + 0.8, head_cy - head_r + 0.2],
+            [top_x, top_y + 0.4],
+            FUR,
+        );
+        c.triangle(
+            [ex - 0.4, head_cy - head_r],
+            [ex + 0.4, head_cy - head_r],
+            [top_x, top_y + 0.8],
+            EAR_INNER,
+        );
+        c.set(ex, head_cy - head_r + 0.3, EAR_SHADOW);
+        c.set(ex + side * 0.3, top_y + 0.6, EAR_LIGHT);
+    }
+}
 
-    // Eyes: animated with catchlight and pupil
+fn draw_head(c: &mut Canvas, head_cx: f32, head_cy: f32, head_r: f32, p: &Pose) {
+    draw_ears(c, head_cx, head_cy, head_r, p.stretch, p.mouth);
+    let head_opts = CelOrbOpts {
+        shadow: Some(FUR_DARK),
+        highlight: Some(FUR_LIGHT),
+        outline: Some(CONTOUR),
+        rim: Some(0.2),
+        rim_color: Some(FUR_SPEC),
+        ..Default::default()
+    };
+    c.cel_orb(head_cx, head_cy, head_r, head_r * 0.94, FUR, &head_opts);
+    let belly_opts = CelOrbOpts {
+        shadow: Some(BELLY_DARK),
+        highlight: Some(WHITE),
+        outline: Some(CONTOUR),
+        ..Default::default()
+    };
+    c.cel_orb(head_cx + 1.1, head_cy + 1.3, 1.7, 1.1, BELLY, &belly_opts);
+    c.set(head_cx + 0.8, head_cy + 1.6, BELLY_SHADOW);
     for ex in [head_cx - 1.1, head_cx + 1.7] {
-        if p.eye > 0.25 {
+        if p.eye > 0.3 {
             c.set(ex, head_cy - 0.5, EYE);
-            c.set(ex, head_cy - 1.5, if p.eye > 0.7 { EYE_LIT } else { EYE });
-            if p.eye > 0.7 {
-                c.set(ex + 0.5, head_cy - 1.5, [255, 255, 255]);
-            }
+            c.set(ex, head_cy - 1.5, EYE_LIT);
+            c.set(ex + 0.5, head_cy - 1.5, WHITE);
         } else {
-            c.line(
-                ex - 1.0,
-                head_cy - 0.8,
-                ex + 1.0,
-                head_cy - 0.8,
-                g::shade(FUR_DARK, -0.40),
-            );
+            c.line(ex - 1.0, head_cy - 0.8, ex + 1.0, head_cy - 0.8, CONTOUR);
         }
     }
-
-    // Nose, and a mouth that opens for the yawn.
     c.set(head_cx + 1.1, head_cy + 0.7, NOSE);
-
-    // Whiskers: delicate vector whiskers extending from muzzle
     if p.curl < 0.6 {
-        let wcolor = g::shade(BELLY, 0.15);
         c.line(
             head_cx + 2.2,
             head_cy + 0.9,
             head_cx + 4.6,
             head_cy + 0.4,
-            wcolor,
+            BELLY_DARK,
         );
         c.line(
             head_cx + 2.2,
             head_cy + 1.5,
             head_cx + 4.6,
             head_cy + 2.0,
-            wcolor,
+            BELLY_DARK,
         );
     }
-
-    // Threshold kept low so the mouth shrinks out of existence rather than
-    // popping off in one frame.
     if p.mouth > 0.04 {
         c.ellipse(
             head_cx + 1.2,
             head_cy + 1.7 + p.mouth * 0.5,
-            0.6 + p.mouth * 0.8,
-            0.4 + p.mouth * 1.0,
+            0.8 + p.mouth * 0.8,
+            0.5 + p.mouth * 1.0,
             MOUTH,
         );
+        c.set(head_cx + 1.2, head_cy + 1.8 + p.mouth * 0.5, MOUTH_DARK);
     }
+}
 
-    // Sleep marks drift up and to the right as they fade in. The rise is scaled
-    // so each frame of the sleep cycle moves them a whole pixel; a smaller step
-    // would round two neighbouring frames to identical art.
-    if p.zzz > 0.05 {
-        let rise = (p.zzz * 4.0).floor();
-        for i in 0..3 {
-            let size = (3 - i) as f32;
-            let zy = head_cy - head_r - 2.0 - (i * 2) as f32 + rise;
-            let zx = head_cx + 3.0 + i as f32;
-            let tone = g::shade(ZZZ, -0.12 * i as f32);
-            c.line(zx, zy, zx + size, zy, tone);
-            c.line(zx + size, zy, zx, zy + size, tone);
-            c.line(zx, zy + size, zx + size, zy + size, tone);
-        }
+fn draw_sleep(c: &mut Canvas, head_cx: f32, head_cy: f32, zzz: f32) {
+    if zzz <= 0.05 {
+        return;
+    }
+    let rise = (zzz * 4.0).floor() as i32;
+    for i in 0..=1 {
+        let size = 2 - i;
+        let zy = head_cy as i32 - 3 - i * 2 + rise;
+        let zx = head_cx as i32 + 3 + i + (rise as f32 * 0.5) as i32;
+        let tone = if i == 0 { ZZZ } else { ZZZ_FADE };
+        c.line(zx as f32, zy as f32, (zx + size) as f32, zy as f32, tone);
+        c.line(
+            (zx + size) as f32,
+            zy as f32,
+            zx as f32,
+            (zy + size) as f32,
+            tone,
+        );
+        c.line(
+            zx as f32,
+            (zy + size) as f32,
+            (zx + size) as f32,
+            (zy + size) as f32,
+            tone,
+        );
+    }
+}
+
+pub fn draw(p: &Pose) -> Canvas {
+    let mut c = Canvas::new(W, H);
+    let base_y = 12.0 - p.lift * 3.0 + p.curl * 1.5;
+    let body_cx = 10.0 + p.stretch * 0.8;
+    let body_cy = base_y - 2.6 + p.curl * 1.2;
+    let body_rx = 6.0 + p.stretch * 1.4 + p.curl * 1.0;
+    let body_ry = 3.4 - p.stretch * 0.5 - p.curl * 0.7;
+
+    draw_tail(&mut c, body_cx, body_cy, body_rx, p.curl, p.tail);
+    draw_legs(&mut c, body_cx, body_cy, body_ry, base_y, p);
+
+    let body_opts = CelOrbOpts {
+        shadow: Some(FUR_DARK),
+        highlight: Some(FUR_LIGHT),
+        outline: Some(CONTOUR),
+        rim: Some(0.25),
+        rim_color: Some(FUR_SPEC),
+        ..Default::default()
+    };
+    c.cel_orb(body_cx, body_cy, body_rx, body_ry, FUR, &body_opts);
+    let bib_opts = CelOrbOpts {
+        shadow: Some(BELLY_DARK),
+        highlight: Some(WHITE),
+        outline: Some(CONTOUR),
+        ..Default::default()
+    };
+    c.cel_orb(
+        body_cx + 0.4,
+        body_cy + body_ry * 0.45,
+        body_rx * 0.68,
+        body_ry * 0.44,
+        BELLY,
+        &bib_opts,
+    );
+    c.set(body_cx + 0.2, body_cy + body_ry * 0.8, BELLY_SHADOW);
+    c.set(body_cx - 1.0, body_cy - body_ry + 0.8, FUR_SPEC);
+    c.set(body_cx, body_cy - body_ry + 0.6, WHITE);
+
+    let head_cx = body_cx + body_rx * 0.92 + p.stretch * 1.0;
+    let head_cy = body_cy - 3.4 + p.head_dip * 1.6 + p.curl * 2.0;
+    let head_r = 2.9;
+
+    draw_head(&mut c, head_cx, head_cy, head_r, p);
+    if p.curl >= 0.6 {
+        draw_sleep(&mut c, head_cx, head_cy, p.zzz);
     }
 
     c
@@ -288,20 +295,17 @@ pub fn draw(p: &Pose) -> Canvas {
 
 pub fn build() -> SpriteSet {
     let mut set = SpriteSet::new(W, H);
-
-    // Idle: slow breathing, a gentle tail sway, blinking held open.
     set.add(
         "idle",
         g::cycle(4, |t| Pose {
             lift: 0.04 + 0.04 * (t * 2.0 * PI).sin(),
             tail: (t * 2.0 * PI).sin() * 0.8,
             head_dip: 0.10 * (t * 2.0 * PI).sin(),
+            eye: 1.0,
             ..Default::default()
         }),
         draw,
     );
-
-    // Walk: four-beat gait with a slight body bob.
     set.add(
         "walk",
         g::cycle(4, |t| Pose {
@@ -309,12 +313,11 @@ pub fn build() -> SpriteSet {
             lift: 0.10 + 0.08 * (t * 2.0 * PI).sin().abs(),
             stretch: 0.12,
             tail: (t * 2.0 * PI).sin() * 0.6,
+            eye: 1.0,
             ..Default::default()
         }),
         draw,
     );
-
-    // Sprint: body lower and longer, legs reaching further, tail streamed back.
     set.add(
         "walk_fast",
         g::cycle(4, |t| Pose {
@@ -323,18 +326,15 @@ pub fn build() -> SpriteSet {
             stretch: 0.85,
             head_dip: 0.30,
             tail: 0.9 - 0.25 * (t * 2.0 * PI).sin(),
+            eye: 1.0,
             ..Default::default()
         }),
         draw,
     );
-
-    // Jump: crouch, launch, apex, fall, land. The crouch decays smoothly into
-    // the sine arc rather than switching over at a threshold, which would put a
-    // jump cut between the first two frames.
     set.add(
         "jump",
         g::sequence(8, |t| {
-            let crouch = (1.0f32 - t / 0.34).max(0.0).powi(2);
+            let crouch = (1.0 - t / 0.34).max(0.0).powi(2);
             let arc = (((t - 0.12) / 0.88).max(0.0) * PI).sin();
             Pose {
                 lift: arc - crouch * 0.26,
@@ -342,25 +342,17 @@ pub fn build() -> SpriteSet {
                 leg: 0.25 + arc * 0.2,
                 head_dip: 0.22 * crouch - 0.45 * arc,
                 tail: -0.5 + arc * 1.2,
+                eye: 1.0,
                 ..Default::default()
             }
         }),
         draw,
     );
-
-    // Yawn: mouth opens and closes while the eyes squeeze shut. The mouth arc
-    // alone returns to the same value on the way down as on the way up, which
-    // would make two frames identical, so the head tips and the tail sweeps
-    // monotonically through the whole yawn to keep every frame distinct.
     set.add(
         "yawn",
         g::sequence(5, |t| {
             let open = (g::ease(t) * PI).sin();
             Pose {
-                // A yawn is a whole-body stretch, not just a mouth. Moving the
-                // body too keeps every frame doing something; with only the
-                // mouth animating, the frame where it finally shuts is the one
-                // big change in an otherwise static run and reads as a cut.
                 lift: 0.06 + 0.30 * open,
                 stretch: 0.34 * open,
                 leg: 0.12 * open,
@@ -373,8 +365,6 @@ pub fn build() -> SpriteSet {
         }),
         draw,
     );
-
-    // Sleep: curled, breathing, with Zzz drifting upward.
     set.add(
         "sleep",
         g::cycle(4, |t| Pose {
@@ -388,7 +378,6 @@ pub fn build() -> SpriteSet {
         }),
         draw,
     );
-
     set
 }
 
@@ -400,28 +389,29 @@ mod tests {
     fn declares_every_state_the_manifest_uses() {
         let set = build();
         for state in ["idle", "walk", "walk_fast", "jump", "yawn", "sleep"] {
-            assert!(set.layout.contains_key(state), "missing state {}", state);
+            assert!(
+                set.layout.contains_key(state),
+                "cat layout is missing state '{state}'"
+            );
         }
     }
 
     #[test]
-    fn sleeping_and_idle_draw_different_art() {
-        // The exact failure the port exists to remove: on the old four-frame
-        // overlay set these two states could resolve to the same picture.
-        let set = build();
-        let idle = &set.frames[set.layout["idle"][0]];
-        let sleep = &set.frames[set.layout["sleep"][0]];
-        assert_ne!(idle, sleep);
+    fn shut_eyes_change_the_sleeping_frame() {
+        let awake = draw(&Pose::default());
+        let asleep = draw(&Pose {
+            curl: 1.0,
+            eye: 0.0,
+            ..Default::default()
+        });
+        assert_ne!(awake.to_image().as_raw(), asleep.to_image().as_raw());
     }
 
     #[test]
-    fn shut_eyes_change_the_sleeping_frame() {
-        let open = draw(&Pose::default()).to_image();
-        let shut = draw(&Pose {
-            eye: 0.0,
-            ..Default::default()
-        })
-        .to_image();
-        assert_ne!(open, shut);
+    fn sleeping_and_idle_draw_different_art() {
+        let set = build();
+        let idle_first = &set.frames[set.layout["idle"][0]];
+        let sleep_first = &set.frames[set.layout["sleep"][0]];
+        assert_ne!(idle_first.as_raw(), sleep_first.as_raw());
     }
 }

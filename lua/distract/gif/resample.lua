@@ -5,70 +5,90 @@
 --- sprite pixel is one cell wide and half a cell tall on every backend. So the
 --- canvas is resampled here rather than drawn at its own size.
 ---
---- The filter is an area average, which is what keeps a shrunk sprite from
---- flickering: nearest-neighbour picks one source pixel per cell, so a frame
---- that moves by a pixel changes colour discontinuously.
+--- The filter is a true area average: each source pixel contributes only the
+--- fraction of its area that actually falls inside the target cell, not a
+--- flat 1/n share. That is what keeps a shrunk sprite from flickering or
+--- popping at cell boundaries the way nearest-neighbour or unweighted
+--- integer-range averaging would.
 
 local M = {}
 
---- Alpha is per source pixel, not per average: a cell over the edge of a sprite
---- covers both drawn and undrawn pixels, and averaging the drawn ones alone
---- keeps the edge colour true instead of dragging it towards black.
-local OPAQUE_COVERAGE_THRESHOLD = 0.5
+--- Alpha is weighted by covered *area*, not by opaque pixel count: a cell
+--- straddling a sprite's edge is mostly transparent by area even when most of
+--- the source pixels it touches are opaque slivers, so the bar sits lower than
+--- a naive per-pixel-count threshold would need. Below this fraction of
+--- covered weight the cell renders fully transparent rather than blending
+--- toward whatever colour happens to be under the edge.
+local OPAQUE_COVERAGE_THRESHOLD = 0.35
 
-local function source_range(target_index, target_size, source_size)
-  local from = math.floor(target_index * source_size / target_size)
-  local to = math.floor((target_index + 1) * source_size / target_size) - 1
-  if to < from then
-    to = from
-  end
-  return from, math.min(to, source_size - 1)
+local function compute_bounds(target_index, target_size, source_size)
+  local start_pos = target_index * source_size / target_size
+  local end_pos = (target_index + 1) * source_size / target_size
+  local first_idx = math.floor(start_pos)
+  local last_idx = math.min(math.floor(end_pos), source_size - 1)
+  return start_pos, end_pos, first_idx, last_idx
 end
 
---- Area-averages `canvas` down (or up) to `target_width` x `target_height`.
+local function accumulate_cell(canvas, source, bounds)
+  local start_x, end_x, first_x, last_x =
+    bounds.start_x, bounds.end_x, bounds.first_x, bounds.last_x
+  local start_y, end_y, first_y, last_y =
+    bounds.start_y, bounds.end_y, bounds.first_y, bounds.last_y
+  local total_red, total_green, total_blue, covered_weight, total_weight = 0, 0, 0, 0, 0
+
+  for source_row = first_y, last_y do
+    local y_weight = math.min(end_y, source_row + 1) - math.max(start_y, source_row)
+    local row_offset = source_row * source.width
+    for source_col = first_x, last_x do
+      local x_weight = math.min(end_x, source_col + 1) - math.max(start_x, source_col)
+      local pixel_weight = y_weight * x_weight
+      local pixel_idx = row_offset + source_col + 1
+      total_weight = total_weight + pixel_weight
+      if canvas.opaque[pixel_idx] then
+        covered_weight = covered_weight + pixel_weight
+        total_red = total_red + canvas.red[pixel_idx] * pixel_weight
+        total_green = total_green + canvas.green[pixel_idx] * pixel_weight
+        total_blue = total_blue + canvas.blue[pixel_idx] * pixel_weight
+      end
+    end
+  end
+
+  if total_weight > 0 and (covered_weight / total_weight) >= OPAQUE_COVERAGE_THRESHOLD then
+    return {
+      math.floor(total_red / covered_weight + 0.5),
+      math.floor(total_green / covered_weight + 0.5),
+      math.floor(total_blue / covered_weight + 0.5),
+    }
+  end
+  return false
+end
+
+--- Area-averages `canvas` down (or up) to `target.width` x `target.height`.
 ---@param canvas table `{ red, green, blue, opaque }`, flat and 1-based
 ---@param source table `{ width, height }`
 ---@param target table `{ width, height }`
 ---@return table<integer, table<integer, integer[]|false>> rows 1-based `[row][col]`
 function M.to_matrix(canvas, source, target)
   local rows = {}
-
   for target_row = 0, target.height - 1 do
-    local first_row, last_row = source_range(target_row, target.height, source.height)
+    local start_y, end_y, first_y, last_y = compute_bounds(target_row, target.height, source.height)
     local row = {}
-
     for target_col = 0, target.width - 1 do
-      local first_col, last_col = source_range(target_col, target.width, source.width)
-      local red, green, blue, covered, total = 0, 0, 0, 0, 0
-
-      for source_row = first_row, last_row do
-        local base = source_row * source.width
-        for source_col = first_col, last_col do
-          local index = base + source_col + 1
-          total = total + 1
-          if canvas.opaque[index] then
-            covered = covered + 1
-            red = red + canvas.red[index]
-            green = green + canvas.green[index]
-            blue = blue + canvas.blue[index]
-          end
-        end
-      end
-
-      if total > 0 and covered / total >= OPAQUE_COVERAGE_THRESHOLD then
-        row[target_col + 1] = {
-          math.floor(red / covered + 0.5),
-          math.floor(green / covered + 0.5),
-          math.floor(blue / covered + 0.5),
-        }
-      else
-        row[target_col + 1] = false
-      end
+      local start_x, end_x, first_x, last_x = compute_bounds(target_col, target.width, source.width)
+      local bounds = {
+        start_x = start_x,
+        end_x = end_x,
+        first_x = first_x,
+        last_x = last_x,
+        start_y = start_y,
+        end_y = end_y,
+        first_y = first_y,
+        last_y = last_y,
+      }
+      row[target_col + 1] = accumulate_cell(canvas, source, bounds)
     end
-
     rows[target_row + 1] = row
   end
-
   return rows
 end
 
