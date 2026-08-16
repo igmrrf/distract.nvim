@@ -396,3 +396,39 @@ For context — details in `CHANGELOG.md`.
 | Compositor | Out-of-range frame indices silently drew nothing; now wrap |
 | CI | Lua suite exited 0 on failure and hung headless Neovim on a failed report |
 | Cleanup | Removed dead `lua/distract/pets/cat.lua` |
+
+---
+
+## 8. Rule Violations (Pending)
+
+A recent review against the universal coding standards in `GEMINI.md` has identified several non-compliant areas across the codebase that need to be addressed:
+
+### S3 — Strict Size Caps Exceeded
+**Rule:** File <= 400 lines.
+Many core files are significantly over the size limit and require modular decomposition:
+- `engine/src/ecs.rs` (1348 lines)
+- `engine/src/manifest.rs` (1155 lines)
+- `lua/distract/engine.lua` (782 lines)
+- `engine/src/gpu.rs` (775 lines)
+- `engine/src/asset.rs` (539 lines)
+- `lua/distract/terminal_sprites.lua` (506 lines)
+- `engine/src/sprite_gen.rs` (499 lines)
+- `lua/distract/renderer.lua` (496 lines)
+
+### S3 — Zero Explanatory Comments
+**Rule:** No explanatory comments in implementation bodies. Document the "why", never the "what".
+The codebase uses explanatory inline comments extensively (e.g. `engine/src/asset.rs`, `lua/distract/engine.lua`). Code structure and naming should convey intent instead.
+
+### S2 — Swallowed Errors
+**Rule:** Never silently swallow errors or use empty catches.
+There are unhandled `pcall` operations throughout the Lua codebase that drop potential error values, for example:
+- `lua/distract/external.lua` (unhandled job stop and anonymous functions)
+- `lua/distract/renderer.lua` (unhandled API calls for extmarks and window cursor)
+
+### S3 — Single-Letter Names
+**Rule:** Variables must have descriptive names; no single-letter names except for strict math coordinates.
+While some single letters (`x`, `y`, `r`, `t`) are allowed in mathematical coordinates contexts, there are many variables violating this rule elsewhere:
+- `local p = phys.path_params or {}` in `lua/distract/engine.lua`
+- `let e = &world.entities[0];` in `engine/src/ecs.rs`
+- `local w = active_windows[entity_id]` in `lua/distract/renderer.lua`
+- `local c = g.canvas(W, H)` in `lua/distract/sprites/cat.lua`

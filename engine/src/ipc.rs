@@ -230,14 +230,18 @@ mod tests {
         assert!(line.contains(r#""status":"action_triggered""#));
 
         let resp_despawned = IpcResponse::Despawned { id: 1 };
-        assert!(resp_despawned
-            .to_json_line()
-            .contains(r#""status":"despawned""#));
+        assert!(
+            resp_despawned
+                .to_json_line()
+                .contains(r#""status":"despawned""#)
+        );
 
         let resp_cleared = IpcResponse::Cleared;
-        assert!(resp_cleared
-            .to_json_line()
-            .contains(r#""status":"cleared""#));
+        assert!(
+            resp_cleared
+                .to_json_line()
+                .contains(r#""status":"cleared""#)
+        );
 
         let resp_pong = IpcResponse::Pong;
         assert!(resp_pong.to_json_line().contains(r#""status":"pong""#));

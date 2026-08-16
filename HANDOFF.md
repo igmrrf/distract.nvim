@@ -305,15 +305,15 @@ commits, which touched only their own files:
 - `REVIEW.md` (modified)
 
 Decide whether to commit these before starting P3; `clippy.toml` in particular
-is a working gate now and should not be left dangling.
+is a working gate now and should not be left dangling. - review and commit
 
 ---
 
 ## Open questions for the owner
 
 1. Does GIF-on-overlay cover the fidelity goal, or is P4's in-terminal
-   graphics-protocol backend required regardless?
+   graphics-protocol backend required regardless? - both.
 2. Should the cat's `jump` return through `on_land` instead of its 1200 ms
    timeout? It declares `ballistic` and the transition exists; it was left
-   alone because it changes how the jump feels.
-3. Should step 4 redo the crab and sun to match, or is the cat the priority?
+   alone because it changes how the jump feels. - your decision for which gives points towards the goal.
+3. Should step 4 redo the crab and sun to match, or is the cat the priority? - The idea is for any existing and future assets
