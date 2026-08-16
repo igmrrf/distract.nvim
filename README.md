@@ -1,5 +1,7 @@
 # distract.nvim 🐾✨
 
+[Distract.nvim]("https://media.githubusercontent.com/media/igmrrf/distract.nvim/refs/heads/main/distract.gif)
+
 A high-performance, data-driven rendering engine for **Neovim** and terminal environments capable of rendering smooth, animated entities and environmental concepts with custom capabilities and state machines.
 
 ---
