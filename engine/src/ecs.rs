@@ -1,6 +1,6 @@
 use crate::asset::AssetManager;
 use crate::ipc::EntitySummary;
-use crate::manifest::{AssetManifest, WrapMode};
+use crate::manifest::{AssetManifest, PhysicsConfig, WrapMode};
 
 /// Default terminal cell size in physical pixels.
 ///
@@ -56,6 +56,10 @@ pub struct Entity {
     pub frame_timer: f32,
     pub animation_finished: bool,
     pub is_active: bool,
+    /// Where a path primitive anchors its x axis: the spawn point, re-taken on
+    /// every state change. `base_y` has always existed for `sine`; the paths
+    /// that write x need the other half of the same idea.
+    pub base_x: f32,
     pub base_y: f32,
     pub ground_y: f32,
     pub path_phase: f32,
@@ -94,6 +98,7 @@ impl Entity {
             frame_timer: 0.0,
             animation_finished: false,
             is_active: true,
+            base_x: x,
             base_y: y,
             ground_y: y,
             path_phase: 0.0,
@@ -112,6 +117,7 @@ impl Entity {
             self.frame_idx = 0;
             self.frame_timer = 0.0;
             self.animation_finished = false;
+            self.base_x = self.x;
             self.base_y = self.y;
             self.path_phase = 0.0;
         }
@@ -142,6 +148,71 @@ impl Entity {
         }
         self.heading_x = if dx > 0.0 { 1.0 } else { -1.0 };
         self.flip_x = self.heading_x < 0.0;
+    }
+}
+
+/// A cubic Bezier evaluated at `t`, in sprite pixels relative to the anchor.
+fn cubic_bezier(points: &[[f32; 2]], t: f32) -> (f32, f32) {
+    let u = 1.0 - t;
+    let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+    (
+        a * points[0][0] + b * points[1][0] + c * points[2][0] + d * points[3][0],
+        a * points[0][1] + b * points[1][1] + c * points[2][1] + d * points[3][1],
+    )
+}
+
+/// Applies a path primitive's positional override in place.
+///
+/// The phase advances at a base rate and per-axis frequency multiplies *inside*
+/// the trigonometric term. Folding frequency into the advance instead would
+/// double-apply it on `lissajous`, where the two axes must run at different
+/// rates against one shared phase. With `freq` defaulting to 1 and the
+/// `path_frequency -> freq_y` alias, `sine` evaluates exactly what it always
+/// did.
+fn apply_path(
+    entity: &mut Entity,
+    path_type: &str,
+    phys: &PhysicsConfig,
+    dt: f32,
+    scale_x: f32,
+    scale_y: f32,
+) {
+    // `linear` is pure velocity integration, which already happened.
+    if path_type == "linear" {
+        return;
+    }
+
+    let p = phys.resolved_path();
+    entity.path_phase += dt * p.freq;
+    let phase = entity.path_phase;
+
+    match path_type {
+        "sine" => {
+            entity.y = entity.base_y + (p.freq_y * phase).sin() * p.amp_y * scale_y;
+        }
+        "orbital" => {
+            entity.x = entity.base_x + (p.freq_x * phase).cos() * p.amp_x * scale_x;
+            entity.y = entity.base_y + (p.freq_y * phase).sin() * p.amp_y * scale_y;
+        }
+        "lissajous" => {
+            entity.x = entity.base_x + (p.freq_x * phase + p.phase_delta).sin() * p.amp_x * scale_x;
+            entity.y = entity.base_y + (p.freq_y * phase).sin() * p.amp_y * scale_y;
+        }
+        "bezier" => {
+            let Some(points) = phys.path_params.as_ref().and_then(|pp| pp.points.as_ref()) else {
+                return;
+            };
+            if points.len() < 4 {
+                return;
+            }
+            // Wrapped rather than clamped, so the curve loops instead of
+            // running off its last control point and staying there.
+            let (ox, oy) = cubic_bezier(points, phase.rem_euclid(1.0));
+            entity.x = entity.base_x + ox * scale_x;
+            entity.y = entity.base_y + oy * scale_y;
+        }
+        // An unrecognised path is velocity integration, same as `linear`.
+        _ => {}
     }
 }
 
@@ -532,22 +603,21 @@ impl World {
                 } else {
                     entity.vy += (entity.target_vy - entity.vy) * lerp_factor;
                     entity.vy += phys.accel_y * step;
-                    // Pathing calculations
-                    if let Some(ref path_type) = phys.path_type {
-                        if path_type == "sine" {
-                            let amp = phys.path_amplitude.unwrap_or(4.0) * scale_y;
-                            let freq = phys.path_frequency.unwrap_or(2.0);
-                            entity.path_phase += dt * freq;
-                            entity.y = entity.base_y + entity.path_phase.sin() * amp;
-                        } else {
-                            entity.y += entity.vy * py;
-                        }
-                    } else {
-                        entity.y += entity.vy * py;
-                    }
+                    entity.y += entity.vy * py;
                 }
 
                 entity.x += entity.vx * px;
+
+                // A path is a positional *override*, applied after integration
+                // so it replaces the velocity result on the axes it owns and
+                // leaves the others alone. Gravity is excluded: a path that
+                // writes y fights the floor, which is what the locomotion
+                // classes exist to keep apart.
+                if phys.gravity <= 0.0 {
+                    if let Some(ref path_type) = phys.path_type {
+                        apply_path(entity, path_type, phys, dt, scale_x, scale_y);
+                    }
+                }
 
                 // 5. Boundary checking
                 match phys.wrap_mode {
@@ -672,7 +742,14 @@ impl World {
             if state.transitions.timeout_ms.is_some() {
                 return false;
             }
-            if state.physics.path_type.is_some() {
+            // `linear` is the exception: it overrides no position, so it
+            // produces no picture that velocity alone would not.
+            if state
+                .physics
+                .path_type
+                .as_deref()
+                .is_some_and(|p| p != "linear")
+            {
                 return false;
             }
             true
@@ -683,6 +760,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manifest::{PathParams, PhysicsConfig};
 
     fn plain(event: &str) -> EventContext {
         let _ = event;
@@ -1106,5 +1184,165 @@ mod tests {
         let a = Rng::new(1).next_u64();
         let b = Rng::new(2).next_u64();
         assert_ne!(a, b);
+    }
+
+    /// One entity whose only state runs `physics`, at one pixel per cell.
+    ///
+    /// The scale is 1:1 so the assertions below can be written in manifest
+    /// units and read as the arithmetic they are.
+    fn path_world(physics: PhysicsConfig) -> World {
+        let mut world = World::new(800.0, 600.0);
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "pathprobe".to_string();
+        manifest.initial_state = "idle".to_string();
+        if let Some(state) = manifest.states.get_mut("idle") {
+            state.animation.frames = vec![0];
+            state.physics = physics;
+            state.transitions = Default::default();
+        }
+
+        world
+            .spawn("pathprobe", Some(manifest), Some(100.0), Some(200.0), None)
+            .expect("path probe spawns");
+        // Spawn desynchronises entities with a random phase, which is right for
+        // two suns on screen and fatal for an analytic assertion.
+        world.entities[0].path_phase = 0.0;
+        world
+    }
+
+    // `freq = 0` pins the phase where the test put it, so each assertion below
+    // is the path equation evaluated by hand rather than wherever the
+    // integrator happened to arrive.
+
+    #[test]
+    fn an_orbital_path_drives_the_x_axis_too() {
+        let mut world = path_world(PhysicsConfig {
+            path_type: Some("orbital".to_string()),
+            path_params: Some(PathParams {
+                freq: Some(0.0),
+                amp_x: Some(12.0),
+                amp_y: Some(5.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        world.update(0.1);
+
+        let e = &world.entities[0];
+        assert!(
+            (e.x - 112.0).abs() < 1e-4,
+            "orbital must move x: cos(0) * 12 from base_x 100, got {}",
+            e.x
+        );
+        assert!(
+            (e.y - 200.0).abs() < 1e-4,
+            "orbital y at phase 0 sits on base_y, got {}",
+            e.y
+        );
+    }
+
+    #[test]
+    fn a_lissajous_path_offsets_x_by_its_phase_delta() {
+        let mut world = path_world(PhysicsConfig {
+            path_type: Some("lissajous".to_string()),
+            path_params: Some(PathParams {
+                freq: Some(0.0),
+                amp_x: Some(10.0),
+                amp_y: Some(4.0),
+                phase_delta: Some(std::f32::consts::FRAC_PI_2),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        world.update(0.1);
+
+        let e = &world.entities[0];
+        assert!(
+            (e.x - 110.0).abs() < 1e-4,
+            "sin(0 + pi/2) * 10 from base_x 100, got {}",
+            e.x
+        );
+        assert!(
+            (e.y - 200.0).abs() < 1e-4,
+            "phase_delta is an x-axis offset only, got y {}",
+            e.y
+        );
+    }
+
+    #[test]
+    fn a_bezier_path_starts_on_its_first_control_point() {
+        let mut world = path_world(PhysicsConfig {
+            path_type: Some("bezier".to_string()),
+            path_params: Some(PathParams {
+                freq: Some(0.0),
+                points: Some(vec![[10.0, 20.0], [30.0, 0.0], [50.0, 40.0], [70.0, 5.0]]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        world.update(0.1);
+
+        let e = &world.entities[0];
+        assert!(
+            (e.x - 110.0).abs() < 1e-4,
+            "a cubic at t=0 is its first control point, got x {}",
+            e.x
+        );
+        assert!(
+            (e.y - 220.0).abs() < 1e-4,
+            "control points are relative to the spawn position, got y {}",
+            e.y
+        );
+    }
+
+    #[test]
+    fn the_legacy_sine_fields_describe_the_same_curve_as_path_params() {
+        let mut legacy = path_world(PhysicsConfig {
+            path_type: Some("sine".to_string()),
+            path_amplitude: Some(15.0),
+            path_frequency: Some(2.0),
+            ..Default::default()
+        });
+        let mut modern = path_world(PhysicsConfig {
+            path_type: Some("sine".to_string()),
+            path_params: Some(PathParams {
+                amp_y: Some(15.0),
+                freq_y: Some(2.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        for _ in 0..20 {
+            legacy.update(0.05);
+            modern.update(0.05);
+        }
+
+        assert!(
+            (legacy.entities[0].y - 200.0).abs() > 1e-3,
+            "the fixture has to actually be moving for this to mean anything"
+        );
+        assert!(
+            (legacy.entities[0].y - modern.entities[0].y).abs() < 1e-5,
+            "path_amplitude/path_frequency must alias amp_y/freq_y exactly, \
+             got {} vs {}",
+            legacy.entities[0].y,
+            modern.entities[0].y
+        );
+    }
+
+    #[test]
+    fn a_linear_path_does_not_by_itself_keep_the_world_awake() {
+        let world = path_world(PhysicsConfig {
+            path_type: Some("linear".to_string()),
+            ..Default::default()
+        });
+        assert!(
+            world.is_quiescent(),
+            "`linear` overrides no position, so it produces no new pictures"
+        );
     }
 }

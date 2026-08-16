@@ -220,6 +220,39 @@ Anything past `linear` and `sine` writes `x` directly, which fights a floor.
 Non-`linear`/`sine` paths therefore require `omnidirectional`, enforced by the
 same load-time gate as § 4.
 
+### 3.3 Resolved defaults
+
+Settled during implementation, and shared by one function per engine
+(`PhysicsConfig::resolved_path`, `resolved_path` in `engine.lua`) so the two
+cannot drift:
+
+| field | default |
+|---|---|
+| `freq` | `1.0` |
+| `freq_y` | `path_frequency`, else `2.0` |
+| `freq_x` | `freq_y` |
+| `amp_y` | `path_amplitude`, else `4.0` |
+| `amp_x` | `amp_y` |
+| `phase_delta` | `0.0` |
+
+The x axis defaults to the y axis so a bare `orbital` is a circle rather than a
+flat line.
+
+Three further points the design left open:
+
+- **`linear` does not block quiescence.** Every other `path_type` keeps
+  producing new pictures forever, so `is_quiescent` treats a path as motion.
+  `linear` names the *absence* of an override, so it is exempt on both engines.
+- **A path is applied after integration, not instead of it.** The override
+  replaces the velocity result on the axes it owns and leaves the others alone,
+  which is what lets `orbital` own both axes while `sine` owns one. This
+  reproduces the old `sine` numbers exactly — the existing goldens did not move.
+- **`points` accepts `{}` as well as `[]`.** `vim.json.encode` writes an empty
+  Lua table as an object, and `points` is the first array-valued field a
+  manifest can carry. Both engines ignore a list too short to draw with, so
+  rejecting the encoding would have made one manifest parse in the terminal and
+  fail on the overlay. A *keyed* table is still an error.
+
 ---
 
 ## 4. Capability gating

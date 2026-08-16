@@ -12,8 +12,9 @@ CONTENTS                                                    *distract-contents*
        6.1 halfblock ........................ |distract-halfblock|
        6.2 overlay .......................... |distract-overlay|
     7. Assets and manifests ................. |distract-manifests|
-       7.1 Units ............................ |distract-units|
-       7.2 Custom art ....................... |distract-custom-art|
+       7.1 Paths ............................ |distract-paths|
+       7.2 Units ............................ |distract-units|
+       7.3 Custom art ....................... |distract-custom-art|
     8. Events ............................... |distract-events|
     9. Troubleshooting ...................... |distract-troubleshooting|
    10. Lua API .............................. |distract-api|
@@ -102,8 +103,14 @@ assets~
 :DistractToggle         Start if stopped, stop if running.
 
                                                                 *:DistractSpawn*
-:DistractSpawn [asset]  Spawn an entity. Defaults to `cat`. Completes on the
-                        available asset names.
+:DistractSpawn [asset] [opts]
+                        Spawn an entity. Defaults to `cat`. Completes on the
+                        available asset names. `opts` are `key=value` pairs:
+                        `x=`, `y=` (terminal cells) and `flip_x=true|false`.
+                        An unrecognised option is reported and skipped; the
+                        entity still spawns. >
+                            :DistractSpawn crab x=10 y=5 flip_x=true
+<
 
                                                                *:DistractAction*
 :DistractAction {action} [target]
@@ -227,7 +234,48 @@ positions in the animation. `wrap_mode` is one of `wrap`, `bounce`, `clamp`,
 `despawn` or `none`.
 
 ------------------------------------------------------------------------------
-7.1 Units                                                       *distract-units*
+7.1 Paths                                                       *distract-paths*
+
+`physics.path_type` overrides position on top of the velocity integration,
+relative to where the entity was when it entered the state. One of: >
+    linear      no override at all; velocity alone (the default behaviour)
+    sine        y = base_y + sin(freq_y*phase) * amp_y
+    orbital     x = base_x + cos(freq_x*phase) * amp_x
+                y = base_y + sin(freq_y*phase) * amp_y
+    lissajous   x = base_x + sin(freq_x*phase + phase_delta) * amp_x
+                y = base_y + sin(freq_y*phase) * amp_y
+    bezier      cubic over `points`, phase looping over [0,1]
+<
+Parameters live in `physics.path_params`: >lua
+    physics = {
+      path_type = "lissajous",
+      path_params = {
+        freq = 1.2,         -- phase advance, radians per second (default 1)
+        freq_x = 3.0,       -- x multiplier inside the term (default: freq_y)
+        freq_y = 2.0,       -- y multiplier inside the term (default 2)
+        amp_x = 20.0,       -- sprite pixels (default: amp_y)
+        amp_y = 10.0,       -- sprite pixels (default 4)
+        phase_delta = 0.78, -- radians, `lissajous` x axis only
+        points = {          -- `bezier` only: four {x, y} control points,
+          { 0, 0 },         -- in sprite pixels relative to the spawn point
+          { 20, -18 },
+          { 40, 18 },
+          { 55, 2 },
+        },
+      },
+    }
+<
+One phase drives every axis, and per-axis frequency multiplies inside the
+trigonometric term rather than in the phase advance — otherwise `lissajous`,
+whose whole point is two axes at different rates, would apply its frequency
+twice.
+
+A path is skipped entirely when `gravity` is set: an override that writes `y`
+fights the floor. `path_amplitude` and `path_frequency` are the older names for
+`amp_y` and `freq_y` and still work.
+
+------------------------------------------------------------------------------
+7.2 Units                                                       *distract-units*
 
 Positions and velocities are in *sprite pixels*, and velocities are per frame at
 60 FPS. One sprite pixel is one terminal cell wide and half a terminal cell
@@ -241,7 +289,7 @@ multiplies by its pixels-per-sprite-pixel scale (see |distract-cell-size|).
 sprite pixels and defaults to 4.
 
 ------------------------------------------------------------------------------
-7.2 Custom art                                              *distract-custom-art*
+7.3 Custom art                                              *distract-custom-art*
 
 Set `spritesheet.path` to use your own image instead of the generated sprites: >lua
     spritesheet = {

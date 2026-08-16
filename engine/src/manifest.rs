@@ -171,10 +171,104 @@ pub struct PhysicsConfig {
     pub friction: f32,
     #[serde(default)]
     pub wrap_mode: WrapMode,
-    /// Special pathing type: e.g. "arc", "sine", "wander"
+    /// Positional override applied on top of velocity integration.
+    ///
+    /// One of `linear`, `sine`, `orbital`, `lissajous`, `bezier`. Anything else
+    /// is treated as `linear`.
     pub path_type: Option<String>,
+    /// Legacy alias for `path_params.amp_y`.
     pub path_amplitude: Option<f32>,
+    /// Legacy alias for `path_params.freq_y`.
     pub path_frequency: Option<f32>,
+    #[serde(default)]
+    pub path_params: Option<PathParams>,
+}
+
+/// Parameters for the path primitives selected by `path_type`.
+///
+/// Amplitudes are in sprite pixels, like every other distance in a manifest;
+/// frequencies are dimensionless multipliers on one shared phase.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PathParams {
+    /// Rate the shared phase advances at, in radians per second.
+    pub freq: Option<f32>,
+    pub freq_x: Option<f32>,
+    pub freq_y: Option<f32>,
+    pub amp_x: Option<f32>,
+    pub amp_y: Option<f32>,
+    /// Phase offset applied to the x axis of a `lissajous` path.
+    pub phase_delta: Option<f32>,
+    /// Four cubic control points, in sprite pixels relative to the spawn point.
+    #[serde(default, deserialize_with = "points_allowing_empty_table")]
+    pub points: Option<Vec<[f32; 2]>>,
+}
+
+/// Reads a control-point list, accepting `{}` as well as `[]`.
+///
+/// `vim.json.encode` writes an empty Lua table as `{}`, and `points` is the
+/// first array-valued field a manifest can carry. The engines both ignore a
+/// list too short to draw with, so rejecting the encoding outright would make
+/// one manifest parse in the terminal and fail on the overlay. A *keyed* table
+/// is still an error: that is a mistake, not an empty path.
+fn points_allowing_empty_table<'de, D>(d: D) -> Result<Option<Vec<[f32; 2]>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Points {
+        List(Vec<[f32; 2]>),
+        Table(HashMap<String, serde::de::IgnoredAny>),
+    }
+
+    match Option::<Points>::deserialize(d)? {
+        None => Ok(None),
+        Some(Points::List(points)) => Ok(Some(points)),
+        Some(Points::Table(table)) if table.is_empty() => Ok(Some(Vec::new())),
+        Some(Points::Table(_)) => Err(serde::de::Error::custom(
+            "path_params.points must be a list of [x, y] pairs",
+        )),
+    }
+}
+
+/// Path parameters with the legacy aliases and the defaults filled in.
+#[derive(Debug, Clone, Copy)]
+pub struct ResolvedPath {
+    pub freq: f32,
+    pub freq_x: f32,
+    pub freq_y: f32,
+    pub amp_x: f32,
+    pub amp_y: f32,
+    pub phase_delta: f32,
+}
+
+impl PhysicsConfig {
+    /// Resolves this state's path parameters.
+    ///
+    /// `path_amplitude` and `path_frequency` predate `path_params` and are
+    /// exactly `amp_y` and `freq_y` under older names -- the sun's manifest
+    /// still uses them, and so may anyone else's.
+    pub fn resolved_path(&self) -> ResolvedPath {
+        let p = self.path_params.as_ref();
+        let amp_y = p
+            .and_then(|p| p.amp_y)
+            .or(self.path_amplitude)
+            .unwrap_or(4.0);
+        let freq_y = p
+            .and_then(|p| p.freq_y)
+            .or(self.path_frequency)
+            .unwrap_or(2.0);
+        ResolvedPath {
+            freq: p.and_then(|p| p.freq).unwrap_or(1.0),
+            // Defaulting the x axis to the y axis makes an `orbital` path with
+            // no parameters a circle rather than a flat line.
+            freq_x: p.and_then(|p| p.freq_x).unwrap_or(freq_y),
+            freq_y,
+            amp_x: p.and_then(|p| p.amp_x).unwrap_or(amp_y),
+            amp_y,
+            phase_delta: p.and_then(|p| p.phase_delta).unwrap_or(0.0),
+        }
+    }
 }
 
 fn default_friction() -> f32 {
@@ -196,6 +290,7 @@ impl Default for PhysicsConfig {
             path_type: None,
             path_amplitude: None,
             path_frequency: None,
+            path_params: None,
         }
     }
 }
@@ -910,6 +1005,30 @@ impl AssetManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_points_table_survives_the_lua_json_encoding() {
+        // `vim.json.encode` writes an empty Lua table as `{}`, not `[]`, and
+        // `points` is the first array-valued field a manifest can carry. The
+        // terminal backend merely ignores a points list too short to draw with,
+        // so without this the same manifest would fail to parse on the overlay
+        // and describe two behaviours.
+        let phys: PhysicsConfig =
+            serde_json::from_str(r#"{"path_type":"bezier","path_params":{"points":{}}}"#)
+                .expect("an empty points table must parse");
+        assert_eq!(phys.path_params.and_then(|p| p.points), Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_points_table_that_is_not_a_list_is_still_an_error() {
+        let err = serde_json::from_str::<PhysicsConfig>(
+            r#"{"path_params":{"points":{"first":[1.0,2.0]}}}"#,
+        );
+        assert!(
+            err.is_err(),
+            "a keyed table is a mistake worth reporting, not an empty path"
+        );
+    }
 
     #[test]
     fn test_default_manifests() {

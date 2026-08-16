@@ -1,0 +1,9 @@
+{
+  "description": "An orbital path: both axes driven by one phase, so the entity circles its spawn point. `wrap_mode` is none because a path writes position absolutely -- a wrap would teleport the anchor away from the circle it is drawing.",
+  "physics": { "target_vx": 0.0, "gravity": 0.0, "path_type": "orbital", "path_params": { "freq": 1.5, "freq_x": 1.0, "freq_y": 1.0, "amp_x": 18.0, "amp_y": 9.0 }, "friction": 0.05, "wrap_mode": "none" },
+  "spawn": { "x": 60, "y": 20, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "dt": 0.016666667,
+  "steps": 180
+}

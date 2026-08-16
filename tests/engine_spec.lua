@@ -338,3 +338,153 @@ describe("distract.engine deterministic step", function()
     engine.clear()
   end)
 end)
+
+-- `sine` was the only path either engine understood, and it moved y alone. The
+-- manifest schema has advertised `path_type` as open-ended since the start, so
+-- anything else a manifest asked for was silently ignored on both backends.
+describe("distract.engine path primitives", function()
+  local probe_counter = 0
+
+  --- Spawns one entity running `physics`, phase zeroed, and returns it.
+  ---
+  --- Amplitudes are in sprite pixels: one cell wide on x, half a cell on y.
+  local function path_entity(physics)
+    engine.clear()
+    probe_counter = probe_counter + 1
+    local name = "pathprobe_" .. probe_counter
+    engine.setup({
+      backend = "halfblock",
+      assets = {
+        [name] = {
+          name = name,
+          initial_state = "drift",
+          states = {
+            drift = {
+              animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+              physics = physics,
+              transitions = {},
+            },
+          },
+        },
+      },
+    })
+    local orig = vim.notify
+    vim.notify = function() end
+    engine.spawn(name, { x = 100, y = 20 })
+    vim.notify = orig
+    local all = engine.get_entities()
+    local e = all[#all]
+    -- Spawn desynchronises entities with a random phase, which is right for
+    -- two suns on screen and fatal for an analytic assertion.
+    e.path_phase = 0
+    return e
+  end
+
+  -- `freq = 0` pins the phase where the test put it, so each assertion is the
+  -- path equation evaluated by hand rather than wherever the integrator
+  -- happened to arrive.
+
+  it("moves an orbital path along x as well as y", function()
+    local e = path_entity({
+      wrap_mode = "none",
+      path_type = "orbital",
+      path_params = { freq = 0.0, amp_x = 12.0, amp_y = 5.0 },
+    })
+    engine.step(0.1, { columns = 200, lines = 50 })
+    assert(
+      math.abs(e.x - 112) < 1e-4,
+      string.format("orbital must move x: cos(0) * 12 from base_x 100, got %.4f", e.x)
+    )
+    assert(
+      math.abs(e.y - 20) < 1e-4,
+      string.format("orbital y at phase 0 sits on base_y, got %.4f", e.y)
+    )
+    engine.clear()
+  end)
+
+  it("offsets a lissajous path's x axis by its phase_delta", function()
+    local e = path_entity({
+      wrap_mode = "none",
+      path_type = "lissajous",
+      path_params = { freq = 0.0, amp_x = 10.0, amp_y = 4.0, phase_delta = math.pi / 2 },
+    })
+    engine.step(0.1, { columns = 200, lines = 50 })
+    assert(
+      math.abs(e.x - 110) < 1e-4,
+      string.format("sin(0 + pi/2) * 10 from base_x 100, got %.4f", e.x)
+    )
+    assert(
+      math.abs(e.y - 20) < 1e-4,
+      string.format("phase_delta is an x-axis offset only, got y %.4f", e.y)
+    )
+    engine.clear()
+  end)
+
+  it("starts a bezier path on its first control point", function()
+    local e = path_entity({
+      wrap_mode = "none",
+      path_type = "bezier",
+      path_params = {
+        freq = 0.0,
+        points = { { 10, 20 }, { 30, 0 }, { 50, 40 }, { 70, 5 } },
+      },
+    })
+    engine.step(0.1, { columns = 200, lines = 50 })
+    assert(
+      math.abs(e.x - 110) < 1e-4,
+      string.format("a cubic at t=0 is its first control point, got x %.4f", e.x)
+    )
+    -- 20 sprite pixels is 10 cells: the y axis is half-height.
+    assert(
+      math.abs(e.y - 30) < 1e-4,
+      string.format("control points are relative to the spawn position, got y %.4f", e.y)
+    )
+    engine.clear()
+  end)
+
+  it("reads the legacy sine fields as amp_y and freq_y", function()
+    local legacy = path_entity({
+      wrap_mode = "none",
+      path_type = "sine",
+      path_amplitude = 15.0,
+      path_frequency = 2.0,
+    })
+    for _ = 1, 20 do
+      engine.step(0.05, { columns = 200, lines = 50 })
+    end
+    local legacy_y = legacy.y
+
+    local modern = path_entity({
+      wrap_mode = "none",
+      path_type = "sine",
+      path_params = { amp_y = 15.0, freq_y = 2.0 },
+    })
+    for _ = 1, 20 do
+      engine.step(0.05, { columns = 200, lines = 50 })
+    end
+
+    assert(
+      math.abs(legacy_y - 20) > 1e-3,
+      "the fixture has to actually be moving for this to mean anything"
+    )
+    assert(
+      math.abs(legacy_y - modern.y) < 1e-9,
+      string.format(
+        "path_amplitude/path_frequency must alias amp_y/freq_y exactly, got %.9f vs %.9f",
+        legacy_y,
+        modern.y
+      )
+    )
+    engine.clear()
+  end)
+
+  it("does not keep the world awake for a linear path alone", function()
+    local e = path_entity({ wrap_mode = "none", path_type = "linear" })
+    e.vx, e.vy = 0, 0
+    assert.is_true(
+      engine.is_quiescent(),
+      "`linear` overrides no position, so it produces no new pictures"
+    )
+    engine.clear()
+  end)
+end)

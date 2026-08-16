@@ -1,0 +1,9 @@
+{
+  "description": "A cubic bezier looped over phase in [0,1]. `freq` is 0.47 rather than a value that divides the step count: at 0.5 the phase reaches 1.0 on exactly step 120, where the loop wraps -- Rust's f32 lands a hair under and stays near the last control point while Lua's f64 lands a hair over and jumps to the first, 55 cells apart. The wrap is discontinuous by nature, so that is a precision artefact of the two runtimes rather than a behavioural divergence, and a fixture should not sample it. 180 steps at 0.47 still crosses the wrap once, inside the trajectory rather than after it.",
+  "physics": { "target_vx": 0.0, "gravity": 0.0, "path_type": "bezier", "path_params": { "freq": 0.47, "points": [[0.0, 0.0], [20.0, -18.0], [40.0, 18.0], [55.0, 2.0]] }, "friction": 0.05, "wrap_mode": "none" },
+  "spawn": { "x": 20, "y": 20, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "dt": 0.016666667,
+  "steps": 180
+}
