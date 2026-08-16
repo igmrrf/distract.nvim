@@ -332,20 +332,22 @@ function M.handle_editor_event(event_name, context)
   end
 end
 
-function M.tick()
-  local now = uv.hrtime()
-  local dt = last_tick_time and ((now - last_tick_time) / 1e9) or 0.033
-  last_tick_time = now
-  if dt > 0.1 then
-    dt = 0.1
-  end
-
+--- Advances the simulation by an explicit `dt` against explicit screen bounds.
+---
+--- Split out of `tick`, which reads the clock and `vim.o` inline and so left
+--- tests able to assert only on direction, never on distance. Everything the
+--- overlay's `World::update` does happens here and nothing else does, which is
+--- what lets the two engines be compared against one set of trajectories.
+---
+---@param dt number seconds elapsed since the previous step
+---@param bounds table `{ columns = number, lines = number }`, in terminal cells
+function M.step(dt, bounds)
   if #entities == 0 then
     return
   end
 
-  local max_columns = vim.o.columns
-  local max_lines = vim.o.lines
+  local max_columns = bounds.columns
+  local max_lines = bounds.lines
   local step = dt * REFERENCE_FPS
 
   local despawned = false
@@ -494,7 +496,13 @@ function M.tick()
         end
       elseif wrap_mode == "clamp" then
         entity.x = math.max(0, math.min(entity.x, max_columns - sprite_w))
-        entity.y = math.max(0, math.min(entity.y, max_lines - sprite_h - 1))
+        -- No `- 1` on the ceiling: the overlay clamps at `viewport_h - frame_h`
+        -- and `bounce` above clamps at `max_lines - sprite_h`, so the stray row
+        -- made `clamp` disagree with both the other engine and its own
+        -- neighbouring branch. Reserving space for the statusline is the floor
+        -- system's job, where it is computed from `cmdheight` and `laststatus`
+        -- rather than guessed at as a constant.
+        entity.y = math.max(0, math.min(entity.y, max_lines - sprite_h))
       elseif wrap_mode == "despawn" then
         if
           entity.x < -sprite_w
@@ -525,6 +533,25 @@ function M.tick()
     end
     entities = kept
   end
+end
+
+--- Wall-clock driver: measures `dt`, supplies the current screen size, and
+--- renders what `step` produced.
+function M.tick()
+  local now = uv.hrtime()
+  local dt = last_tick_time and ((now - last_tick_time) / 1e9) or 0.033
+  last_tick_time = now
+  -- A long pause -- a resumed session, a blocking command -- would otherwise
+  -- teleport every entity clear across the screen in a single frame.
+  if dt > 0.1 then
+    dt = 0.1
+  end
+
+  if #entities == 0 then
+    return
+  end
+
+  M.step(dt, { columns = vim.o.columns, lines = vim.o.lines })
 
   local ok, err = pcall(renderer.draw, entities, config.backend)
   if ok then

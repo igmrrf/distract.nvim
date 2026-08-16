@@ -230,3 +230,68 @@ describe("distract.engine parity with the overlay", function()
     engine.clear()
   end)
 end)
+
+-- `tick` derives `dt` from `uv.hrtime()` and reads `vim.o.columns`/`lines`
+-- inline, so a test could only ever assert on direction, never on distance.
+-- `step` is the same simulation with both injected, which is what makes the
+-- cross-engine parity goldens possible.
+describe("distract.engine deterministic step", function()
+  local probe_counter = 0
+
+  local function only_entity(physics, opts)
+    engine.clear()
+    probe_counter = probe_counter + 1
+    local name = "stepprobe_" .. probe_counter
+    engine.setup({
+      backend = "halfblock",
+      assets = {
+        [name] = {
+          name = name,
+          initial_state = "run",
+          states = {
+            run = {
+              animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+              physics = physics,
+            },
+          },
+        },
+      },
+    })
+    local orig = vim.notify
+    vim.notify = function() end
+    engine.spawn(name, opts or {})
+    vim.notify = orig
+    local entities = engine.get_entities()
+    return entities[#entities]
+  end
+
+  it("advances an entity by an exact distance for an injected dt", function()
+    -- vx is seeded to target_vx at spawn and lerps toward the same value, so
+    -- displacement is vx * (dt * 60) * 1.0 cells = 1.0 * 30 * 1.0 = 30.
+    local e = only_entity(
+      { target_vx = 1.0, friction = 5.0, gravity = 0.0, wrap_mode = "none" },
+      { x = 40, y = 10 }
+    )
+    engine.step(0.5, { columns = 200, lines = 50 })
+    assert(
+      math.abs(e.x - 70) < 1e-3,
+      string.format("expected x to land on exactly 70, got %.6f", e.x)
+    )
+    engine.clear()
+  end)
+
+  it("takes screen bounds from its argument rather than from vim.o", function()
+    -- 45 + 30 = 75, past the injected 50-column screen but inside the 80 a
+    -- headless editor reports, so only a step that honours `bounds` wraps.
+    local e = only_entity(
+      { target_vx = 1.0, friction = 5.0, gravity = 0.0, wrap_mode = "wrap" },
+      { x = 45, y = 10 }
+    )
+    engine.step(0.5, { columns = 50, lines = 50 })
+    assert(
+      e.x < 0,
+      string.format("entity should have wrapped off the injected 50-column screen, x = %.2f", e.x)
+    )
+    engine.clear()
+  end)
+end)

@@ -20,6 +20,7 @@ local SPECS = {
   "tests.backends_spec",
   "tests.review_fixes_spec",
   "tests.transparency_spec",
+  "tests.physics_parity_spec",
 }
 
 print("==================================================")
