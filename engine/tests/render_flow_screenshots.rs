@@ -1,5 +1,6 @@
 use distract_engine::compositor::Compositor;
 use distract_engine::ecs::World;
+use distract_engine::spawn::SpawnOptions;
 use image::{ImageBuffer, Rgba, RgbaImage};
 use std::fs;
 use std::path::Path;
@@ -113,7 +114,7 @@ fn test_render_and_capture_all_feature_screenshots() {
     {
         let mut world = World::new(view_w as f32, view_h as f32);
         let id = world
-            .spawn("cat", None, Some(80.0), Some(200.0), None)
+            .spawn("cat", None, SpawnOptions::at(80.0, 200.0))
             .expect("Spawn cat");
 
         // 1.1 Idle
@@ -176,7 +177,7 @@ fn test_render_and_capture_all_feature_screenshots() {
     {
         let mut world = World::new(view_w as f32, view_h as f32);
         let id = world
-            .spawn("crab", None, Some(80.0), Some(220.0), None)
+            .spawn("crab", None, SpawnOptions::at(80.0, 220.0))
             .expect("Spawn crab");
 
         // 2.1 Walk
@@ -211,7 +212,7 @@ fn test_render_and_capture_all_feature_screenshots() {
         // 2.4 Boundary Bounce
         let mut bounce_world = World::new(200.0, 200.0);
         let bid = bounce_world
-            .spawn("crab", None, Some(180.0), Some(120.0), None)
+            .spawn("crab", None, SpawnOptions::at(180.0, 120.0))
             .unwrap();
         bounce_world
             .trigger_action(Some(bid), None, "walk")
@@ -230,7 +231,7 @@ fn test_render_and_capture_all_feature_screenshots() {
     {
         let mut world = World::new(view_w as f32, view_h as f32);
         let id = world
-            .spawn("sun", None, Some(200.0), Some(140.0), None)
+            .spawn("sun", None, SpawnOptions::at(200.0, 140.0))
             .expect("Spawn sun");
 
         // 3.1 Rising
@@ -286,15 +287,15 @@ fn test_render_and_capture_all_feature_screenshots() {
         let mut world = World::new(view_w as f32, view_h as f32);
         // Background Sun
         let sun_id = world
-            .spawn("sun", None, Some(320.0), Some(40.0), None)
+            .spawn("sun", None, SpawnOptions::at(320.0, 40.0))
             .expect("sun");
         // Foreground Cat jumping
         let cat_id = world
-            .spawn("cat", None, Some(140.0), Some(210.0), None)
+            .spawn("cat", None, SpawnOptions::at(140.0, 210.0))
             .expect("cat");
         // Foreground Crab walking
         let crab_id = world
-            .spawn("crab", None, Some(260.0), Some(218.0), None)
+            .spawn("crab", None, SpawnOptions::at(260.0, 218.0))
             .expect("crab");
 
         world

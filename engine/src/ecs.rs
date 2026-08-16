@@ -2,6 +2,7 @@ use crate::asset::AssetManager;
 use crate::ipc::EntitySummary;
 use crate::manifest;
 use crate::manifest::{AssetManifest, PhysicsConfig, WrapMode};
+use crate::spawn::SpawnOptions;
 
 /// Default terminal cell size in physical pixels.
 ///
@@ -319,9 +320,7 @@ impl World {
         &mut self,
         asset_name: &str,
         manifest_opt: Option<AssetManifest>,
-        x_opt: Option<f32>,
-        y_opt: Option<f32>,
-        flip_x_opt: Option<bool>,
+        options: SpawnOptions,
     ) -> Result<usize, String> {
         if let Some(manifest) = manifest_opt {
             // Surface the error rather than silently degrading to procedural
@@ -340,9 +339,9 @@ impl World {
         let id = self.next_id;
         self.next_id += 1;
 
-        let spawn_x = x_opt.unwrap_or(self.viewport_w / 2.0);
-        let spawn_y = y_opt.unwrap_or(self.viewport_h / 2.0);
-        let flip_x = flip_x_opt.unwrap_or(false);
+        let spawn_x = options.x.unwrap_or(self.viewport_w / 2.0);
+        let spawn_y = options.y.unwrap_or(self.viewport_h / 2.0);
+        let flip_x = options.flip_x.unwrap_or(false);
 
         let mut entity = Entity::new(
             id,
@@ -810,10 +809,10 @@ mod tests {
     fn test_world_spawn_and_despawn() {
         let mut world = World::new(800.0, 600.0);
         let id1 = world
-            .spawn("cat", None, Some(10.0), Some(20.0), None)
+            .spawn("cat", None, SpawnOptions::at(10.0, 20.0))
             .unwrap();
         let id2 = world
-            .spawn("crab", None, Some(50.0), Some(60.0), None)
+            .spawn("crab", None, SpawnOptions::at(50.0, 60.0))
             .unwrap();
         assert_eq!(id1, 1);
         assert_eq!(id2, 2);
@@ -827,9 +826,9 @@ mod tests {
     #[test]
     fn test_world_clear_all() {
         let mut world = World::new(800.0, 600.0);
-        world.spawn("cat", None, None, None, None).unwrap();
-        world.spawn("crab", None, None, None, None).unwrap();
-        world.spawn("sun", None, None, None, None).unwrap();
+        world.spawn("cat", None, SpawnOptions::default()).unwrap();
+        world.spawn("crab", None, SpawnOptions::default()).unwrap();
+        world.spawn("sun", None, SpawnOptions::default()).unwrap();
         assert_eq!(world.entities.len(), 3);
 
         world.clear_all();
@@ -839,8 +838,8 @@ mod tests {
     #[test]
     fn test_editor_event_transitions() {
         let mut world = World::new(800.0, 600.0);
-        world.spawn("cat", None, None, None, None).unwrap();
-        world.spawn("crab", None, None, None, None).unwrap();
+        world.spawn("cat", None, SpawnOptions::default()).unwrap();
+        world.spawn("crab", None, SpawnOptions::default()).unwrap();
 
         world.handle_editor_event("typing", plain("typing"));
         assert_eq!(world.entities[0].current_state, "walk_fast");
@@ -854,7 +853,7 @@ mod tests {
     #[test]
     fn test_timeout_transition() {
         let mut world = World::new(800.0, 600.0);
-        world.spawn("cat", None, None, None, None).unwrap();
+        world.spawn("cat", None, SpawnOptions::default()).unwrap();
         assert_eq!(world.entities[0].current_state, "idle");
 
         world.update(7.0);
@@ -867,7 +866,7 @@ mod tests {
         world.sprite_scale_x = 1.0;
         world.sprite_scale_y = 1.0;
         let id = world
-            .spawn("crab", None, Some(190.0), Some(50.0), Some(false))
+            .spawn("crab", None, SpawnOptions::at(190.0, 50.0))
             .unwrap();
         world.trigger_action(Some(id), None, "walk").unwrap();
         assert_eq!(world.entities[0].current_state, "walk");
@@ -882,7 +881,7 @@ mod tests {
     #[test]
     fn test_action_dispatch_errors() {
         let mut world = World::new(800.0, 600.0);
-        world.spawn("cat", None, None, None, None).unwrap();
+        world.spawn("cat", None, SpawnOptions::default()).unwrap();
 
         assert!(
             world
@@ -896,7 +895,7 @@ mod tests {
     fn test_get_summaries() {
         let mut world = World::new(800.0, 600.0);
         world
-            .spawn("cat", None, Some(123.0), Some(456.0), None)
+            .spawn("cat", None, SpawnOptions::at(123.0, 456.0))
             .unwrap();
         let summaries = world.get_summaries();
         assert_eq!(summaries.len(), 1);
@@ -909,7 +908,7 @@ mod tests {
     fn test_gravity_jump_and_ground_collision() {
         let mut world = World::new(800.0, 600.0);
         let id = world
-            .spawn("cat", None, Some(100.0), Some(200.0), None)
+            .spawn("cat", None, SpawnOptions::at(100.0, 200.0))
             .unwrap();
 
         world.trigger_action(Some(id), None, "jump").unwrap();
@@ -929,7 +928,7 @@ mod tests {
     fn test_sine_pathing_phase() {
         let mut world = World::new(800.0, 600.0);
         world
-            .spawn("sun", None, Some(100.0), Some(200.0), None)
+            .spawn("sun", None, SpawnOptions::at(100.0, 200.0))
             .unwrap();
         assert_eq!(world.entities[0].current_state, "shining");
 
@@ -942,13 +941,13 @@ mod tests {
     fn test_multi_entity_action_dispatch() {
         let mut world = World::new(800.0, 600.0);
         world
-            .spawn("cat", None, Some(50.0), Some(200.0), None)
+            .spawn("cat", None, SpawnOptions::at(50.0, 200.0))
             .unwrap();
         world
-            .spawn("cat", None, Some(150.0), Some(200.0), None)
+            .spawn("cat", None, SpawnOptions::at(150.0, 200.0))
             .unwrap();
         world
-            .spawn("crab", None, Some(300.0), Some(200.0), None)
+            .spawn("crab", None, SpawnOptions::at(300.0, 200.0))
             .unwrap();
 
         let triggered = world.trigger_action(None, Some("cat"), "jump").unwrap();
@@ -974,7 +973,7 @@ mod tests {
             state.transitions.on_timeout = None;
         }
         let id = world
-            .spawn("runner", Some(manifest), Some(190.0), Some(50.0), None)
+            .spawn("runner", Some(manifest), SpawnOptions::at(190.0, 50.0))
             .unwrap();
 
         let mut reported = Vec::new();
@@ -994,7 +993,7 @@ mod tests {
         world.sprite_scale_x = 1.0;
         world.sprite_scale_y = 1.0;
         world
-            .spawn("cat", None, Some(10.0), Some(10.0), None)
+            .spawn("cat", None, SpawnOptions::at(10.0, 10.0))
             .unwrap();
         world.entities[0].current_state = "walk".to_string();
         world.entities[0].x = 500.0;
@@ -1015,7 +1014,7 @@ mod tests {
         let mut world = World::new(800.0, 600.0);
         for _ in 0..8 {
             world
-                .spawn("cat", None, Some(10.0), Some(10.0), None)
+                .spawn("cat", None, SpawnOptions::at(10.0, 10.0))
                 .unwrap();
         }
         let phases: std::collections::HashSet<u32> = world
@@ -1038,7 +1037,7 @@ mod tests {
         let mut world = World::new(800.0, 600.0);
         world.cell_w = 10.0;
         world
-            .spawn("cat", None, Some(400.0), Some(300.0), Some(false))
+            .spawn("cat", None, SpawnOptions::at(400.0, 300.0))
             .unwrap();
 
         // Cursor far to the left: a cat that starts walking should face it.
@@ -1069,7 +1068,7 @@ mod tests {
             state.transitions.timeout_ms = None;
         }
         world
-            .spawn("statue", Some(manifest), Some(10.0), Some(10.0), None)
+            .spawn("statue", Some(manifest), SpawnOptions::at(10.0, 10.0))
             .unwrap();
         world.entities[0].vx = 0.0;
         world.entities[0].vy = 0.0;
@@ -1080,7 +1079,7 @@ mod tests {
     fn an_animating_entity_is_not_quiescent() {
         let mut world = World::new(800.0, 600.0);
         world
-            .spawn("cat", None, Some(10.0), Some(10.0), None)
+            .spawn("cat", None, SpawnOptions::at(10.0, 10.0))
             .unwrap();
         assert!(!world.is_quiescent());
     }
@@ -1094,7 +1093,7 @@ mod tests {
         manifest.spritesheet.path = Some("/nowhere/at/all.png".to_string());
 
         let err = world
-            .spawn("broken", Some(manifest), None, None, None)
+            .spawn("broken", Some(manifest), SpawnOptions::default())
             .unwrap_err();
         assert!(err.contains("not found"), "unexpected message: {}", err);
     }
@@ -1153,7 +1152,7 @@ mod tests {
             state.transitions.on_timeout = None;
         }
         world
-            .spawn("thruster", Some(manifest), Some(0.0), Some(0.0), None)
+            .spawn("thruster", Some(manifest), SpawnOptions::at(0.0, 0.0))
             .unwrap();
 
         for _ in 0..30 {
@@ -1184,7 +1183,7 @@ mod tests {
             state.transitions.on_timeout = None;
         }
         world
-            .spawn("drifter", Some(manifest), Some(50.0), Some(500.0), None)
+            .spawn("drifter", Some(manifest), SpawnOptions::at(50.0, 500.0))
             .unwrap();
 
         for _ in 0..30 {
@@ -1227,7 +1226,7 @@ mod tests {
         }
 
         world
-            .spawn("pathprobe", Some(manifest), Some(100.0), Some(200.0), None)
+            .spawn("pathprobe", Some(manifest), SpawnOptions::at(100.0, 200.0))
             .expect("path probe spawns");
         // Spawn desynchronises entities with a random phase, which is right for
         // two suns on screen and fatal for an analytic assertion.
@@ -1383,7 +1382,7 @@ mod tests {
             .insert("landed".to_string(), StateDefinition::default());
 
         world
-            .spawn("jumper", Some(manifest), Some(100.0), Some(200.0), None)
+            .spawn("jumper", Some(manifest), SpawnOptions::at(100.0, 200.0))
             .expect("locomotion probe spawns");
         world
     }
@@ -1421,7 +1420,7 @@ mod tests {
         );
 
         let error = world
-            .spawn("impossible", Some(manifest), None, None, None)
+            .spawn("impossible", Some(manifest), SpawnOptions::default())
             .expect_err("a grounded orbit cannot be drawn, so it must not spawn");
         assert!(
             error.contains("orbit"),
@@ -1461,7 +1460,7 @@ mod tests {
         );
 
         world
-            .spawn("floored", Some(manifest), Some(0.0), Some(0.0), None)
+            .spawn("floored", Some(manifest), SpawnOptions::at(0.0, 0.0))
             .expect("floored probe spawns");
 
         assert_eq!(

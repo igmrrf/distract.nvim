@@ -178,6 +178,7 @@ impl Compositor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::spawn::SpawnOptions;
     use image::{ImageBuffer, Rgba};
 
     #[test]
@@ -258,10 +259,10 @@ mod tests {
     fn test_render_world_multi_entity() {
         let mut world = World::new(100.0, 100.0);
         world
-            .spawn("cat", None, Some(10.0), Some(10.0), None)
+            .spawn("cat", None, SpawnOptions::at(10.0, 10.0))
             .unwrap();
         world
-            .spawn("crab", None, Some(40.0), Some(40.0), None)
+            .spawn("crab", None, SpawnOptions::at(40.0, 40.0))
             .unwrap();
 
         let mut frame = vec![0u8; 100 * 100 * 4];
@@ -278,10 +279,10 @@ mod tests {
         world.sprite_scale_x = 1.0;
         world.sprite_scale_y = 1.0;
         world
-            .spawn("sun", None, Some(20.0), Some(20.0), None)
+            .spawn("sun", None, SpawnOptions::at(20.0, 20.0))
             .unwrap();
         world
-            .spawn("cat", None, Some(20.0), Some(20.0), None)
+            .spawn("cat", None, SpawnOptions::at(20.0, 20.0))
             .unwrap();
 
         let mut sorted: Vec<i32> = world.entities.iter().map(|e| e.z_index).collect();

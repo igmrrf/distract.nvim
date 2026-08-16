@@ -24,6 +24,7 @@
 
 use distract_engine::ecs::World;
 use distract_engine::manifest::{AssetManifest, PhysicsConfig, StateDefinition, TransitionConfig};
+use distract_engine::spawn::SpawnOptions;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -144,9 +145,11 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
         .spawn(
             "parity_probe",
             Some(manifest),
-            Some(fixture.spawn.x * fixture.cell.w),
-            Some(fixture.spawn.y * fixture.cell.h),
-            Some(fixture.spawn.flip_x),
+            SpawnOptions {
+                x: Some(fixture.spawn.x * fixture.cell.w),
+                y: Some(fixture.spawn.y * fixture.cell.h),
+                flip_x: Some(fixture.spawn.flip_x),
+            },
         )
         .expect("parity probe spawns");
 

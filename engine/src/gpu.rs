@@ -661,13 +661,14 @@ mod tests {
     use super::*;
     use crate::atlas::Atlas;
     use crate::ecs::World;
+    use crate::spawn::SpawnOptions;
 
     fn world_with(entities: &[(&str, f32, f32)]) -> World {
         let mut world = World::new(800.0, 600.0);
         world.sprite_scale_x = 1.0;
         world.sprite_scale_y = 1.0;
         for (name, x, y) in entities {
-            world.spawn(name, None, Some(*x), Some(*y), None).unwrap();
+            world.spawn(name, None, SpawnOptions::at(*x, *y)).unwrap();
         }
         world
     }

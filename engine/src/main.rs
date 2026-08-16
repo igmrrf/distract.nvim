@@ -18,6 +18,7 @@ use distract_engine::ecs::{EventContext, World};
 use distract_engine::gpu::GpuRenderer;
 use distract_engine::ipc::{IpcCommand, IpcResponse};
 use distract_engine::platform;
+use distract_engine::spawn::SpawnOptions;
 
 fn emit_response(resp: &IpcResponse) {
     let stdout = io::stdout();
@@ -266,7 +267,8 @@ fn handle_command(
                 }
             }
 
-            match world.spawn(&entity_type, manifest_to_use, x, y, flip_x) {
+            let options = SpawnOptions { x, y, flip_x };
+            match world.spawn(&entity_type, manifest_to_use, options) {
                 Ok(id) => {
                     if let Err(err) = gpu_renderer.sync_atlas(world) {
                         emit_error("ATLAS_FAILED", err);
