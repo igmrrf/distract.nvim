@@ -99,8 +99,12 @@ tests/fixtures/physics/<case>.golden.json  trajectory, in cells
 - `tests/physics_parity_spec.lua` runs `M.step`, asserts against the same
   golden. Catches Lua drift.
 
-Neither suite can pass while the engines disagree. `engine/tests/parity_dump.rs`
-loses `#[ignore]` and is folded into this harness.
+Neither suite can pass while the engines disagree.
+
+`engine/tests/parity_dump.rs` stays `#[ignore]`. It dumps **sprite geometry**,
+not physics, so it belongs to step 4's art-parity work
+(`validate_sprite_parity`, `future.md` § 5.8) rather than here. Folding it in
+would have miscategorised it.
 
 Input fixture shape:
 
