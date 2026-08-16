@@ -8,6 +8,7 @@ engine/target/
 tests/screenshots/
 *.png
 !assets/*.png
+!assets/cat_walking/cat_walking_sheet.png
 engine_render_screenshot.png
 
 # Temporary & scratch scripts

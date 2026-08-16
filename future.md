@@ -1,12 +1,28 @@
-# `distract.nvim` — Future Feature Roadmap & Architecture Specification
+# `distract.nvim` — Unbuilt Features
 
-This document details the architectural evolution, micro-kernel plugin design, high-fidelity asset rendering models, technical trade-offs, and implementation specifications for the next generation of features in `distract.nvim`.
+Everything in this document is **not yet implemented**. Shipped work lives in
+[`CHANGELOG.md`](CHANGELOG.md); the design of what shipped lives in
+[`docs/superpowers/specs/`](docs/superpowers/specs/); the execution plan for this
+document is
+[`docs/superpowers/plans/2026-08-16-future-roadmap-master.md`](docs/superpowers/plans/2026-08-16-future-roadmap-master.md).
+
+A section leaves this file when it is implemented on both backends, tested,
+documented in `doc/distract.txt`, and listed in the changelog.
+
+**Already built, deliberately absent below:** the asset provider API
+(`register_asset`), the analytical shading model, multi-point lighting, 4×4 Bayer
+dithering, the `spark`/`arc`/`limb`/`orb` sub-pixel primitives, parametric
+kinematics (locomotion classes, `sine`/`orbital`/`lissajous`/`bezier` paths,
+ballistic arcs, capability gating), the placement vocabulary (anchors, floors,
+`z`, parallax), the kitty graphics backend, and GIF assets on every backend.
 
 ---
 
-## 1. Strategic Architecture: The Micro-Kernel Core & Plugin Ecosystem
+## 1. Strategic Architecture: Micro-Kernel Core & Plugin Ecosystem
 
-To ensure high performance, zero startup latency (<1ms), and uncompromised maintainability, `distract.nvim` adopts a **Micro-Kernel Engine Architecture**. The core repository remains focused on high-speed 2D sprite simulation, physics integration, sub-pixel vector shading, and dual-backend compositing, while domain-specific features (LSP integration, speech dialogue, episodic memory, weather systems, and AI companion logic) are implemented via a structured **Plugin & Middleware API**.
+The core stays focused on 2D sprite simulation, physics, sub-pixel shading and
+dual-backend compositing. Every domain feature arrives through an extension point.
+One of the three exists (`register_asset`); the other two are §2.1 and §2.2 below.
 
 ```mermaid
 graph TD
@@ -50,23 +66,13 @@ graph TD
 
 ---
 
-## 2. Core Micro-Kernel Extension APIs
+## 2. Core Extension APIs
 
-The core engine provides four primary extension points allowing modular plugins to hook into simulation ticks, asset registries, rendering passes, and spatial obstacle systems.
+### 2.1 Middleware & Lifecycle Hook Pipeline
 
-### 2.1 Dynamic Asset Provider API
-Allows community pet packs to be installed as standalone plugins or loaded at runtime without touching core code:
-```lua
-local distract = require("distract")
+Plugins subscribe to engine lifecycle events, mutate simulation state, intercept
+state transitions, or inject custom rendering layers.
 
-distract.register_asset("dragon", {
-  manifest = require("distract-dragons.manifest"),
-  sprites = require("distract-dragons.sprites"),
-})
-```
-
-### 2.2 Middleware & Lifecycle Hook Pipeline
-Plugins can subscribe to engine lifecycle events, mutate simulation state, intercept state transitions, or inject custom rendering layers:
 ```lua
 distract.register_plugin("my-plugin", {
   --- Called once when the plugin is registered or engine starts
@@ -98,8 +104,22 @@ distract.register_plugin("my-plugin", {
 })
 ```
 
-### 2.3 Spatial Obstacle & Solid Platform Provider
-Allows plugins (such as Tree-sitter physics or LSP symbol perching) to register physical solid bounding boxes for entities to land on, walk across, or avoid:
+**Open decision — cross-engine parity.** These hooks run in Lua. `engine/src/ecs.rs`
+has no plugin system, so a hook that mutates physics makes one manifest behave
+differently on each backend. Either mutation is restricted to non-physics fields,
+or plugins are declared halfblock/kitty-only. Settle this before writing code.
+
+**Also unsettled:** hook failure policy (proposal: `xpcall`, report once, disable
+that plugin), dispatch ordering (proposal: registration order), and how a plugin
+marks the world dirty so `is_quiescent()` does not suppress its redraw.
+
+---
+
+### 2.2 Spatial Obstacle & Solid Platform Provider
+
+Lets plugins register physical bounding boxes for entities to land on, walk
+across, or avoid.
+
 ```lua
 distract.register_obstacle_provider(function(win_id, buf_id)
   return {
@@ -109,97 +129,99 @@ distract.register_obstacle_provider(function(win_id, buf_id)
 end)
 ```
 
+**Constraint:** obstacles are collected in Lua and pushed over IPC, exactly as
+`events.sync_floor` pushes the floor to both engines. Neither engine collects its
+own — that is the divergence class the physics parity harness exists to catch.
+
+**Constraint:** a provider is called on a debounced cadence (`TextChanged`,
+`WinScrolled`, window lifecycle), never per tick per entity. A Tree-sitter query
+per frame is a performance trap.
+
 ---
 
-## 3. High-Fidelity Vector-Grade Shading & Sub-Pixel Asset Pipeline
+## 3. Asset Fidelity: Silhouette-First Redo
 
-### 3.1 Objective: Emoji-Grade Clarity with SVG Precision
-Sprites are designed to be **compact, iconic, and readable at small sizes** (like Apple/Fluent vector emojis) while retaining razor-sharp subpixel fidelity:
-- High contrast, recognizable silhouettes that don't overwhelm editor text.
-- Continuous analytical mathematical shading ($r = \sqrt{x^2+y^2}$, Lambertian normals, smoothstep anti-aliasing) rather than noisy manual pixel clusters.
-- Seamless multi-point lighting, dithering, and micro-detail primitives.
+The shading engine is built; the art it produces does not read at sprite size.
+At 24×16 sprite pixels the half-block grid is 24 columns by **8 rows**, and
+`sprite_gen.orb` spends five lighting terms across a body twelve pixels wide. The
+cat currently reads as a fox: ears are 3-pixel stubs (`cat.lua`,
+`EAR_HALF = {0,1,1}`), the four legs are identical capsules, whiskers and muzzle
+sit below the resolution floor.
 
-### 3.2 Multi-Point Lighting & Ordered Bayer Dithering
-- **Lighting Model**:
-  $$\text{Color} = \text{Ambient} + \text{Key}_{\text{diffuse}} + \text{Fill}_{\text{warm bounce}} + \text{Rim}_{\text{cool grazing}} + \text{Specular}_{\text{glint}}$$
-- **$4 \times 4$ Bayer Matrix Dithering**: Softens spherical illumination transitions on retro pixel surfaces to prevent flat color stepping:
-  $$M_4 = \frac{1}{16} \begin{bmatrix} 0 & 8 & 2 & 10 \\ 12 & 4 & 14 & 6 \\ 3 & 11 & 1 & 9 \\ 15 & 7 & 13 & 5 \end{bmatrix} - 0.5$$
+**Objective:** compact, iconic, high-contrast silhouettes — flat fills, a 1px dark
+contour, 2–3 tone bands. Recognisable at a glance without overwhelming editor text.
 
-### 3.3 Vector Micro-Detail Primitives
-- **`spark(cx, cy, radius, color)`**: 4-pointed specular flare stars for claw snaps and solar eclipse diamond-rings.
-- **`arc(cx, cy, rx, ry, start_angle, end_angle, color)`**: Continuous parametric curve rasterizer for solar coronal loops and facial curves.
-- **Whiskers & Eyestalk Catchlights**: Delicate subpixel lines with pupil dilation and eye glint reflections.
+**Scope:** every asset, existing and future. Not the cat alone.
 
-### 3.4 Built-In High-Fidelity Asset Specifications
+**Blocked on an art-parity harness.** The same art exists twice
+(`lua/distract/sprites/*.lua`, `engine/src/sprites/*.rs`) with no automated parity
+test between them; `engine/tests/parity_dump.rs` is `#[ignore]` and dumps geometry,
+not colour. Three assets × two implementations is six files that drift the moment
+one is touched. Build `validate_sprite_parity` first — §5.7 also names it as an
+MCP tool, so build it as a library function and wrap it there.
 
-| Asset | Internal Dimensions | Visual Characteristics & Fidelity Details |
+**Secondary win:** 1,909 global highlight groups exist for the three built-in
+assets. A quantised palette should cut that by roughly 40×.
+
+### Target asset specifications
+
+| Asset | Dimensions | Reads as |
 |---|---|---|
-| 🐱 **Cat** | $24 \times 16$ px | • Inner ear blush tinting & upright ear geometry<br>• Sparkling cyan/emerald eyes with white catchlight reflections<br>• Delicate anti-aliased whiskers extending from muzzle<br>• Multi-source warm bounce fill & cool rim lighting<br>• Dynamic tail inertia curve & sleeping Zzz fade |
-| 🦀 **Crab** | $24 \times 16$ px | • High-gloss ruby-red carapace with specular glints<br>• Animated eyestalks with pupils and catchlight highlights<br>• Articulated pincer claws with gold snap sparkle flashes<br>• Sandy burrow mounds with cosine particle variations |
-| ☀️ **Sun** | $16 \times 16$ px | • Smooth radial Lambertian sphere with hot radiant core<br>• Pulsing magnetic coronal loops and spinning solar prominence rays<br>• Totality diamond-ring flare sparkle on solar eclipse<br>• Sunrise/sunset atmospheric horizon bands |
+| 🐱 **Cat** | 24 × 16 px | Upright differentiated ears, distinct fore/hind leg silhouette, tail as the primary motion cue |
+| 🦀 **Crab** | 24 × 16 px | Wide carapace, articulated pincers readable as pincers, eyestalks above the shell line |
+| ☀️ **Sun** | 16 × 16 px | Clean disc, coronal rays that read at 8 rows, eclipse silhouette distinguishable from the shining pose |
 
 ---
 
 ## 4. Core Engine Enhancements
 
 ### 4.1 Buffer-Constrained & Scoped Viewport Positioning
-- **Objective**: Constrain sprite movement strictly to the text area of the currently active buffer window, avoiding overlap with floating popups (LSP hover, Telescope, which-key, completion menus) and embedded terminal splits.
-- **Configuration API**:
+
+- **Objective:** constrain sprite movement to the text area of the active buffer
+  window, avoiding overlap with floating popups (LSP hover, Telescope, which-key,
+  completion menus) and embedded terminal splits.
+- **Configuration API:**
   ```lua
   require("distract").setup({
     positioning = {
       scope = "buffer", -- "buffer" | "window" | "editor" | "absolute"
       exclude_floating = true,
       exclude_filetypes = { "toggleterm", "lazy", "TelescopePrompt", "fzf", "help" },
-      z_index_offset = 40, -- Lower than LSP hover/cmp (50+)
+      z_index_offset = 40, -- lower than LSP hover/cmp (50+)
     },
   })
   ```
-- **Implementation**:
-  - **In-Terminal ([`lua/distract/renderer.lua`](file:///Users/igmrrf/Desktop/packages/distract.nvim/lua/distract/renderer.lua))**: Query window rect with `vim.api.nvim_win_get_position()` and `nvim_win_get_width()`, binding floating windows via `relative = "win"`.
-  - **Overlay ([`engine/src/ecs.rs`](file:///Users/igmrrf/Desktop/packages/distract.nvim/engine/src/ecs.rs))**: Synchronize viewport clipping rectangles over JSON-RPC via `UpdateViewportScope`.
+- **In-terminal (`lua/distract/renderer.lua`):** resolve the rect from
+  `nvim_win_get_position` and `nvim_win_get_width`, bind floats with
+  `relative = "win"`, clamp against the rect rather than the editor grid.
+- **Overlay (`engine/src/ecs.rs`):** synchronise the clipping rect over JSON-RPC
+  via `UpdateViewportScope`.
+- **Naming:** `z_index_offset` is Neovim float stacking. The existing `z` is depth
+  and parallax. Two different numbers — do not conflate them.
 
 ---
 
-### 4.2 Multi-Directional & Parametric Kinematics Engine
-- **Objective**: Support 2D parametric motion vectors for all entity types:
-  - **Sun**: Omnidirectional free-floating drift, Lissajous curves, circular solar orbits.
-  - **Crab**: Lateral scuttle with vertical burrowing depth vectors.
-  - **Cat**: 2D planar leaping, ballistic gravity arcs, and diagonal mouse/cursor chasing.
-- **Manifest Kinematics Schema**:
-  ```lua
-  states = {
-    orbital_drift = {
-      physics = {
-        locomotion = "omnidirectional",
-        max_speed = 3.0,
-        path_type = "lissajous", -- "linear" | "sine" | "lissajous" | "bezier" | "orbital"
-        path_params = {
-          freq_x = 1.0,
-          freq_y = 2.0,
-          amp_x = 40.0,
-          amp_y = 20.0,
-          phase_delta = math.pi / 4,
-        },
-      },
-    },
-    diagonal_pounce = {
-      physics = {
-        locomotion = "ballistic",
-        target_vx = 3.5,
-        target_vy = -2.8,
-        gravity = 0.25,
-        terminal_velocity_y = 6.0,
-      },
-    },
-  }
-  ```
+### 4.2 Application & Instance Visibility Scoping
+
+- **Objective:** sprites currently render over other applications, split panes and
+  separate Neovim instances when the owning instance loses focus.
+- **Instance-restricted (new default):** hide and stop drawing on `FocusLost`.
+  The simulation keeps stepping — an entity mid-wrap must not be stranded, the same
+  reason `is_quiescent` gates redraw and never the step.
+- **Global rendering (opt-in):** a `restrict_to_instance = false` flag keeps today's
+  full-screen behaviour, so the engine stays reusable for standalone desktop
+  animation outside Neovim.
+- **Implementation:** `FocusGained`/`FocusLost` in the existing `DistractEvents`
+  group plus split-pane visibility checks; a suspend/resume command over IPC.
 
 ---
 
 ### 4.3 Seamless Toroidal Edge-Splitting & Continuous Screen Wrap
-- **Objective**: When any portion of a sprite crosses an edge (top, bottom, left, or right), the sliced portion that leaves the screen is **simultaneously rendered on the opposite boundary** at the exact complementary coordinate, producing smooth, continuous toroidal wrapping with zero visual popping.
-- **Visual Mechanics**:
+
+- **Objective:** when a sprite crosses an edge, the departing slice is
+  simultaneously drawn at the complementary coordinate on the opposite boundary.
+  `wrap_mode == "wrap"` teleports today, so the sprite pops.
+- **Visual mechanics:**
   ```
          Top Edge (y = 0)
      ┌───────────────────────┐
@@ -212,17 +234,30 @@ Sprites are designed to be **compact, iconic, and readable at small sizes** (lik
      └───────────────────────┘
        Bottom Edge (y = lines)
   ```
-- **Implementation**:
-  - **In-Terminal ([`lua/distract/renderer.lua`](file:///Users/igmrrf/Desktop/packages/distract.nvim/lua/distract/renderer.lua))**: Allocates an ephemeral secondary floating window (`active_windows[id .. "_wrap"]`), dynamically slicing line strings and highlights between the top and bottom offsets.
-  - **GPU Overlay ([`engine/src/gpu.rs`](file:///Users/igmrrf/Desktop/packages/distract.nvim/engine/src/gpu.rs))**: Detects bounding quad intersections and emits two or four `SpriteInstance` quads with scaled UV coordinates in a **single instanced draw call**.
+- **In-terminal (`lua/distract/renderer.lua`):** a second surface for the wrapped
+  slice, slicing line strings and highlights at the offset.
+- **GPU overlay (`engine/src/gpu.rs`):** detect bounding-quad intersections and
+  emit 2 or 4 `SpriteInstance` quads with scaled UVs in a **single** instanced draw.
+- **Hard parts:** four corners need four quads — test the corner first. The
+  renderer already splits vertically between the extmark overlay and the float, so
+  a horizontally-wrapped sprite can need both, twice; `M.place_surface` is where
+  this lands and `renderer.lua` is already 501 lines, so budget the extraction.
+  Kitty must revisit its deliberate no-placement-ids decision, since one image now
+  genuinely appears twice at the same scale. Parallax scales the footprint, so the
+  split point is computed on the scaled size, not the manifest's.
 
 ---
 
-## 5. Ecosystem Plugins & Advanced Features
+## 5. Ecosystem Plugins
 
-### 5.1 Contextual Dialogue & Speech Bubble Subsystem (`distract-talk`)
-- **Objective**: Render clean floating dialogue balloons above companions with contextual tips, banter, and reactions.
-- **Bubble ASCII Art**:
+Each is a separate repository depending only on the published core surfaces.
+Nothing here adds a file under `lua/distract/`.
+
+### 5.1 Contextual Dialogue & Speech Bubbles (`distract-talk`)
+
+- **Objective:** floating dialogue balloons above companions with contextual tips,
+  banter and reactions.
+- **Bubble art:**
   ```
      ╭────────────────────────────╮
      │ Hope you're writing tests? │
@@ -231,18 +266,25 @@ Sprites are designed to be **compact, iconic, and readable at small sizes** (lik
              /\_/\   (Cat Sprite)
             ( o.o )
   ```
-- **Trigger Triggers**:
-  - `on_save_untested`: File saved without matching test file (`*_spec.lua`, `*_test.go`, `*.test.ts`).
-  - `on_git_churn`: High editing velocity with repeated undos/deletions.
-  - `on_long_idle`: Friendly reminder after 15 minutes of inactivity.
-  - `on_lsp_error`: Humorous reaction to compiler/linter error spikes.
+- **Triggers:**
+  - `on_save_untested`: file saved with no matching test file (`*_spec.lua`,
+    `*_test.go`, `*.test.ts`).
+  - `on_git_churn`: high editing velocity with repeated undos/deletions.
+  - `on_long_idle`: friendly reminder after 15 minutes of inactivity.
+  - `on_lsp_error`: reaction to a diagnostic spike.
+- **Requires:** §2.1 hooks and §4.1 viewport scoping. The bubble must never cover
+  the cursor line, `pumvisible()`, or a floating window.
+- **Exposes:** `say(entity_id, text, opts)` — §5.6 streams into it. Text is wrapped
+  and length-bounded; an unbounded model response is a DoS on the renderer.
 
 ---
 
-### 5.2 Persistent Episodic Memory Engine (`distract-memory`)
-- **Objective**: Persistent, privacy-first storage tracking editing sessions, language exposure, and milestones so companions can reference historical events.
-- **Storage Location**: `vim.fn.stdpath("data") .. "/distract/memory.json"`
-- **Schema**:
+### 5.2 Persistent Episodic Memory (`distract-memory`)
+
+- **Objective:** privacy-first storage of editing sessions, language exposure and
+  milestones, so companions can reference history.
+- **Storage:** `vim.fn.stdpath("data") .. "/distract/memory.json"`
+- **Schema:**
   ```json
   {
     "version": 1,
@@ -261,95 +303,132 @@ Sprites are designed to be **compact, iconic, and readable at small sizes** (lik
     }
   }
   ```
-- **Contextual Greetings**:
-  - *"It's been 12 days! Welcome back."*
-  - *"Oh, I've never seen you write Rust before!"*
-  - *"You've been hacking on `distract.nvim` for 3 hours, remember to hydrate!"*
+- **Contextual greetings:** *"It's been 12 days! Welcome back."* / *"Oh, I've never
+  seen you write Rust before!"* / *"You've been hacking for 3 hours, remember to
+  hydrate!"*
+- **Constraints:** no file paths and no file contents ever enter the store —
+  language names and counts only. Atomic write (temp + rename). A `version` bump
+  gets a migration function, not a runtime branch. `milestones` and
+  `languages_spoken` are capped. Time is injected, never read inside logic.
 
 ---
 
-### 5.3 Semantic LSP Pathfinding & Intelligent Companion Accompaniment (`distract-lsp`)
-- **Objective**: Interact with code semantics:
-  - Query `textDocument/documentSymbol` to locate function headers, classes, and structs as perched rest points.
-  - **4-Quadrant Spatial Companion Planner**: Calculate non-occluding candidate positions relative to cursor (Top-Right, Direct-Right, Direct-Left, Bottom-Right) without obscuring active lines, diagnostic underlines, or completion menus (`pumvisible()`).
-  - **Diagnostic Reactions**: Sudden error spikes trigger startled animation states (Cat leaps, Crab snaps pincers defensively).
+### 5.3 Semantic LSP Pathfinding & Companion Accompaniment (`distract-lsp`)
+
+- Query `textDocument/documentSymbol` for function headers, classes and structs as
+  perch points, registered through §2.2.
+- **4-quadrant spatial planner:** score Top-Right, Direct-Right, Direct-Left and
+  Bottom-Right for non-occlusion against the cursor line, diagnostic underlines and
+  `pumvisible()`.
+- **Diagnostic reactions:** error spikes trigger startled states — cat leaps, crab
+  snaps pincers defensively.
+- Requests are async and cancellable; a request in flight when the buffer changes is
+  cancelled, not awaited. A missing LSP client is empty data, not failure — no warning.
 
 ---
 
 ### 5.4 Tree-sitter Code Physics & Solid Platforms (`distract-physics`)
-- **Objective**: Turn code structure into physical platforms.
-- **Mechanics**:
-  - Tree-sitter parser detects function headers, markdown horizontal dividers (`---`), and closed code folds.
-  - Generates solid obstacle bounding rects registered via `register_obstacle_provider()`.
-  - The Cat or Crab can walk across your function definitions and fall between indented block gaps.
+
+- Tree-sitter detects function headers, markdown dividers (`---`) and closed folds.
+- Each becomes a `solid_platform` rect through §2.2.
+- The cat or crab walks across function definitions and falls between indented gaps.
+- Fold state and buffer edits invalidate the cache. A missing parser is a no-op.
 
 ---
 
-### 5.5 Ambient Environmental Weather & Particle Systems (`distract-weather`)
-- **Objective**: Ambient visual particle simulations rendered across the editor using the existing ECS engine:
-  - 🌧️ **Rain & Thunderstorms**: Rain density scales with Git diff size; lightning flashes on syntax errors.
-  - 🌸 **Falling Sakura Petals**: Gentle drift responding to scrolling momentum.
-  - ❄️ **Snow Accumulation**: Snowflakes settle on the statusline or bottom window divider.
-  - 💻 **Matrix Digital Rain**: Falling green katakana/alphanumeric glyphs for deep focus sessions.
+### 5.5 Ambient Weather & Particle Systems (`distract-weather`)
+
+- 🌧️ **Rain & thunderstorms:** density scales with git diff size; lightning on
+  syntax errors.
+- 🌸 **Falling sakura petals:** drift responds to scroll momentum.
+- ❄️ **Snow accumulation:** flakes settle on the statusline or bottom divider.
+- 💻 **Matrix digital rain:** falling katakana/alphanumeric glyphs for focus sessions.
+
+**Blocking question — measure before building.** The ECS was built for three
+entities; weather wants hundreds. Benchmark 200 entities through one tick first. If
+per-entity cost misses the frame budget, this starts with a batched particle path
+(one entity owning a particle array) — which is a **core** change, not a plugin
+change. Particles must also respect §4.1's rect and §4.3's wrap, or rain falls
+outside the buffer.
 
 ---
 
-### 5.6 Local LLM / Ollama Autonomous Companion Brain (`distract-ai`)
-- **Objective**: Connect companions to local lightweight models (SmolLM, Qwen 2.5 0.5B, or local Ollama instances) for intelligent pair-programming comments.
-- **Workflow**:
-  1. On test failure or diagnostic burst, the plugin passes a concise prompt + error snippet to local endpoint.
-  2. Model responds with a 1-sentence witty or constructive comment streamed directly into the sprite's speech bubble.
-  3. Fully offline, non-blocking asynchronous streaming via `vim.uv.new_tcp()`.
+### 5.6 Local LLM Companion Brain (`distract-ai`)
+
+- **Objective:** connect companions to local lightweight models (SmolLM, Qwen 2.5
+  0.5B, Ollama) for pair-programming comments.
+- **Workflow:** on test failure or diagnostic burst, pass a concise prompt plus
+  error snippet to the local endpoint; stream a one-sentence response into §5.1's
+  bubble; fully offline, non-blocking, via `vim.uv`.
+- **Hard requirements:**
+  - **Local endpoint only.** A configured non-localhost endpoint is refused at
+    startup with an explicit error. No hosted API, no key handling, no telemetry.
+  - **Off by default, explicit opt-in.** Sending code to any model is the user's
+    decision.
+  - **Prompt is bounded and redacted.** An error snippet, not the buffer. Character
+    cap documented. File paths never sent.
+  - **Failure is silence.** Endpoint down, model missing or timeout produces no
+    bubble, one `WARN`, and no retry storm.
+  - **Output truncated** at a documented length before it reaches the bubble.
 
 ---
 
-### 5.7 Gamification, WPM Momentum & Productivity Streaks (`distract-wpm`)
-- **Objective**: Real-time typing velocity synchronization:
-  - **Hypersprint Mode**: Sustained 80+ WPM causes the sprite to sprint with blazing particle trails.
-  - **Pomodoro Pet**: Companion enters a focus pose during work sprints and rings an interactive celebration animation upon session completion.
+### 5.7 Asset Generation MCP Server (`distract-sprite-craft`)
+
+Tooling for agents and developers building procedural sprites. Depends on §3's
+harness.
+
+- `create_sprite_asset` — generate pose curves, shading parameters, a manifest.
+- `validate_sprite_parity` — **wraps §3's harness; does not reimplement it.**
+- `preview_sprite_terminal` — half-block ANSI frames into the agent console.
+
+Runs standalone without Neovim.
 
 ---
 
-### 5.8 Asset Generation MCP Server & Antigravity Agent Skill (`distract-sprite-craft`)
-- **Objective**: Dedicated tooling enabling AI agents and developers to build, test, and preview new procedural sprites.
-- **MCP Server Tools**:
-  - `create_sprite_asset`: Generates procedural pose curves, shading parameters, and manifest definitions.
-  - `validate_sprite_parity`: Confirms Lua and Rust implementations match frame geometries and color spaces.
-  - `preview_sprite_terminal`: Renders half-block ANSI frame strings directly into the agent console.
+### 5.8 Gamification, WPM Momentum & Streaks (`distract-wpm`)
+
+- **Hypersprint:** sustained 80+ WPM makes the sprite sprint with a particle trail —
+  gated on §5.5's particle decision.
+- **Pomodoro pet:** focus pose during work sprints, celebration animation on
+  completion.
+- WPM is computed from an injected clock over a rolling `TextChangedI` window.
 
 ---
 
-## 6. Phased Implementation Roadmap
+## 6. Roadmap
+
+Three entry points have no dependencies and can run in parallel: the on-screen
+verification of what already shipped, §2.1 hooks, and §4.1 viewport scoping.
 
 ```
 +-----------------------------------------------------------------------------------------------+
-| PHASE 1: HIGH-FIDELITY SHADING & MICRO-KERNEL REFACTOR                                        |
-| - Sub-Pixel Vector Primitives (sparks, arcs, Bayer dithering, multi-source lighting) [DONE]   |
-| - Extract Core Extension API (register_asset, register_plugin, obstacle hooks)                |
-| - Buffer-Scoped Viewport Clipping & Floating Buffer Exclusions                                |
-| - Toroidal Edge-Splitting & Continuous Screen Wrapping (Dual-Float / GPU Quad Instances)      |
+| PHASE 1: VERIFY WHAT SHIPPED, THEN THE KERNEL SURFACES                                        |
+| - On-screen verification: kitty backend, GIF assets, gravity, animation fidelity              |
+| - §3 Art-parity harness (validate_sprite_parity), then the silhouette-first redo              |
+| - §2.1 Plugin & middleware hook pipeline  (settle the parity decision first)                  |
+| - §4.1 Buffer-scoped viewport clipping & floating-window exclusion                            |
 +-----------------------------------------------------------------------------------------------+
                                                 │
                                                 ▼
 +-----------------------------------------------------------------------------------------------+
-| PHASE 2: PARAMETRIC 2D KINEMATICS & SATELLITE PLUGINS                                         |
-| - 2D Kinematic Locomotion (Omnidirectional Drift, Lissajous Paths, Ballistic Arcs)            |
-| - Core Plugin: `distract-talk` (Floating Speech Balloon UI & Trigger Engine)                  |
-| - Core Plugin: `distract-memory` (stdpath JSON Store & Episodic Milestone Tracking)           |
+| PHASE 2: SPATIAL CORE & FIRST SATELLITES                                                      |
+| - §4.2 Instance visibility scoping (focus-aware rendering)                                    |
+| - §2.2 Spatial obstacle & solid platform provider                                             |
+| - §4.3 Toroidal edge-splitting & continuous wrap (dual surface / GPU quad instances)          |
+| - §5.1 `distract-talk`   - §5.2 `distract-memory`                                             |
 +-----------------------------------------------------------------------------------------------+
                                                 │
                                                 ▼
 +-----------------------------------------------------------------------------------------------+
-| PHASE 3: CODE-AWARE SEMANTICS & ADVANCED ECOSYSTEM                                            |
-| - Core Plugin: `distract-lsp` (Symbol Perching & 4-Quadrant Cursor Accompaniment)             |
-| - Core Plugin: `distract-physics` (Tree-sitter Solid Platforms & Code Gaps)                   |
-| - Core Plugin: `distract-weather` (Ambient Particle Systems: Rain, Sakura, Snow)              |
+| PHASE 3: CODE-AWARE SEMANTICS & AMBIENT SYSTEMS                                               |
+| - §5.3 `distract-lsp`    - §5.4 `distract-physics`                                            |
+| - §5.5 `distract-weather` (benchmark particles first)  - §5.8 `distract-wpm`                   |
 +-----------------------------------------------------------------------------------------------+
                                                 │
                                                 ▼
 +-----------------------------------------------------------------------------------------------+
-| PHASE 4: AI BRAIN & EXTERNAL AGENT TOOLING                                                    |
-| - Core Plugin: `distract-ai` (Local Ollama / Small LLM Contextual Streamer)                   |
-| - `distract-sprite-craft` MCP Server & Antigravity Agent Skill for Procedural Sprites          |
+| PHASE 4: AI BRAIN & AGENT TOOLING                                                             |
+| - §5.6 `distract-ai`     - §5.7 `distract-sprite-craft` MCP server                             |
 +-----------------------------------------------------------------------------------------------+
 ```

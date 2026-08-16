@@ -1,0 +1,136 @@
+{
+  "cat": {
+    "height": 16,
+    "states": {
+      "idle": [
+        "idle_0",
+        "idle_1",
+        "idle_2",
+        "idle_3"
+      ],
+      "jump": [
+        "jump_0",
+        "jump_1",
+        "jump_2",
+        "jump_3",
+        "jump_4",
+        "jump_5",
+        "jump_6",
+        "jump_7"
+      ],
+      "sleep": [
+        "sleep_0",
+        "sleep_1",
+        "sleep_2",
+        "sleep_3"
+      ],
+      "walk": [
+        "walk_0",
+        "walk_1",
+        "walk_2",
+        "walk_3"
+      ],
+      "walk_fast": [
+        "walk_fast_0",
+        "walk_fast_1",
+        "walk_fast_2",
+        "walk_fast_3"
+      ],
+      "yawn": [
+        "yawn_0",
+        "yawn_1",
+        "yawn_2",
+        "yawn_3",
+        "yawn_4"
+      ]
+    },
+    "total_frames": 29,
+    "width": 24
+  },
+  "crab": {
+    "height": 16,
+    "states": {
+      "burrow": [
+        "burrow_0",
+        "burrow_1",
+        "burrow_2",
+        "burrow_3",
+        "burrow_4"
+      ],
+      "clip_claws": [
+        "clip_claws_0",
+        "clip_claws_1",
+        "clip_claws_2",
+        "clip_claws_3"
+      ],
+      "idle": [
+        "idle_0",
+        "idle_1",
+        "idle_2",
+        "idle_3"
+      ],
+      "sleep": [
+        "sleep_0",
+        "sleep_1",
+        "sleep_2",
+        "sleep_3"
+      ],
+      "walk": [
+        "walk_0",
+        "walk_1",
+        "walk_2",
+        "walk_3"
+      ],
+      "walk_fast": [
+        "walk_fast_0",
+        "walk_fast_1",
+        "walk_fast_2",
+        "walk_fast_3"
+      ]
+    },
+    "total_frames": 25,
+    "width": 24
+  },
+  "sun": {
+    "height": 16,
+    "states": {
+      "eclipse": [
+        "eclipse_0",
+        "eclipse_1",
+        "eclipse_2",
+        "eclipse_3",
+        "eclipse_4"
+      ],
+      "flare": [
+        "flare_0",
+        "flare_1",
+        "flare_2",
+        "flare_3"
+      ],
+      "rising": [
+        "rising_0",
+        "rising_1",
+        "rising_2",
+        "rising_3",
+        "rising_4",
+        "rising_5"
+      ],
+      "setting": [
+        "setting_0",
+        "setting_1",
+        "setting_2",
+        "setting_3",
+        "setting_4",
+        "setting_5"
+      ],
+      "shining": [
+        "shining_0",
+        "shining_1",
+        "shining_2",
+        "shining_3"
+      ]
+    },
+    "total_frames": 25,
+    "width": 16
+  }
+}

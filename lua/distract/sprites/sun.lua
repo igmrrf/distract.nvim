@@ -1,9 +1,3 @@
---- Procedurally drawn sun sprite.
----
---- The disc is a lit sphere with the light aimed straight at the viewer, so it
---- reads as a glowing ball rather than a flat circle. Rays, corona, occluding
---- moon and horizon are all parameters of one draw routine.
-
 local g = require("distract.sprite_gen")
 
 local W, H = 16, 16
@@ -17,19 +11,98 @@ local HORIZON = { 92, 74, 124 }
 
 local sin, cos, pi, floor, max, sqrt = math.sin, math.cos, math.pi, math.floor, math.max, math.sqrt
 
---- Draws one sun pose.
---- pose fields:
----   radius    disc radius in pixels
----   rays      0..1 length of the emitted rays
----   spin      ray rotation in turns
----   corona    0..1 strength of the outer glow ring
----   occlude   0..1 how far the moon has crossed the disc
----   drop      -1..1 vertical offset, negative is higher in the sky
----   horizon   0..1 opacity of the horizon band
----   flare     0..1 brightness surge
+local function draw_corona(c, cx, cy, radius, corona, spin)
+  if corona <= 0.02 then
+    return
+  end
+  local inner = radius + 0.4
+  local outer = radius + 1.0 + corona * 3.2
+  for y = 1, H do
+    for x = 1, W do
+      local dx, dy = x - cx, y - cy
+      local d = sqrt(dx * dx + dy * dy)
+      if d > inner and d <= outer then
+        local ang = math.atan2(dy, dx)
+        local edge = outer * (1 + 0.10 * sin(ang * 6 + spin * 2 * pi))
+        if d <= edge then
+          local falloff = 1 - (d - inner) / max(0.001, edge - inner)
+          g.set(c, x, y, g.shade(CORONA, -0.62 + falloff * 0.5 * corona))
+        end
+      end
+    end
+  end
+end
+
+local function draw_rays(c, cx, cy, radius, rays, spin)
+  if rays <= 0.05 then
+    return
+  end
+  local inner = radius + 0.7
+  local outer = inner + rays * 3.4
+  for i = 0, 7 do
+    local ang = (i / 8 + spin) * 2 * pi
+    local ca, sa = cos(ang), sin(ang)
+    local steps = max(1, floor((outer - inner) * 2))
+    for step = 0, steps do
+      local t = step / steps
+      local rr = inner + (outer - inner) * t
+      g.set(c, cx + ca * rr, cy + sa * rr, g.shade(g.mix(SURFACE, CORONA, t), 0.10 - t * 0.30))
+    end
+  end
+end
+
+local function draw_disc(c, cx, cy, radius, flare)
+  g.orb(c, cx, cy, radius, radius, SURFACE, {
+    light = { 0, 0, 1 },
+    ambient = 0.30 + flare * 0.35,
+    rim = 0.55,
+    rim_color = LIMB,
+    specular = 0.0,
+    dither = 0.06,
+  })
+  g.orb(c, cx, cy, radius * 0.55, radius * 0.55, g.shade(CORE, flare * 0.35), {
+    light = { 0, 0, 1 },
+    ambient = 0.62,
+    rim = 0.20,
+    rim_color = CORE,
+    specular = 0.0,
+  })
+end
+
+local function draw_eclipse(c, cx, cy, radius, occlude)
+  if occlude <= 0.02 then
+    return
+  end
+  local mx = cx - radius * 2.2 + occlude * radius * 2.2
+  g.orb(c, mx, cy, radius * 1.02, radius * 1.02, MOON, {
+    light = { -0.4, -0.4, 0.7 },
+    ambient = 0.5,
+    rim = 0.42,
+    rim_color = CORONA,
+    specular = 0.0,
+  })
+  if occlude > 0.82 then
+    g.spark(c, cx + radius * 0.75, cy - radius * 0.75, 2, { 255, 255, 240 })
+  end
+end
+
+local function draw_horizon(c, horizon)
+  if horizon <= 0.02 then
+    return
+  end
+  local band_y = 13
+  for row = 0, 2 do
+    local tone = g.shade(HORIZON, -0.12 * row + (1 - horizon) * 0.4)
+    for x = 1, W do
+      if row > 0 or ((x + row) % 7) ~= 0 then
+        g.set(c, x, band_y + row, tone)
+      end
+    end
+  end
+end
+
 local function draw(pose)
   local c = g.canvas(W, H)
-
   local radius = pose.radius or 4.6
   local rays = pose.rays or 1
   local spin = pose.spin or 0
@@ -42,91 +115,11 @@ local function draw(pose)
   local cx = 8
   local cy = 8 + drop * 3.4
 
-  -- Corona: a radial falloff just outside the disc, evaluated per pixel. Drawn
-  -- as a field rather than a ring of blobs, which would pile up into a lumpy
-  -- mass thick enough to swallow the disc it is meant to surround.
-  if corona > 0.02 then
-    local inner = radius + 0.4
-    local outer = radius + 1.0 + corona * 3.2
-    for y = 1, H do
-      for x = 1, W do
-        local dx, dy = x - cx, y - cy
-        local d = sqrt(dx * dx + dy * dy)
-        if d > inner and d <= outer then
-          -- Petal wobble keeps the glow from reading as a perfect circle.
-          local ang = math.atan2(dy, dx)
-          local edge = outer * (1 + 0.10 * sin(ang * 6 + spin * 2 * pi))
-          if d <= edge then
-            local falloff = 1 - (d - inner) / max(0.001, edge - inner)
-            g.set(c, x, y, g.shade(CORONA, -0.62 + falloff * 0.5 * corona))
-          end
-        end
-      end
-    end
-  end
-
-  -- Rays: eight straight spokes, brightest at the disc and fading outward.
-  if rays > 0.05 then
-    local inner = radius + 0.7
-    local outer = inner + rays * 3.4
-    for i = 0, 7 do
-      local ang = (i / 8 + spin) * 2 * pi
-      local ca, sa = cos(ang), sin(ang)
-      local steps = max(1, floor((outer - inner) * 2))
-      for step = 0, steps do
-        local t = step / steps
-        local rr = inner + (outer - inner) * t
-        g.set(c, cx + ca * rr, cy + sa * rr, g.shade(g.mix(SURFACE, CORONA, t), 0.10 - t * 0.30))
-      end
-    end
-  end
-
-  -- The disc itself: lit head-on so the falloff is radial, giving a smooth vector sphere.
-  g.orb(c, cx, cy, radius, radius, SURFACE, {
-    light = { 0, 0, 1 },
-    ambient = 0.30 + flare * 0.35,
-    rim = 0.55,
-    rim_color = LIMB,
-    specular = 0.0,
-    dither = 0.06,
-  })
-  -- Hot radiant core.
-  g.orb(c, cx, cy, radius * 0.55, radius * 0.55, g.shade(CORE, flare * 0.35), {
-    light = { 0, 0, 1 },
-    ambient = 0.62,
-    rim = 0.20,
-    rim_color = CORE,
-    specular = 0.0,
-  })
-
-  -- Moon slides across from the left as occlude runs 0 -> 1.
-  if occlude > 0.02 then
-    local mx = cx - radius * 2.2 + occlude * radius * 2.2
-    g.orb(c, mx, cy, radius * 1.02, radius * 1.02, MOON, {
-      light = { -0.4, -0.4, 0.7 },
-      ambient = 0.5,
-      rim = 0.42,
-      rim_color = CORONA,
-      specular = 0.0,
-    })
-    -- Diamond-ring sparkle at totality
-    if occlude > 0.82 then
-      g.spark(c, cx + radius * 0.75, cy - radius * 0.75, 2, { 255, 255, 240 })
-    end
-  end
-
-  -- Horizon band for sunrise and sunset.
-  if horizon > 0.02 then
-    local band_y = 13
-    for row = 0, 2 do
-      local tone = g.shade(HORIZON, -0.12 * row + (1 - horizon) * 0.4)
-      for x = 1, W do
-        if row > 0 or ((x + row) % 7) ~= 0 then
-          g.set(c, x, band_y + row, tone)
-        end
-      end
-    end
-  end
+  draw_corona(c, cx, cy, radius, corona, spin)
+  draw_rays(c, cx, cy, radius, rays, spin)
+  draw_disc(c, cx, cy, radius, flare)
+  draw_eclipse(c, cx, cy, radius, occlude)
+  draw_horizon(c, horizon)
 
   return c
 end
@@ -135,12 +128,6 @@ local pose_sets = {}
 local layout = {}
 local frame_count = 0
 
---- Records a state's poses and its 0-based frame index range.
----
---- Poses are cheap to build; drawing them is not. Nothing is rasterised here so
---- that requiring this module — which every manifest does, and therefore so
---- does every Neovim startup — stays close to free. Frames are drawn on first
---- use by `frames()`.
 local function add(state, poses)
   local start = frame_count
   pose_sets[#pose_sets + 1] = poses
@@ -152,7 +139,6 @@ local function add(state, poses)
   layout[state] = idx
 end
 
--- Shining: the disc breathes and the rays rotate a full step per cycle.
 add(
   "shining",
   g.cycle(4, function(t)
@@ -165,7 +151,6 @@ add(
   end)
 )
 
--- Eclipse: the moon crosses the disc, the corona flares as totality arrives.
 add(
   "eclipse",
   g.sequence(5, function(t)
@@ -180,7 +165,6 @@ add(
   end)
 )
 
--- Flare: a brightness surge with the rays thrown wide, then settling.
 add(
   "flare",
   g.sequence(4, function(t)
@@ -195,7 +179,6 @@ add(
   end)
 )
 
--- Rising: climbs out of the horizon, rays lengthening as it clears.
 add(
   "rising",
   g.sequence(6, function(t)
@@ -210,7 +193,6 @@ add(
   end)
 )
 
--- Setting: sinks back down, rays shortening and the band deepening.
 add(
   "setting",
   g.sequence(6, function(t)
@@ -225,7 +207,6 @@ add(
   end)
 )
 
--- Drawn once, on first use.
 local frames_cache = nil
 
 local function frames()

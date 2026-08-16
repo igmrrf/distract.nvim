@@ -6,22 +6,30 @@
 --- pose function, so a state's frames are smooth by construction rather than by
 --- getting each hand-drawn frame right by eye.
 ---
---- Volume comes from `orb`, which shades an ellipse as if it were a lit
---- hemisphere: Lambert diffuse from a light direction, a rim term at grazing
---- angles, and a specular highlight. That is what gives flat pixel art its
---- rounded, three-dimensional read.
+--- Two shading models build volume from a flat base colour: `orb` is
+--- continuous Lambertian shading (the sun's smooth disc), `cel_orb` quantises
+--- that same lighting into flat shadow/base/highlight bands with a hard
+--- outline (the cat and crab's cartoon look).
+---
+--- This is a line-by-line port of `engine/src/sprite_gen.rs`; the two must be
+--- kept in parity by hand, since nothing enforces it at compile time.
 
 local M = {}
 
 local floor, sqrt, max, min = math.floor, math.sqrt, math.max, math.min
+local abs = math.abs
 
--- Default key light: above, slightly to the entity's left, angled toward the
--- viewer. Shared by every asset so they look lit by the same source.
+--- Default key light: above, slightly to the entity's left, angled toward the
+--- viewer. Shared by every asset so they look lit by the same source.
 M.DEFAULT_LIGHT = { -0.5, -0.62, 0.6 }
 
--- =========================================================================
--- Canvas
--- =========================================================================
+--- Bayer 4x4 ordered dithering matrix normalised to -0.5 .. 0.5.
+local BAYER_4X4 = {
+  { -0.46875, 0.03125, -0.34375, 0.15625 },
+  { 0.28125, -0.21875, 0.40625, -0.09375 },
+  { -0.28125, 0.21875, -0.40625, 0.09375 },
+  { 0.46875, -0.03125, 0.34375, -0.15625 },
+}
 
 --- Creates a `w` x `h` fully transparent canvas.
 function M.canvas(w, h)
@@ -62,20 +70,16 @@ end
 --- Rows are dense and use `false` for transparent cells: a nil would truncate
 --- the row and silently shrink the sprite.
 function M.to_matrix(c)
-  local m = {}
+  local matrix = {}
   for y = 1, c.h do
     local row = {}
     for x = 1, c.w do
       row[x] = c.rows[y][x] or false
     end
-    m[y] = row
+    matrix[y] = row
   end
-  return m
+  return matrix
 end
-
--- =========================================================================
--- Colour
--- =========================================================================
 
 local function clamp8(v)
   return max(0, min(255, floor(v + 0.5)))
@@ -86,8 +90,8 @@ end
 function M.shade(color, amount)
   amount = max(-1, min(1, amount))
   if amount < 0 then
-    local k = 1 + amount
-    return { clamp8(color[1] * k), clamp8(color[2] * k), clamp8(color[3] * k) }
+    local factor = 1 + amount
+    return { clamp8(color[1] * factor), clamp8(color[2] * factor), clamp8(color[3] * factor) }
   end
   return {
     clamp8(color[1] + (255 - color[1]) * amount),
@@ -105,10 +109,6 @@ function M.mix(a, b, t)
     clamp8(a[3] + (b[3] - a[3]) * t),
   }
 end
-
--- =========================================================================
--- Primitives
--- =========================================================================
 
 --- Axis-aligned filled rectangle. Clips to the canvas.
 function M.rect(c, x, y, w, h, color)
@@ -135,7 +135,7 @@ end
 --- Bresenham line between two points, inclusive of both endpoints.
 function M.line(c, x0, y0, x1, y1, color)
   x0, y0, x1, y1 = floor(x0), floor(y0), floor(x1), floor(y1)
-  local dx, dy = math.abs(x1 - x0), -math.abs(y1 - y0)
+  local dx, dy = abs(x1 - x0), -abs(y1 - y0)
   local sx = x0 < x1 and 1 or -1
   local sy = y0 < y1 and 1 or -1
   local err = dx + dy
@@ -157,10 +157,6 @@ function M.line(c, x0, y0, x1, y1, color)
   end
 end
 
--- =========================================================================
--- Volumetric Shading & Vector Primitives
--- =========================================================================
-
 local function normalize(v)
   local len = sqrt(v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
   if len == 0 then
@@ -168,14 +164,6 @@ local function normalize(v)
   end
   return { v[1] / len, v[2] / len, v[3] / len }
 end
-
---- Bayer 4x4 ordered dithering matrix normalised to -0.5 .. 0.5.
-local BAYER_4X4 = {
-  { -0.46875, 0.03125, -0.34375, 0.15625 },
-  { 0.28125, -0.21875, 0.40625, -0.09375 },
-  { -0.28125, 0.21875, -0.40625, 0.09375 },
-  { 0.46875, -0.03125, 0.34375, -0.15625 },
-}
 
 --- Retrieves the Bayer dither offset for integer screen coordinate (x, y).
 function M.dither(x, y, strength)
@@ -185,7 +173,7 @@ function M.dither(x, y, strength)
   return BAYER_4X4[yi][xi] * strength
 end
 
---- Shaded ellipse, lit as a hemisphere with multi-point lighting.
+--- Shaded ellipse, lit as a continuous hemisphere with multi-point lighting.
 ---
 --- opts:
 ---   light        {x, y, z} direction the key light comes from (default DEFAULT_LIGHT)
@@ -229,35 +217,79 @@ function M.orb(c, cx, cy, rx, ry, base, opts)
         end
         local color = M.shade(base, (level - 1) * 0.85)
 
-        -- Warm bounce fill light
         if fill_strength > 0 then
           color = M.mix(color, fill_color, fill_diffuse * fill_strength)
         end
-
-        -- Cool Rim light: strongest where the surface turns away from viewer
         if rim_strength > 0 then
           local rim = (1 - nz) ^ 3
           color = M.mix(color, rim_color, rim * rim_strength)
         end
-
-        -- Specular: tight highlight where surface reflects key light
         if spec_strength > 0 then
           local spec = diffuse ^ shininess
           color = M.mix(color, { 255, 255, 255 }, spec * spec_strength)
         end
-
         if flatten > 0 then
           color = M.mix(color, base, flatten)
         end
-
         M.set(c, cx + dx, cy + dy, color)
       end
     end
   end
 end
 
---- Shaded capsule along an axis; used for limbs, antennae, and tails.
-function M.limb(c, x0, y0, x1, y1, radius, base, opts)
+--- Shaded ellipse quantised into flat shadow/base/highlight bands with a hard
+--- silhouette outline, for a cel-shaded/cartoon read.
+---
+--- opts:
+---   light               direction the key light comes from (default DEFAULT_LIGHT)
+---   shadow              flat shadow-band colour (default `base` darkened by 0.36)
+---   highlight           flat highlight-band colour (default `base` lightened by 0.28)
+---   outline             outline colour drawn at the silhouette edge; nil for no outline
+---   outline_threshold   normalised radius^2 beyond which the outline is drawn (default 0.84)
+---   rim                 strength of the grazing-angle rim light, 0..1 (default 0.0)
+---   rim_color           colour of the rim light (default white)
+function M.cel_orb(c, cx, cy, rx, ry, base, opts)
+  opts = opts or {}
+  local light = normalize(opts.light or M.DEFAULT_LIGHT)
+  local shadow_color = opts.shadow or M.shade(base, -0.36)
+  local highlight_color = opts.highlight or M.shade(base, 0.28)
+  local outline_color = opts.outline
+  local outline_threshold = opts.outline_threshold or 0.84
+  local rim_strength = opts.rim or 0.0
+  local rim_color = opts.rim_color or { 255, 255, 255 }
+
+  rx, ry = max(rx, 0.5), max(ry, 0.5)
+
+  for dy = -floor(ry), floor(ry) do
+    for dx = -floor(rx), floor(rx) do
+      local nx, ny = dx / rx, dy / ry
+      local r2 = nx * nx + ny * ny
+      if r2 <= 1.0 then
+        if outline_color and r2 >= outline_threshold then
+          M.set(c, cx + dx, cy + dy, outline_color)
+        else
+          local nz = sqrt(max(0, 1 - r2))
+          local diffuse = nx * light[1] + ny * light[2] + nz * light[3]
+          local pixel_color = base
+          if diffuse > 0.42 then
+            pixel_color = highlight_color
+          elseif diffuse < -0.05 or ny > 0.35 then
+            pixel_color = shadow_color
+          end
+          if rim_strength > 0 and nz < 0.35 and diffuse > -0.1 then
+            pixel_color = M.mix(pixel_color, rim_color, rim_strength)
+          end
+          M.set(c, cx + dx, cy + dy, pixel_color)
+        end
+      end
+    end
+  end
+end
+
+--- Shaded capsule from (x0, y0) to (x1, y1), tapering toward the far end;
+--- used for limbs and tails drawn with cel shading. `opts` is forwarded to
+--- `cel_orb` unchanged at every step.
+function M.cel_limb(c, x0, y0, x1, y1, radius, base, opts)
   opts = opts or {}
   local steps = max(1, floor(sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2) * 2))
   for i = 0, steps do
@@ -265,19 +297,34 @@ function M.limb(c, x0, y0, x1, y1, radius, base, opts)
     local x = x0 + (x1 - x0) * t
     local y = y0 + (y1 - y0) * t
     local r = radius * (1 - 0.25 * t)
-    M.orb(c, x, y, r, r, base, {
-      light = opts.light,
-      ambient = opts.ambient or 0.42,
-      rim = opts.rim or 0.16,
-      fill = opts.fill or 0.10,
-      specular = opts.specular or 0.12,
-      shininess = opts.shininess or 8,
-      dither = opts.dither or 0,
-    })
+    M.cel_orb(c, x, y, r, r, base, opts)
   end
 end
 
---- 4-pointed micro sparkle / specular star.
+--- Filled flat-colour triangle, used for angular details like ears.
+function M.triangle(c, x0, y0, x1, y1, x2, y2, color)
+  local min_x = floor(min(x0, min(x1, x2)))
+  local max_x = floor(max(x0, max(x1, x2)))
+  local min_y = floor(min(y0, min(y1, y2)))
+  local max_y = floor(max(y0, max(y1, y2)))
+
+  local function edge(ax, ay, bx, by, px, py)
+    return (px - ax) * (by - ay) - (py - ay) * (bx - ax)
+  end
+
+  for y = min_y, max_y do
+    for x = min_x, max_x do
+      local w0 = edge(x1, y1, x2, y2, x + 0.5, y + 0.5)
+      local w1 = edge(x2, y2, x0, y0, x + 0.5, y + 0.5)
+      local w2 = edge(x0, y0, x1, y1, x + 0.5, y + 0.5)
+      if (w0 >= 0 and w1 >= 0 and w2 >= 0) or (w0 <= 0 and w1 <= 0 and w2 <= 0) then
+        M.set(c, x, y, color)
+      end
+    end
+  end
+end
+
+--- 4-pointed micro sparkle / specular star, fading outward from its centre.
 function M.spark(c, cx, cy, radius, color)
   cx, cy = floor(cx), floor(cy)
   color = color or { 255, 255, 255 }
@@ -292,24 +339,18 @@ function M.spark(c, cx, cy, radius, color)
   end
 end
 
---- Anti-aliased curved arc for coronal loops and facial features.
-function M.arc(c, cx, cy, rx, ry, start_angle, end_angle, color, steps)
-  steps = steps or 16
-  local d_theta = (end_angle - start_angle) / steps
-  for i = 0, steps - 1 do
-    local a0 = start_angle + i * d_theta
-    local a1 = start_angle + (i + 1) * d_theta
-    local x0 = cx + math.cos(a0) * rx
-    local y0 = cy + math.sin(a0) * ry
-    local x1 = cx + math.cos(a1) * rx
-    local y1 = cy + math.sin(a1) * ry
-    M.line(c, x0, y0, x1, y1, color)
+--- Filled annulus between `inner_r` and `outer_r`, flat coloured.
+function M.ring(c, cx, cy, inner_r, outer_r, color)
+  local r_max = floor(outer_r)
+  for dy = -r_max, r_max do
+    for dx = -r_max, r_max do
+      local dist = sqrt(dx * dx + dy * dy)
+      if dist >= inner_r and dist <= outer_r then
+        M.set(c, cx + dx, cy + dy, color)
+      end
+    end
   end
 end
-
--- =========================================================================
--- Pose sampling
--- =========================================================================
 
 --- Samples `n` poses for a looping animation. `t` runs 0 .. (n-1)/n so the last
 --- frame flows back into the first without repeating it.
