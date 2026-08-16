@@ -160,29 +160,62 @@ function M.invalidate_screen_map()
   screen_map_sig = nil
 end
 
---- In-terminal backends this module can actually draw. Anything not listed here
---- must not be offered to users: an unknown name used to fall through to a
---- catch-all draw path, so a backend could be advertised without existing.
-local BACKEND_DRAW = {
-  halfblock = function(...)
-    return M.draw_halfblock_entity(...)
-  end,
-}
+--- One entity's current picture, in whatever form its backend produced it.
+---
+--- The two surfaces are the same `width` x `height` rectangle of cells seen two
+--- ways: `buf` is a buffer holding the whole frame for the float to show, and
+--- `runs()` describes it row by row for the overlay extmarks. `runs` is a
+--- function because a sprite entirely below the last buffer line never needs
+--- them.
+---
+--- `key` changes exactly when the picture does and nothing else. It is what
+--- keeps a stationary entity from costing any API calls, so a backend whose key
+--- moves every tick has given up that property for every entity it draws.
+---@class DistractFrameSurface
+---@field key integer|string
+---@field buf integer
+---@field width integer
+---@field height integer
+---@field runs fun(): table<integer, table>|nil
+
+--- In-terminal backends this module can actually draw. Registered rather than
+--- listed, because a backend can need a capable terminal and has to be able to
+--- decline. Anything absent must not be offered to users: an unknown name used
+--- to fall through to a catch-all draw path, so a backend could be advertised
+--- without existing.
+---@type table<string, fun(entity: table): DistractFrameSurface|nil>
+local BACKEND_SURFACE = {}
+
+--- Registers the surface provider for an in-terminal backend.
+---
+--- The provider supplies content only. Placement, the overlay/float split and
+--- the redraw guard stay here, so every in-terminal backend inherits them
+--- rather than reimplementing them and drifting.
+---@param name string canonical backend name
+---@param build_surface fun(entity: table): DistractFrameSurface|nil
+function M.register_backend(name, build_surface)
+  if type(name) ~= "string" or name == "" then
+    error("distract.renderer.register_backend: name must be a non-empty string")
+  end
+  if type(build_surface) ~= "function" then
+    error("distract.renderer.register_backend: build_surface must be a function")
+  end
+  BACKEND_SURFACE[name] = build_surface
+end
 
 --- Whether this module implements an in-terminal backend by name.
 function M.supports(backend)
-  return BACKEND_DRAW[backend] ~= nil
+  return BACKEND_SURFACE[backend] ~= nil
 end
 
 --- Draws all entities in terminal mode using the selected backend
 function M.draw(entities, backend)
-  local draw_entity = BACKEND_DRAW[backend or "halfblock"]
-  if not draw_entity then
+  local build_surface = BACKEND_SURFACE[backend or "halfblock"]
+  if not build_surface then
     error(string.format("distract: no renderer for backend '%s'", tostring(backend)))
   end
 
-  local max_columns = vim.o.columns
-  local max_lines = vim.o.lines
+  local bounds = { columns = vim.o.columns, lines = vim.o.lines }
 
   -- Where the editor's text is, so sprite rows can be drawn onto it instead of
   -- over it. Rebuilt only when the layout moved.
@@ -191,7 +224,14 @@ function M.draw(entities, backend)
   local live_ids = {}
   for _, entity in ipairs(entities) do
     live_ids[entity.id] = true
-    draw_entity(entity, max_columns, max_lines)
+    local surface = build_surface(entity)
+    if surface then
+      M.place_surface(entity, surface, bounds)
+    else
+      -- Nothing renderable for this frame; drop anything we still hold rather
+      -- than asking nvim_open_win for a zero-sized window.
+      M.close_window(entity.id)
+    end
   end
 
   -- Clean up windows for despawned entities
@@ -306,10 +346,10 @@ end
 --- The float shows the whole frame buffer, scrolled so `from` is its top line.
 --- That is what lets every entity keep sharing one buffer per frame instead of
 --- needing one per (frame, split point).
-local function place_float(entity, entry, frame_buf, geom)
+local function place_float(entity, entry, surface_buf, geom)
   local win = entry and entry.win
   if not win or not api.nvim_win_is_valid(win) then
-    win = api.nvim_open_win(frame_buf, false, {
+    win = api.nvim_open_win(surface_buf, false, {
       relative = "editor",
       width = geom.width,
       height = geom.float_height,
@@ -345,12 +385,12 @@ local function place_float(entity, entry, frame_buf, geom)
   end
 
   -- Show a different picture by showing a different buffer.
-  if not entry or entry.buf ~= frame_buf then
-    api.nvim_win_set_buf(win, frame_buf)
+  if not entry or entry.buf ~= surface_buf then
+    api.nvim_win_set_buf(win, surface_buf)
   end
 
   -- Scroll to the first row the float is responsible for.
-  if not entry or entry.buf ~= frame_buf or entry.overlay_limit ~= geom.overlay_limit then
+  if not entry or entry.buf ~= surface_buf or entry.overlay_limit ~= geom.overlay_limit then
     pcall(api.nvim_win_set_cursor, win, { geom.overlay_limit + 1, 0 })
     pcall(api.nvim_win_call, win, function()
       vim.fn.winrestview({ topline = geom.overlay_limit + 1, lnum = geom.overlay_limit + 1 })
@@ -360,27 +400,21 @@ local function place_float(entity, entry, frame_buf, geom)
   return win
 end
 
-function M.draw_halfblock_entity(entity, max_columns, max_lines)
-  local frame_count = #sprites.get_pixel_frames(entity.asset_name)
-  local frame_idx = M.resolve_pixel_frame(entity, frame_count)
-  local flip_x = M.resolve_flip(entity)
-
-  -- The buffer for a frame is built once, with its highlights already in it,
-  -- and shared by every entity showing that frame. Advancing the animation is
-  -- then one `nvim_win_set_buf` rather than a rewrite of every coloured cell.
-  local frame_buf, sprite_w, sprite_h =
-    sprites.get_frame_buffer(entity.asset_name, frame_idx, flip_x)
-
-  if not frame_buf or sprite_w < 1 or sprite_h < 1 then
-    -- Nothing renderable for this frame; drop anything we still hold rather
-    -- than asking nvim_open_win for a zero-sized window.
-    M.close_window(entity.id)
-    return
-  end
+--- Places one entity's surface, splitting it between buffer text and a float.
+---
+--- Every in-terminal backend goes through here. The split, the clamping and the
+--- redraw guard are the parts that were expensive to get right and are not
+--- worth having twice.
+---@param entity table
+---@param surface DistractFrameSurface
+---@param bounds { columns: integer, lines: integer }
+function M.place_surface(entity, surface, bounds)
+  local max_columns = bounds.columns
+  local max_lines = bounds.lines
 
   -- A sprite larger than the viewport still has to produce a legal window size.
-  local width = math.min(sprite_w, math.max(1, max_columns))
-  local height = math.min(sprite_h, math.max(1, max_lines - 1))
+  local width = math.min(surface.width, math.max(1, max_columns))
+  local height = math.min(surface.height, math.max(1, max_lines - 1))
 
   local x = math.floor(entity.x)
   local y = math.floor(entity.y)
@@ -403,7 +437,7 @@ function M.draw_halfblock_entity(entity, max_columns, max_lines)
   -- Nothing below is worth redoing unless the picture, the placement, or the
   -- editor layout under it has changed. An idle pet costs no API calls.
   local sig = table.concat({
-    frame_buf,
+    surface.key,
     row,
     col,
     width,
@@ -424,13 +458,13 @@ function M.draw_halfblock_entity(entity, max_columns, max_lines)
 
   local marks = nil
   if overlay_limit > 0 then
-    local rows = sprites.get_frame_runs(entity.asset_name, frame_idx, flip_x)
-    marks = draw_overlay_rows(rows, row, col, overlay_limit)
+    local rows = surface.runs()
+    marks = draw_overlay_rows(rows or {}, row, col, overlay_limit)
   end
 
   local win = nil
   if geom.float_height > 0 then
-    win = place_float(entity, previous, frame_buf, geom)
+    win = place_float(entity, previous, surface.buf, geom)
   elseif previous and previous.win and api.nvim_win_is_valid(previous.win) then
     -- Every row landed on buffer text, so there is nothing left for a float to
     -- do and nothing of the editor stays covered.
@@ -438,7 +472,7 @@ function M.draw_halfblock_entity(entity, max_columns, max_lines)
   end
 
   active_windows[entity.id] = {
-    buf = frame_buf,
+    buf = surface.buf,
     win = win,
     row = row,
     col = col,
@@ -451,6 +485,39 @@ function M.draw_halfblock_entity(entity, max_columns, max_lines)
     marks = marks,
   }
 end
+
+--- The half-block surface: two sprite pixel rows stacked into one cell.
+---
+--- The buffer for a frame is built once, with its highlights already in it, and
+--- shared by every entity showing that frame. Advancing the animation is then
+--- one `nvim_win_set_buf` rather than a rewrite of every coloured cell, which
+--- is also why the buffer handle is a sound cache key.
+---@param entity table
+---@return DistractFrameSurface|nil
+local function halfblock_surface(entity)
+  local frame_count = #sprites.get_pixel_frames(entity.asset_name)
+  local frame_idx = M.resolve_pixel_frame(entity, frame_count)
+  local flip_x = M.resolve_flip(entity)
+
+  local frame_buf, sprite_w, sprite_h =
+    sprites.get_frame_buffer(entity.asset_name, frame_idx, flip_x)
+
+  if not frame_buf or sprite_w < 1 or sprite_h < 1 then
+    return nil
+  end
+
+  return {
+    key = frame_buf,
+    buf = frame_buf,
+    width = sprite_w,
+    height = sprite_h,
+    runs = function()
+      return sprites.get_frame_runs(entity.asset_name, frame_idx, flip_x)
+    end,
+  }
+end
+
+M.register_backend("halfblock", halfblock_surface)
 
 function M.close_window(entity_id)
   local w = active_windows[entity_id]
