@@ -635,6 +635,14 @@ function M.step(dt, bounds)
           if landed and M.effective_locomotion(phys) == BALLISTIC then
             local on_land = state_def.transitions and state_def.transitions.on_land
             if on_land then
+              -- Landing ends the action that launched the entity. Leaving its
+              -- timer running would drag the entity out of the state it just
+              -- reached as soon as the clock caught up, so a jump that lands
+              -- early would still be locked until its declared duration.
+              entity.action_timer = nil
+              entity.action_duration = nil
+              entity.return_state = nil
+              entity.is_locked = false
               M.set_entity_state(entity, on_land)
             end
           end

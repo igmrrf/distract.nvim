@@ -793,3 +793,32 @@ describe("distract.engine depth", function()
     engine.clear()
   end)
 end)
+
+-- The mirror of `landing_cancels_the_action_that_launched_the_jump` in
+-- `ecs.rs`. No golden trajectory can reach it: the parity fixtures describe
+-- physics and nothing in them triggers an action, so the two engines are held
+-- together here by the same assertion written twice.
+describe("distract.engine landing", function()
+  it("ends the action that launched the jump, not just the state", function()
+    require("distract").setup({ backend = "halfblock" })
+    engine.clear()
+    count_warnings(function()
+      engine.spawn("cat", { x = 20, y = 10 })
+      engine.trigger_action("jump", "cat")
+    end)
+    local cat = engine.get_entities()[1]
+    assert.is_not_nil(cat.action_timer, "the jump is pending")
+
+    for _ = 1, 240 do
+      engine.step(1 / 60, { columns = 120, lines = 40 })
+      if cat.current_state ~= "jump" then
+        break
+      end
+    end
+
+    assert.are_equal("idle", cat.current_state, "the cat lands in idle")
+    assert.is_nil(cat.action_timer, "a timer left running drags the cat back later")
+    assert.is_false(cat.is_locked, "a landed cat responds to the editor again")
+    engine.clear()
+  end)
+end)

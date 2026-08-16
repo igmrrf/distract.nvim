@@ -702,6 +702,16 @@ impl World {
                         entity.vy = 0.0;
                         if landed && phys.effective_locomotion() == manifest::BALLISTIC {
                             if let Some(ref land_state) = state_def.transitions.on_land {
+                                // Landing ends the action that launched the
+                                // entity. Leaving its timer running would drag
+                                // the entity out of the state it just reached
+                                // as soon as the clock caught up, so a jump
+                                // that lands early would still be locked until
+                                // its declared duration.
+                                entity.action_timer = None;
+                                entity.action_duration = None;
+                                entity.return_state = None;
+                                entity.is_locked = false;
                                 entity.set_state(land_state.clone());
                             }
                         }
@@ -1091,6 +1101,48 @@ mod tests {
             "half the parallax should cover half the ground: near {}, far {}",
             near.entities[0].x,
             far.entities[0].x
+        );
+    }
+
+    /// Landing has to end the whole action, not only the state.
+    ///
+    /// A golden trajectory cannot reach this: the parity fixtures describe
+    /// physics, and nothing in them triggers an action. The Lua engine carries
+    /// the same assertion by hand, which is the mitigation the harness's own
+    /// blind spot note asks for.
+    #[test]
+    fn landing_cancels_the_action_that_launched_the_jump() {
+        let mut world = World::new(800.0, 600.0);
+        world
+            .spawn("cat", None, SpawnOptions::at(100.0, 200.0))
+            .unwrap();
+        world
+            .trigger_action(Some(1), None, "jump")
+            .expect("the cat declares a jump");
+
+        assert!(
+            world.entities[0].action_timer.is_some(),
+            "the jump is pending"
+        );
+
+        for _ in 0..240 {
+            world.update(1.0 / 60.0);
+            if world.entities[0].current_state != "jump" {
+                break;
+            }
+        }
+
+        assert_eq!(
+            world.entities[0].current_state, "idle",
+            "the cat lands in idle"
+        );
+        assert!(
+            world.entities[0].action_timer.is_none(),
+            "a landing that leaves the timer running drags the cat back later"
+        );
+        assert!(
+            !world.entities[0].is_locked,
+            "a landed cat responds to the editor again"
         );
     }
 

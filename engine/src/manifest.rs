@@ -606,14 +606,17 @@ impl AssetManifest {
                     gravity: 0.32,
                     wrap_mode: WrapMode::Bounce,
                     // The one state that leaves the ground, and the reason the
-                    // cat declares `ballistic` at all. It still returns on the
-                    // timeout below rather than through `on_land`; changing
-                    // that changes how the jump feels, which is not this
-                    // change's to decide.
+                    // cat declares `ballistic` at all.
                     locomotion: Some(BALLISTIC.to_string()),
                     ..Default::default()
                 },
                 transitions: TransitionConfig {
+                    // The jump ends when the cat lands, not when a clock says
+                    // it should have. `timeout_ms` stays as the
+                    // floor-never-reached fallback: a duration tuned against
+                    // `gravity` and `jump_impulse_y` is a number that has to be
+                    // re-tuned by hand every time either of them moves.
+                    on_land: Some("idle".to_string()),
                     timeout_ms: Some(1200),
                     on_timeout: Some("idle".to_string()),
                     ..Default::default()
