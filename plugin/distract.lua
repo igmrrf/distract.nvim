@@ -44,22 +44,76 @@ end, {
   end,
 })
 
+--- Option names `:DistractSpawn` accepts, and how to read their values.
+---
+--- `z` and `anchor` are deliberately absent: they are specified, but until the
+--- overlay understands them too, accepting them here would ship a flag that
+--- worked in the terminal and quietly did nothing on the other backend.
+local SPAWN_OPTIONS = {
+  x = tonumber,
+  y = tonumber,
+  flip_x = function(value)
+    if value == "true" then
+      return true
+    elseif value == "false" then
+      return false
+    end
+    return nil
+  end,
+}
+
+--- Splits `key=value` arguments into a spawn opts table and a list of rejects.
+local function parse_spawn_options(args)
+  local opts, rejected = {}, {}
+  for i = 2, #args do
+    local token = args[i]
+    if token ~= "" then
+      local key, raw = token:match("^([%w_]+)=(.*)$")
+      local reader = key and SPAWN_OPTIONS[key]
+      local value = reader and reader(raw)
+      if value == nil then
+        table.insert(rejected, token)
+      else
+        opts[key] = value
+      end
+    end
+  end
+  return opts, rejected
+end
+
 vim.api.nvim_create_user_command("DistractSpawn", function(opts)
   local args = vim.split(vim.trim(opts.args), "%s+")
   local pet_type = args[1]
   if not pet_type or pet_type == "" then
     pet_type = "cat"
   end
-  distract().spawn(pet_type)
+
+  local spawn_opts, rejected = parse_spawn_options(args)
+  if #rejected > 0 then
+    -- Reported rather than ignored, and the spawn still happens: a typo in one
+    -- option should not silently place the entity somewhere else entirely.
+    vim.notify(
+      string.format(
+        "[Distract] Ignoring unrecognised spawn option(s): %s. Supported: %s.",
+        table.concat(rejected, ", "),
+        table.concat(vim.tbl_keys(SPAWN_OPTIONS), ", ")
+      ),
+      vim.log.levels.WARN
+    )
+  end
+
+  distract().spawn(pet_type, spawn_opts)
 end, {
-  nargs = "?",
-  desc = "Spawn an entity (e.g. cat, crab, sun)",
+  nargs = "*",
+  desc = "Spawn an entity (e.g. cat, crab, sun), optionally with x=, y=, flip_x=",
   complete = function(_, line)
     local parts = vim.split(line, "%s+")
     if #parts <= 2 then
       return distract().get_asset_names()
     end
-    return {}
+    return vim.tbl_map(function(key)
+      return key .. "="
+    end, vim.tbl_keys(SPAWN_OPTIONS))
   end,
 })
 
