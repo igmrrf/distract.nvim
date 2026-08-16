@@ -25,6 +25,7 @@
 local M = {}
 local api = vim.api
 local sprites = require("distract.terminal_sprites")
+local screen_map = require("distract.screen_map")
 
 --- entity_id -> { buf, win, row, col, width, height, sig, marks }
 local active_windows = {}
@@ -57,107 +58,6 @@ end
 function M.refresh_highlights()
   background_defined = false
   M.background_group()
-end
-
--- =========================================================================
--- Screen row -> buffer line
--- =========================================================================
-
---- Where each screen row's buffer line lives, so a sprite row can be drawn
---- straight onto it.
----
---- Rebuilt only when the layout actually changes. Building it costs a
---- `screenpos` per visible line, which is not something to pay 30 times a
---- second for a screen that has not scrolled.
-local screen_map = {}
-local screen_map_sig = nil
-local screen_map_version = 0
-
---- A cheap fingerprint of everything that could move a buffer line to a
---- different screen row.
-local function layout_signature(wins)
-  local parts = {}
-  for _, wi in ipairs(wins) do
-    parts[#parts + 1] = table.concat({
-      wi.winid,
-      wi.bufnr,
-      wi.winrow,
-      wi.wincol,
-      wi.width,
-      wi.height,
-      wi.topline,
-      wi.botline,
-      wi.textoff,
-    }, ":")
-  end
-  return table.concat(parts, "|")
-end
-
---- Whether a window is one we may draw into: a normal, non-floating window
---- showing an ordinary buffer.
-local function is_drawable_window(wi)
-  if wi.terminal == 1 then
-    return false
-  end
-  local ok, cfg = pcall(api.nvim_win_get_config, wi.winid)
-  if not ok then
-    return false
-  end
-  -- A float of our own, or someone else's popup, is not a drawing surface.
-  return cfg.relative == nil or cfg.relative == ""
-end
-
-local function rebuild_screen_map(wins)
-  local map = {}
-
-  for _, wi in ipairs(wins) do
-    if is_drawable_window(wi) then
-      -- `wincol`/`winrow` are 1-based screen coordinates of the window's
-      -- top-left cell; `textoff` is the width of the gutter (number column,
-      -- signs, folds) that virtual text is positioned relative to.
-      local text_left = wi.wincol - 1 + wi.textoff
-      local text_right = wi.wincol - 1 + wi.width - 1
-
-      -- Only the row a line *starts* on is mapped. A wrapped line occupies
-      -- several screen rows and only the first can be addressed by line number,
-      -- so the continuation rows are left out and fall through to the float --
-      -- correct rather than merely safe, since an extmark placed for them would
-      -- land back on the row the line started on. Folded lines report row 0 and
-      -- are skipped for the same reason.
-      for lnum = wi.topline, wi.botline do
-        local pos = vim.fn.screenpos(wi.winid, lnum, 1)
-        if pos.row > 0 then
-          map[pos.row - 1] = {
-            buf = wi.bufnr,
-            lnum = lnum,
-            text_left = text_left,
-            text_right = text_right,
-          }
-        end
-      end
-    end
-  end
-
-  return map
-end
-
---- Refreshes the screen map if the layout moved. Returns its version, which
---- changes whenever the map does.
-local function sync_screen_map()
-  local wins = vim.fn.getwininfo()
-  local sig = layout_signature(wins)
-  if sig ~= screen_map_sig then
-    screen_map_sig = sig
-    screen_map = rebuild_screen_map(wins)
-    screen_map_version = screen_map_version + 1
-  end
-  return screen_map_version
-end
-
---- Drops the cached screen map. For tests, and for anything that changes the
---- layout without changing the fingerprint.
-function M.invalidate_screen_map()
-  screen_map_sig = nil
 end
 
 --- One entity's current picture, in whatever form its backend produced it.
@@ -203,6 +103,12 @@ function M.register_backend(name, build_surface)
   BACKEND_SURFACE[name] = build_surface
 end
 
+--- Drops the cached screen map. For tests, and for anything that changes the
+--- layout without changing the fingerprint.
+function M.invalidate_screen_map()
+  screen_map.invalidate()
+end
+
 --- Whether this module implements an in-terminal backend by name.
 function M.supports(backend)
   return BACKEND_SURFACE[backend] ~= nil
@@ -219,7 +125,7 @@ function M.draw(entities, backend)
 
   -- Where the editor's text is, so sprite rows can be drawn onto it instead of
   -- over it. Rebuilt only when the layout moved.
-  sync_screen_map()
+  screen_map.sync()
 
   local live_ids = {}
   for _, entity in ipairs(entities) do
@@ -307,7 +213,7 @@ end
 --- of occluded text, which is what every row cost before.
 local function first_unmappable_row(row, col, width, height)
   for r = 0, height - 1 do
-    local slot = screen_map[row + r]
+    local slot = screen_map.slot(row + r)
     if not slot or col < slot.text_left or col + width - 1 > slot.text_right then
       return r
     end
@@ -320,7 +226,7 @@ end
 local function draw_overlay_rows(rows, row, col, limit)
   local marks = {}
   for r = 0, limit - 1 do
-    local slot = screen_map[row + r]
+    local slot = screen_map.slot(row + r)
     for _, run in ipairs(rows[r] or {}) do
       -- `virt_text_win_col` is measured from the window's first *text* column,
       -- so the gutter has to come out of the screen column. Unlike
@@ -443,7 +349,7 @@ function M.place_surface(entity, surface, bounds)
     width,
     height,
     overlay_limit,
-    screen_map_version,
+    screen_map.version(),
   }, ":")
 
   local entry = active_windows[entity.id]
