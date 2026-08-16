@@ -6,6 +6,7 @@
 local M = {}
 local external = require("distract.external")
 local engine = require("distract.engine")
+local position = require("distract.position")
 
 local uv = vim.uv or vim.loop
 local group = vim.api.nvim_create_augroup("DistractEvents", { clear = true })
@@ -20,6 +21,7 @@ local idle_timer = nil
 local config = {
   idle_timeout_ms = 5000,
   debounce_ms = 50,
+  position = nil,
 }
 
 -- Throttle state is per event name. A single shared flag was defeated exactly
@@ -80,10 +82,33 @@ function M.emit_debounced(event_name)
   dispatch_event(event_name, cursor_context())
 end
 
+--- Measures the floor and pushes it to both engines.
+---
+--- Neither engine measures for itself. Only the editor can see `cmdheight`,
+--- the statusline and where the buffer text ends, so the measurement happens
+--- once here and the same number reaches the terminal renderer and the overlay
+--- process. Cheap when nothing moved: the overlay only sends a message when the
+--- value changes.
+---@param position_config table|nil the `position` block from `setup`
+function M.sync_floor(position_config)
+  if position_config then
+    config.position = position_config
+  end
+  local row = position.floor_row((config.position or {}).ground)
+  engine.set_ground_row(row)
+  external.set_ground_row(row)
+end
+
+--- Whether the floor follows the buffer text, and so moves as the text does.
+local function is_text_grounded()
+  return (config.position or {}).ground == position.TEXT
+end
+
 function M.setup(opts)
   if opts then
     config.idle_timeout_ms = opts.idle_timeout_ms or config.idle_timeout_ms
     config.debounce_ms = opts.debounce_ms or config.debounce_ms
+    config.position = opts.position or config.position
   end
 
   -- Detect typing
@@ -91,6 +116,11 @@ function M.setup(opts)
     group = group,
     callback = function()
       M.emit_debounced("typing")
+      -- Text arriving or leaving moves a text floor and nothing else, so the
+      -- measurement is skipped entirely for a screen floor.
+      if is_text_grounded() then
+        M.sync_floor()
+      end
     end,
   })
 
@@ -99,6 +129,9 @@ function M.setup(opts)
     group = group,
     callback = function()
       M.emit_debounced("scrolling")
+      if is_text_grounded() then
+        M.sync_floor()
+      end
     end,
   })
 
@@ -115,9 +148,21 @@ function M.setup(opts)
     group = group,
     callback = function()
       external.update_grid()
+      M.sync_floor()
     end,
   })
 
+  -- The screen floor is the screen height less the editor's own chrome, so it
+  -- moves when that chrome does.
+  vim.api.nvim_create_autocmd("OptionSet", {
+    group = group,
+    pattern = { "cmdheight", "laststatus" },
+    callback = function()
+      M.sync_floor()
+    end,
+  })
+
+  M.sync_floor()
   M.reset_idle_timer()
 end
 

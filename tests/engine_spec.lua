@@ -689,3 +689,107 @@ describe("distract.engine path primitives", function()
     engine.clear()
   end)
 end)
+
+-- The floor is pushed into the engine rather than measured by it, so the
+-- terminal renderer and the overlay process are told the same number. These
+-- pin what the engine does with it once it arrives.
+describe("distract.engine floor", function()
+  --- A cat spawned against `row`, with notifications silenced.
+  local function cat_on_floor(row)
+    require("distract").setup({ backend = "halfblock" })
+    engine.clear()
+    engine.set_ground_row(nil)
+    engine.set_ground_row(row)
+    count_warnings(function()
+      engine.spawn("cat", { anchor = "bottom" })
+    end)
+    return engine.get_entities()[1]
+  end
+
+  it("stands a spawn on the floor it was given", function()
+    local cat = cat_on_floor(30)
+    assert.are_equal(cat.ground_y, cat.y)
+    assert.is_true(cat.ground_y < 30, "the sprite's own height comes off the floor")
+    engine.clear()
+  end)
+
+  it("carries a resting entity when the floor moves", function()
+    local cat = cat_on_floor(30)
+    local dropped = 30 - cat.ground_y
+
+    engine.set_ground_row(20)
+
+    assert.are_equal(20 - dropped, cat.ground_y, "the floor moved, so its floor moved")
+    assert.are_equal(cat.ground_y, cat.y, "an entity on the floor is carried, not left hanging")
+    engine.clear()
+  end)
+
+  it("leaves an entity that is not standing on the world floor alone", function()
+    local cat = cat_on_floor(30)
+    cat.ground_y = 5
+    cat.y = 5
+
+    engine.set_ground_row(20)
+
+    assert.are_equal(5, cat.ground_y, "a floor of its own is not the screen's to move")
+    engine.clear()
+  end)
+
+  it("stands a spawn where it was put when no floor has been measured", function()
+    require("distract").setup({ backend = "halfblock" })
+    engine.clear()
+    engine.set_ground_row(nil)
+    count_warnings(function()
+      engine.spawn("cat", { x = 10, y = 7 })
+    end)
+    local cat = engine.get_entities()[1]
+
+    assert.are_equal(7, cat.ground_y, "with nothing measured, an entity stands where it spawned")
+    engine.clear()
+  end)
+end)
+
+describe("distract.engine depth", function()
+  it("takes a spawned z as the draw order over the manifest's", function()
+    require("distract").setup({ backend = "halfblock" })
+    engine.clear()
+    count_warnings(function()
+      engine.spawn("sun", { z = 4 })
+    end)
+    local sun = engine.get_entities()[1]
+
+    assert.are_equal(4, sun.z)
+    assert.are_equal(4, sun.z_index, "z overrides the manifest's z_index")
+    engine.clear()
+  end)
+
+  it("keeps the manifest's draw order when no z is asked for", function()
+    require("distract").setup({ backend = "halfblock" })
+    engine.clear()
+    count_warnings(function()
+      engine.spawn("sun")
+    end)
+    assert.are_equal(-10, engine.get_entities()[1].z_index)
+    engine.clear()
+  end)
+
+  it("damps how far a distant entity travels", function()
+    require("distract").setup({ backend = "halfblock" })
+    engine.clear()
+    count_warnings(function()
+      engine.spawn("cat", { x = 0, y = 5 })
+      engine.spawn("cat", { x = 0, y = 5 })
+    end)
+    local near, far = engine.get_entities()[1], engine.get_entities()[2]
+    near.vx, far.vx = 2, 2
+    far.parallax = 0.5
+
+    engine.step(1 / 60, { columns = 200, lines = 40 })
+
+    assert.is_true(
+      math.abs(far.x - near.x / 2) < 1e-6,
+      string.format("half the parallax covers half the ground: %f vs %f", near.x, far.x)
+    )
+    engine.clear()
+  end)
+end)

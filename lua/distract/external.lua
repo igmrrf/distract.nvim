@@ -2,10 +2,19 @@
 
 local M = {}
 
+local locomotion = require("distract.locomotion")
+local position = require("distract.position")
+
 local job_id = nil
 local config = {}
 local is_shutting_down = false
 local build_job = nil
+
+--- The floor last pushed to the engine, in terminal cells.
+---
+--- Held so `UpdateGrid` can carry it and so a floor that has not moved costs
+--- nothing: it is sent on change, never per frame.
+local ground_row = nil
 
 function M.setup(opts)
   config = opts or {}
@@ -289,18 +298,52 @@ function M.spawn(entity_name, opts)
   -- for the caller: `spawn { x = 40 }` used to mean column 40 in the terminal
   -- and pixel 40 — roughly column 4 — on the overlay.
   local cell_w, cell_h = M.cell_size()
-  local x = opts.x and (opts.x * cell_w) or nil
-  local y = opts.y and (opts.y * cell_h) or nil
+  local placement = M.resolve_placement(asset, opts)
 
   send_or_start({
     command = "Spawn",
     entity_type = entity_name,
     path = abs_path,
     manifest = manifest_payload,
-    x = x,
-    y = y,
+    x = placement.x and (placement.x * cell_w) or nil,
+    y = placement.y and (placement.y * cell_h) or nil,
+    z = placement.z,
+    parallax = placement.parallax,
+    anchor = placement.anchor,
     flip_x = opts.flip_x or false,
   })
+end
+
+--- Resolves a spawn's placement into what the engine needs to be told.
+---
+--- Anchors are resolved to a concrete name here rather than sent as `auto`,
+--- because deciding `auto` needs the manifest's locomotion class. The vertical
+--- arithmetic stays on the engine's side: it knows the sprite's frame height in
+--- pixels, and the floor it was pushed covers the rest.
+---@param asset table|nil the manifest, when one is registered
+---@param opts table per-spawn options
+---@return table `{ x, y, z, parallax, anchor }`; positions in cells
+function M.resolve_placement(asset, opts)
+  local settings = position.settings(config.position, opts)
+  local manifest = asset or {}
+  local initial_def = manifest.states and manifest.states[manifest.initial_state]
+  local anchor =
+    position.effective_anchor(settings.anchor, locomotion.locomotion_for(manifest, initial_def))
+
+  local x, y, z = opts.x, opts.y, opts.z
+  if type(anchor) == "table" then
+    x, y, z = x or anchor.x, y or anchor.y, z or anchor.z
+    anchor = nil
+  end
+
+  return {
+    x = x,
+    y = y,
+    z = z,
+    parallax = position.parallax_for(z, settings, "overlay"),
+    -- An explicit position leaves nothing for an anchor to decide.
+    anchor = (x == nil or y == nil) and anchor or nil,
+  }
 end
 
 function M.trigger_action(action_name, target)
@@ -399,7 +442,28 @@ function M.update_grid()
     height = vim.o.lines,
     cell_width = cw,
     cell_height = ch,
+    -- The floor is a position, so it converts with the cell height rather than
+    -- with the sprite scale. Getting that wrong is the `ground_y` units bug.
+    ground_y = ground_row and (ground_row * ch) or nil,
   })
+end
+
+--- Records the floor and pushes it, if it moved.
+---
+--- Sent on the existing `UpdateGrid` message rather than a new one: the engine
+--- already treats that as "the geometry changed", and a floor is geometry.
+---@param row number|nil the floor in terminal cells, or nil for none
+function M.set_ground_row(row)
+  if row == ground_row then
+    return
+  end
+  ground_row = row
+  M.update_grid()
+end
+
+--- The floor last pushed, in cells. For tests and diagnostics.
+function M.get_ground_row()
+  return ground_row
 end
 
 function M.stop()

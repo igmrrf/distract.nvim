@@ -98,6 +98,11 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
       backend = "halfblock",  -- "halfblock" (in-terminal Truecolor) or "overlay" (GPU window)
       idle_timeout_ms = 5000, -- Time before pets fall asleep
       debounce_ms = 50,       -- Keystroke event debounce
+      position = {
+        anchor = "auto",      -- "auto" | "bottom" | "top" | "free" | { x =, y =, z = }
+        ground = "screen",    -- "screen" | "text"
+        parallax = { per_unit = 0.0, min = 0.4, max = 1.6 },
+      },
     })
   end,
 }
@@ -113,11 +118,45 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 | `:DistractStop` | Stop the render engine | |
 | `:DistractToggle` | Toggle the engine on / off | |
 | `:DistractBackend [name]` | View or switch active rendering backend | `halfblock`, `overlay` |
-| `:DistractSpawn [asset]` | Spawn an entity onto the screen | `cat`, `crab`, `sun`, or custom |
+| `:DistractSpawn [asset] [opts]` | Spawn an entity onto the screen | `cat`, `crab`, `sun`, or custom; `x=`, `y=`, `z=`, `anchor=`, `flip_x=` |
 | `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `burrow`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
 | `:DistractClear` | Clear all active entities from the screen | |
 | `:DistractStatus` | Print active entities, states, and coordinates | |
 | `:DistractBuild` | Build the overlay engine binary in the background | |
+
+---
+
+## 📍 Placement
+
+Entities are placed against a **floor**, and the floor is measured by Neovim —
+only the editor can see `cmdheight`, the statusline and where the buffer text
+ends — then pushed to whichever backend is running. Both engines are told the
+same number, so a manifest lands in the same place on either one.
+
+```lua
+require("distract").spawn("cat", { anchor = "bottom", ground = "text" })
+```
+
+```vim
+:DistractSpawn sun anchor=top z=-3
+```
+
+- **`anchor`** — `"auto"` places by what the entity can physically do: gravity
+  binds the cat and the crab to the floor, while the sun drifts wherever it is
+  put. `"bottom"`, `"top"` and `"free"` say so explicitly, and `{ x, y, z }` is
+  an exact position in terminal cells.
+- **`ground`** — `"screen"` is the bottom of the usable screen; `"text"` is the
+  row the last line of your buffer starts on, so entities walk along the end of
+  the file. A wrapped or folded last line has no addressable row, and the text
+  floor falls back to the screen floor rather than guessing.
+- **`z`** — depth. It sets the draw order, overriding a manifest's `z_index`,
+  and drives parallax: `scale = clamp(1 + z * per_unit, min, max)` damps both
+  velocities and shrinks the sprite. `per_unit` is `0.0` by default, so parallax
+  is off until asked for.
+
+The half-block renderer cannot scale a sprite, so it honours draw order and
+reports once that it is ignoring parallax rather than diverging in silence.
+`:DistractBackend` prints what the running backend can do.
 
 ---
 

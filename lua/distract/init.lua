@@ -1,85 +1,13 @@
 local M = {}
 
---- Backends that exist and can be selected.
-local available_backends = { "halfblock", "overlay" }
+local backends = require("distract.backends")
+local position = require("distract.position")
 
 --- Built-in assets. Manifests are required on demand rather than at module
 --- load: each one pulls in its sprite module for the frame layout, and eagerly
 --- loading all three used to be paid on every Neovim start whether or not
 --- anything was ever spawned.
 local BUILTIN_ASSETS = { "cat", "crab", "sun" }
-
---- Aliases that resolve to a backend which is genuinely implemented.
-local BACKEND_ALIASES = {
-  halfblock = "halfblock",
-  tui = "halfblock",
-  terminal = "halfblock",
-  truecolor = "halfblock",
-  overlay = "overlay",
-  external = "overlay",
-  gpu = "overlay",
-  wgpu = "overlay",
-}
-
---- Names that no longer name a backend of their own.
----   float/ascii  -- the ASCII art backend was removed in favour of truecolor
----                   pixel sprites; there is no text-art rendering path left.
----   kitty/ghostty/wezterm
----                -- the Kitty graphics protocol backend is not implemented.
---- Both used to resolve to something that silently drew the wrong thing. They
---- now resolve to halfblock, and the substitution is reported rather than hidden.
-local SUBSTITUTED_ALIASES = {
-  float = {
-    to = "halfblock",
-    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
-  },
-  ascii = {
-    to = "halfblock",
-    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
-  },
-  lua = {
-    to = "halfblock",
-    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
-  },
-  window = {
-    to = "halfblock",
-    why = "the ASCII backend was removed; sprites are truecolor pixel art now",
-  },
-  kitty = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
-  ghostty = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
-  wezterm = { to = "halfblock", why = "the Kitty graphics protocol backend is not implemented yet" },
-}
-
-local substitution_warned = {}
-
---- Normalize backend alias to canonical name.
---- @param b string|nil requested backend name or alias
---- @param quiet boolean|nil suppress the substitution notice
-local function normalize_backend(b, quiet)
-  if not b then
-    return "halfblock"
-  end
-  b = string.lower(vim.trim(b))
-
-  local substitute = SUBSTITUTED_ALIASES[b]
-  if substitute then
-    if not quiet and not substitution_warned[b] then
-      substitution_warned[b] = true
-      vim.notify(
-        string.format(
-          "[Distract] Backend '%s' is unavailable: %s. Using '%s' instead.",
-          b,
-          substitute.why,
-          substitute.to
-        ),
-        vim.log.levels.WARN
-      )
-    end
-    return substitute.to
-  end
-
-  return BACKEND_ALIASES[b] or "halfblock"
-end
 
 --- Loads a built-in manifest, or nil if there is no such asset.
 local function load_builtin_manifest(name)
@@ -117,6 +45,9 @@ M.config = {
   -- See `:help distract-overlay`.
   cell_width = nil,
   cell_height = nil,
+  -- Where entities are placed and what they stand on. See
+  -- `distract.position` for the anchor and ground vocabulary.
+  position = vim.deepcopy(position.DEFAULTS),
   assets = lazy_assets(),
 }
 
@@ -133,7 +64,7 @@ end
 function M.setup(opts)
   opts = opts or {}
   M.config = vim.tbl_deep_extend("force", M.config, opts)
-  M.config.backend = normalize_backend(M.config.backend)
+  M.config.backend = backends.resolve(M.config.backend)
   -- `tbl_deep_extend` copies into a plain table, so re-attach the lazy loader
   -- while keeping anything the user supplied.
   M.config.assets = setmetatable(M.config.assets or {}, getmetatable(lazy_assets()))
@@ -173,7 +104,13 @@ function M.get_backend()
 end
 
 function M.get_available_backends()
-  return vim.deepcopy(available_backends)
+  return backends.names()
+end
+
+--- What the running backend can do with a sprite.
+---@return DistractBackendCapabilities|nil
+function M.get_backend_capabilities()
+  return backends.capabilities(M.config.backend)
 end
 
 --- Switches backend, preserving whether the plugin was running.
@@ -181,7 +118,7 @@ end
 --- Entities do not migrate: the two backends keep separate worlds. That is
 --- reported rather than left for the user to discover.
 function M.set_backend(backend_name)
-  local norm = normalize_backend(backend_name)
+  local norm = backends.resolve(backend_name)
   if norm == M.config.backend then
     vim.notify(string.format("[Distract] Backend is already '%s'", norm), vim.log.levels.INFO)
     return
@@ -238,6 +175,11 @@ function M.spawn(asset_name, opts)
   if not is_setup then
     M.setup()
   end
+  -- Measured here rather than inside either engine: an engine is told where the
+  -- floor is, it does not go looking. A spawn is the one moment the answer has
+  -- to be current even when the plugin was never started, so no autocommand has
+  -- pushed one yet.
+  require("distract.events").sync_floor(M.config.position)
   backend_module(M.config.backend).spawn(asset_name or "cat", opts)
 end
 

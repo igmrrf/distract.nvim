@@ -7,10 +7,12 @@ CONTENTS                                                    *distract-contents*
     2. Requirements ......................... |distract-requirements|
     3. Setup ................................ |distract-setup|
     4. Configuration ........................ |distract-config|
+       4.1 Position ......................... |distract-position|
     5. Commands ............................. |distract-commands|
     6. Backends ............................. |distract-backends|
        6.1 halfblock ........................ |distract-halfblock|
        6.2 overlay .......................... |distract-overlay|
+       6.3 Capabilities ..................... |distract-capabilities|
     7. Assets and manifests ................. |distract-manifests|
        7.1 Locomotion ....................... |distract-locomotion|
        7.2 Paths ............................ |distract-paths|
@@ -62,6 +64,11 @@ engine, or a prebuilt binary. See |distract-overlay|.
       debounce_ms = 50,        -- minimum gap between repeats of one event
       cell_width = nil,        -- overlay only, see |distract-overlay|
       cell_height = nil,       -- overlay only, see |distract-overlay|
+      position = {             -- placement, see |distract-position|
+        anchor = "auto",
+        ground = "screen",
+        parallax = { per_unit = 0.0, min = 0.4, max = 1.6 },
+      },
       assets = {},             -- extra or replacement manifests
     })
 <
@@ -86,10 +93,91 @@ debounce_ms~
     event name, so `typing` and `moving` — which both fire on every keystroke in
     insert mode — do not cancel each other out.
 
+                                                   *distract-config-position*
+position~
+    Where entities are placed and what they stand on. See
+    |distract-position|.
+
                                                      *distract-config-assets*
 assets~
     A table of `name = manifest`. Anything set here takes precedence over the
     built-in `cat`, `crab` and `sun`. See |distract-manifests|.
+
+------------------------------------------------------------------------------
+4.1 POSITION                                                *distract-position*
+
+>lua
+    require("distract").setup({
+      position = {
+        anchor = "auto",   -- "auto" | "bottom" | "top" | "free" | { x=, y=, z= }
+        ground = "screen", -- "screen" | "text"
+        parallax = { per_unit = 0.0, min = 0.4, max = 1.6 },
+      },
+    })
+<
+Every field can be overridden for one spawn:
+>lua
+    require("distract").spawn("cat", { anchor = "top", ground = "text", z = 2 })
+<
+                                                    *distract-position-anchor*
+anchor~
+    Where an entity starts.
+
+        "auto"      Decided by what the entity can physically do: something
+                    bound by gravity starts on the floor, something that
+                    drifts starts in the middle of the screen. This is why the
+                    cat and the crab walk along the bottom while the sun does
+                    not. See |distract-locomotion|.
+        "bottom"    Standing on the floor.
+        "top"       At row zero. It still owns the floor it will land on, so a
+                    falling entity has somewhere to land.
+        "free"      The middle of the screen.
+        { x=, y=, z= }
+                    An explicit position, in terminal cells. `z` is
+                    dimensionless.
+
+    `x=`, `y=` and `z=` passed to a single spawn override the anchor.
+
+                                                    *distract-position-ground*
+ground~
+    Which floor an entity stands on.
+
+        "screen"    The bottom of the usable screen: the screen height less
+                    'cmdheight' and the statusline. Recomputed when the window
+                    is resized and when either option changes.
+        "text"      The screen row the last line of the buffer starts on, so
+                    entities walk along the end of your file. Recomputed as the
+                    text and the scroll position change.
+
+    A wrapped or folded line occupies screen rows that no line number maps to.
+    Where the last line's row cannot be addressed, the text floor falls back to
+    the screen floor rather than guessing.
+
+                                                  *distract-position-parallax*
+parallax~
+    Depth, expressed as a factor derived from `z`:
+>
+        scale = clamp(1 + z * per_unit, min, max)
+<
+    The factor damps both `vx` and `vy` and scales the drawn sprite, so a
+    distant thing is smaller and drifts more slowly in both axes. Because the
+    sprite is smaller, the floor and the screen edges measure the smaller
+    footprint too.
+
+    `per_unit` defaults to `0.0`, which makes every factor exactly 1. Parallax
+    is off until you ask for it, and no existing configuration changes
+    behaviour.
+
+    A backend that cannot scale a sprite cannot show depth. There, `z` sets
+    draw order only, and the degradation is reported once rather than applied
+    silently. See |distract-capabilities|.
+
+                                                         *distract-position-z*
+z~
+    Depth. Dimensionless, and it means two things at once:
+
+        - Draw order. A spawned `z` overrides the manifest's `z_index`.
+        - Parallax, as above.
 
 ==============================================================================
 5. COMMANDS                                                 *distract-commands*
@@ -107,10 +195,12 @@ assets~
 :DistractSpawn [asset] [opts]
                         Spawn an entity. Defaults to `cat`. Completes on the
                         available asset names. `opts` are `key=value` pairs:
-                        `x=`, `y=` (terminal cells) and `flip_x=true|false`.
+                        `x=`, `y=` (terminal cells), `z=` (depth),
+                        `anchor=auto|bottom|top|free` and `flip_x=true|false`.
                         An unrecognised option is reported and skipped; the
-                        entity still spawns. >
+                        entity still spawns. See |distract-position|. >
                             :DistractSpawn crab x=10 y=5 flip_x=true
+                            :DistractSpawn sun anchor=top z=-3
 <
 
                                                                *:DistractAction*
@@ -129,9 +219,10 @@ assets~
 :DistractStatus         Report every live entity, its state and its position.
 
                                                               *:DistractBackend*
-:DistractBackend [name] Show the current backend, or switch to `name`.
-                        Switching restarts the plugin if it was running.
-                        Entities do not carry over between backends.
+:DistractBackend [name] Show the current backend and what it can do, or switch
+                        to `name`. Switching restarts the plugin if it was
+                        running. Entities do not carry over between backends.
+                        See |distract-capabilities|.
 
                                                                 *:DistractBuild*
 :DistractBuild          Build the overlay engine binary in the background. Only
@@ -200,6 +291,25 @@ X11~
 The overlay backend refuses to start on X11. Click-through is what stops a
 fullscreen always-on-top window from swallowing every mouse click on your
 desktop, and it is not available there. Use `halfblock`, or a Wayland session.
+
+------------------------------------------------------------------------------
+6.3 CAPABILITIES                                        *distract-capabilities*
+
+Not every backend can draw everything. What each one can do is a table rather
+than a set of special cases, so a feature degrades in a stated way instead of
+silently doing nothing:
+
+    backend      sprite scaling   transparency   z
+    ---------    --------------   ------------   -----------------
+    halfblock    no               per cell       draw order
+    overlay      yes              per pixel      draw order + parallax
+
+`:DistractBackend` with no argument prints this for the running backend.
+
+Depth needs scaling, so |distract-position-parallax| has no meaning on
+`halfblock`: a half-block cell is a fixed size and there is no sub-cell
+scaling to make a distant sprite smaller. Configuring parallax while running
+that backend reports the degradation once and honours draw order only.
 
 ==============================================================================
 7. ASSETS AND MANIFESTS                                    *distract-manifests*

@@ -34,6 +34,13 @@ struct Spawn {
     y: f32,
     #[serde(default)]
     flip_x: bool,
+    /// Depth damping, applied to the entity directly.
+    ///
+    /// Set after the spawn on both sides, exactly as `path_phase` is: a
+    /// fixture describes what the *engine* is given, not the `position`
+    /// configuration and backend capabilities that would have produced it.
+    #[serde(default)]
+    parallax: Option<f32>,
 }
 
 #[derive(Deserialize)]
@@ -65,6 +72,13 @@ struct Fixture {
     spawn: Spawn,
     cell: Cell,
     bounds: Bounds,
+    /// The floor, in terminal cells, pushed into the world before the spawn.
+    ///
+    /// Each engine derives the entity's own floor from it by subtracting the
+    /// sprite height in its own units, which is arithmetic duplicated on both
+    /// sides and therefore worth pinning.
+    #[serde(default)]
+    ground_row: Option<f32>,
     dt: f32,
     steps: usize,
 }
@@ -141,6 +155,10 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
     world.cell_w = fixture.cell.w;
     world.cell_h = fixture.cell.h;
 
+    if let Some(ground_row) = fixture.ground_row {
+        world.set_ground_y(ground_row * fixture.cell.h);
+    }
+
     world
         .spawn(
             "parity_probe",
@@ -149,6 +167,7 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
                 x: Some(fixture.spawn.x * fixture.cell.w),
                 y: Some(fixture.spawn.y * fixture.cell.h),
                 flip_x: Some(fixture.spawn.flip_x),
+                ..SpawnOptions::default()
             },
         )
         .expect("parity probe spawns");
@@ -161,6 +180,9 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
     entity.frame_idx = 0;
     entity.frame_timer = 0.0;
     entity.state_time = 0.0;
+    if let Some(parallax) = fixture.spawn.parallax {
+        entity.parallax = parallax;
+    }
 
     let mut trajectory = Vec::with_capacity(fixture.steps);
     for _ in 0..fixture.steps {

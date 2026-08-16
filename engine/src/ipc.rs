@@ -19,6 +19,16 @@ pub enum IpcCommand {
         x: Option<f32>,
         #[serde(default)]
         y: Option<f32>,
+        /// Depth. Dimensionless, unlike `x` and `y`, which arrive in pixels.
+        #[serde(default)]
+        z: Option<f32>,
+        /// Motion and size multiplier Neovim derived from `z`.
+        #[serde(default)]
+        parallax: Option<f32>,
+        /// `"bottom"`, `"top"` or `"free"`, applied when no explicit position
+        /// is given. Neovim resolves its own `auto` before sending.
+        #[serde(default)]
+        anchor: Option<String>,
         #[serde(default)]
         flip_x: Option<bool>,
     },
@@ -55,6 +65,14 @@ pub enum IpcCommand {
         cell_height: Option<u32>,
         #[serde(default)]
         scale_factor: Option<f64>,
+        /// The floor in overlay pixels: the surface an entity's feet rest on.
+        ///
+        /// Only Neovim can measure it, because it depends on `cmdheight`, the
+        /// statusline and where the buffer text ends. Sent when it moves rather
+        /// than per frame, and `serde(default)` keeps a client that never sends
+        /// one working.
+        #[serde(default)]
+        ground_y: Option<f32>,
     },
     #[serde(rename = "Ping", alias = "ping")]
     Ping,
@@ -199,6 +217,44 @@ mod tests {
         let shutdown_json = r#"{"command":"Shutdown"}"#;
         let cmd: IpcCommand = serde_json::from_str(shutdown_json).unwrap();
         assert!(matches!(cmd, IpcCommand::Shutdown));
+    }
+
+    #[test]
+    fn spawn_carries_depth_and_an_anchor() {
+        let json = r#"{"command":"Spawn","entity_type":"cat","z":2.0,
+                       "parallax":0.6,"anchor":"bottom"}"#;
+        let cmd: IpcCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            IpcCommand::Spawn {
+                z,
+                parallax,
+                anchor,
+                ..
+            } => {
+                assert_eq!(z, Some(2.0));
+                assert_eq!(parallax, Some(0.6));
+                assert_eq!(anchor.as_deref(), Some("bottom"));
+            }
+            _ => panic!("Expected Spawn command"),
+        }
+    }
+
+    #[test]
+    fn update_grid_carries_the_floor_and_survives_without_one() {
+        let with_floor = r#"{"command":"UpdateGrid","width":80,"height":24,"ground_y":420.0}"#;
+        let cmd: IpcCommand = serde_json::from_str(with_floor).unwrap();
+        match cmd {
+            IpcCommand::UpdateGrid { ground_y, .. } => assert_eq!(ground_y, Some(420.0)),
+            _ => panic!("Expected UpdateGrid"),
+        }
+
+        // A client that predates the floor still has to be understood.
+        let without_floor = r#"{"command":"UpdateGrid","width":80,"height":24}"#;
+        let cmd: IpcCommand = serde_json::from_str(without_floor).unwrap();
+        match cmd {
+            IpcCommand::UpdateGrid { ground_y, .. } => assert_eq!(ground_y, None),
+            _ => panic!("Expected UpdateGrid"),
+        }
     }
 
     #[test]

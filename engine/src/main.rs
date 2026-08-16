@@ -18,7 +18,7 @@ use distract_engine::ecs::{EventContext, World};
 use distract_engine::gpu::GpuRenderer;
 use distract_engine::ipc::{IpcCommand, IpcResponse};
 use distract_engine::platform;
-use distract_engine::spawn::SpawnOptions;
+use distract_engine::spawn::{Anchor, SpawnOptions};
 
 fn emit_response(resp: &IpcResponse) {
     let stdout = io::stdout();
@@ -254,6 +254,9 @@ fn handle_command(
             manifest,
             x,
             y,
+            z,
+            parallax,
+            anchor,
             flip_x,
             ..
         } => {
@@ -267,7 +270,14 @@ fn handle_command(
                 }
             }
 
-            let options = SpawnOptions { x, y, flip_x };
+            let options = SpawnOptions {
+                x,
+                y,
+                z,
+                parallax,
+                anchor: anchor.as_deref().and_then(Anchor::from_name),
+                flip_x,
+            };
             match world.spawn(&entity_type, manifest_to_use, options) {
                 Ok(id) => {
                     if let Err(err) = gpu_renderer.sync_atlas(world) {
@@ -325,6 +335,7 @@ fn handle_command(
             height,
             cell_width,
             cell_height,
+            ground_y,
             ..
         } => {
             world.set_grid(
@@ -335,6 +346,9 @@ fn handle_command(
                 max_w,
                 max_h,
             );
+            if let Some(ground_y) = ground_y {
+                world.set_ground_y(ground_y);
+            }
         }
         IpcCommand::Ping => emit_response(&IpcResponse::Pong),
         IpcCommand::GetStatus => {

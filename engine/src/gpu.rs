@@ -81,11 +81,14 @@ pub fn build_instances(world: &World, atlas: &Atlas) -> Vec<SpriteInstance> {
             continue;
         };
 
+        // Depth is drawn as well as simulated: a distant sprite is smaller by
+        // the same factor that damps its motion, which is the whole reason the
+        // overlay can express parallax and the half-block renderer cannot.
         out.push(SpriteInstance {
             pos: [entity.x, entity.y],
             size: [
-                asset.frame_w as f32 * scale_x,
-                asset.frame_h as f32 * scale_y,
+                asset.frame_w as f32 * scale_x * entity.parallax,
+                asset.frame_h as f32 * scale_y * entity.parallax,
             ],
             uv_min: [uv[0], uv[1]],
             uv_max: [uv[2], uv[3]],
@@ -694,6 +697,21 @@ mod tests {
         assert_eq!(
             instances[0].size,
             [cat.frame_w as f32 * 4.0, cat.frame_h as f32 * 4.0]
+        );
+    }
+
+    #[test]
+    fn parallax_draws_a_distant_sprite_smaller() {
+        let mut world = world_with(&[("cat", 10.0, 20.0)]);
+        world.entities[0].parallax = 0.5;
+        let atlas = Atlas::build(&world.asset_manager, 8192).unwrap();
+        let instances = build_instances(&world, &atlas);
+
+        let cat = world.asset_manager.get("cat").unwrap();
+        assert_eq!(
+            instances[0].size,
+            [cat.frame_w as f32 * 0.5, cat.frame_h as f32 * 0.5],
+            "depth has to be visible, not only felt in the physics"
         );
     }
 

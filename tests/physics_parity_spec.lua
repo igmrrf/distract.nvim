@@ -87,6 +87,11 @@ local function run(fixture)
     },
   })
 
+  -- Set on every fixture, nil included: the floor is engine state that would
+  -- otherwise carry over from whichever fixture ran before this one.
+  engine.set_ground_row(nil)
+  engine.set_ground_row(fixture.ground_row)
+
   quietly(function()
     engine.spawn(name, {
       x = fixture.spawn.x,
@@ -105,6 +110,12 @@ local function run(fixture)
   e.frame_idx = 0
   e.frame_timer = 0
   e.state_time = 0
+  -- Applied here for the same reason: a fixture describes what the *engine* is
+  -- given, not the `position` config and backend capabilities that produced it.
+  -- The half-block backend would otherwise flatten every parallax to 1.
+  if fixture.spawn.parallax then
+    e.parallax = fixture.spawn.parallax
+  end
 
   local bounds = { columns = fixture.bounds.columns, lines = fixture.bounds.lines }
   local trajectory = {}

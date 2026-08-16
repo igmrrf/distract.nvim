@@ -52,6 +52,11 @@ local quiescent_drawn = false
 local locomotion = require("distract.locomotion")
 local BALLISTIC = locomotion.BALLISTIC
 
+--- Placement, floors and parallax, shared with `external.lua` for the same
+--- reason: one manifest and one `position` config place an entity the same way
+--- on either backend.
+local position = require("distract.position")
+
 --- Re-exported for tests and for anyone reading a manifest by hand.
 M.effective_locomotion = locomotion.effective_locomotion
 M.validate_capabilities = locomotion.validate
@@ -168,6 +173,15 @@ function M.stop()
   quiescent_drawn = false
 end
 
+--- How close two floors must be to count as the same one, in cells.
+local FLOOR_MATCH_EPSILON_CELLS = 1e-6
+
+--- The floor entities were last placed against, in cells.
+---
+--- Held so a screen that changes shape can re-seat what was standing on the old
+--- floor. Nil until the first spawn or the first `set_ground_row`.
+local floor_row = nil
+
 --- Size of an asset's sprite in terminal cells.
 local function sprite_cell_size(asset_name)
   local ok, w, h = pcall(sprites.get_dimensions, asset_name)
@@ -175,6 +189,29 @@ local function sprite_cell_size(asset_name)
     return 16, 8
   end
   return w * CELLS_PER_SPRITE_PX_X, h * CELLS_PER_SPRITE_PX_Y
+end
+
+--- Where one spawn lands, how deep it is, and what it stands on.
+---
+--- The floor is whatever was last pushed in, exactly as it is on the overlay:
+--- only the editor can see `cmdheight`, the statusline and where the text ends,
+--- so only the editor measures, and both engines are told. A spawn naming its
+--- own `ground` is the one case that measures here, because it is asking about
+--- a surface the pushed floor does not describe.
+local function resolve_placement(asset_name, manifest, initial_def, opts)
+  local settings = position.settings(config.position, opts)
+  local spawn_floor_row = opts.ground and position.floor_row(settings.ground) or floor_row
+
+  local _, sprite_h = sprite_cell_size(asset_name)
+  return position.placement({
+    settings = settings,
+    backend = config.backend,
+    locomotion = locomotion.locomotion_for(manifest, initial_def),
+    floor_row = spawn_floor_row,
+    sprite_h = sprite_h,
+    bounds = { columns = vim.o.columns, lines = vim.o.lines },
+    opts = opts,
+  })
 end
 
 function M.spawn(asset_name, opts)
@@ -217,10 +254,16 @@ function M.spawn(asset_name, opts)
   entity_counter = entity_counter + 1
   local id = entity_counter
   local initial_state = manifest.initial_state or "idle"
-  local z_index = manifest.z_index or 10
 
-  local start_x = opts.x or math.floor(vim.o.columns / 2)
-  local start_y = opts.y or math.floor(vim.o.lines / 2)
+  local initial_def = manifest.states and manifest.states[initial_state]
+  local placement = resolve_placement(asset_name, manifest, initial_def, opts)
+
+  -- `z` is draw order as well as depth, and it wins over the manifest's
+  -- `z_index` when a spawn asks for one.
+  local z_index = placement.z and math.floor(placement.z + 0.5) or manifest.z_index or 10
+
+  local start_x = placement.x
+  local start_y = placement.y
   local flip_x = opts.flip_x or false
   local heading_x = flip_x and -1 or 1
 
@@ -247,17 +290,19 @@ function M.spawn(asset_name, opts)
     -- need the other half of the same idea.
     base_x = start_x,
     base_y = start_y,
-    ground_y = start_y,
+    ground_y = placement.ground_y or start_y,
     path_phase = 0,
     action_timer = nil,
     action_duration = nil,
     return_state = nil,
     is_locked = false,
     z_index = z_index,
+    z = placement.z or 0,
+    parallax = placement.parallax,
   }
 
   -- Apply initial state physics
-  local state_def = manifest.states and manifest.states[initial_state]
+  local state_def = initial_def
   if state_def and state_def.physics then
     local p = state_def.physics
     entity.target_vx = (p.target_vx or 0) * heading_x
@@ -298,6 +343,45 @@ function M.spawn(asset_name, opts)
     vim.log.levels.INFO
   )
   return id
+end
+
+--- Moves the floor, re-seating whatever was standing on the old one.
+---
+--- Mirrors `World::set_ground_row`. Only entities whose floor *is* the previous
+--- world floor move: a manifest floor and the anchor a jump takes are their
+--- own, and a screen that changed shape has nothing to say about either. An
+--- entity already resting is carried down with the floor rather than left
+--- hanging in the air until gravity notices.
+---@param row number|nil the new floor in terminal cells, or nil for none
+function M.set_ground_row(row)
+  if row ~= nil and type(row) ~= "number" then
+    return
+  end
+  local previous = floor_row
+  floor_row = row
+  if not previous or not row or previous == row then
+    return
+  end
+
+  for _, entity in ipairs(entities) do
+    local _, sprite_h = sprite_cell_size(entity.asset_name)
+    sprite_h = sprite_h * (entity.parallax or 1.0)
+    local was = previous - sprite_h
+    if math.abs(entity.ground_y - was) < FLOOR_MATCH_EPSILON_CELLS then
+      local is_resting = entity.y >= was - FLOOR_MATCH_EPSILON_CELLS
+      entity.ground_y = row - sprite_h
+      if is_resting then
+        entity.y = entity.ground_y
+      end
+    end
+  end
+  quiescent_drawn = false
+end
+
+--- The floor entities are placed against, in cells, or nil before the first
+--- spawn. For tests and diagnostics.
+function M.get_ground_row()
+  return floor_row
 end
 
 function M.set_entity_state(entity, new_state)
@@ -514,6 +598,13 @@ function M.step(dt, bounds)
       end
 
       -- 4. Physics, in the shared manifest unit (sprite pixels per 60 FPS frame)
+      --
+      -- Parallax damps the displacement rather than the velocity itself:
+      -- damping the stored velocity every frame would decay it to zero instead
+      -- of moving a distant thing slower at a steady speed.
+      local parallax = entity.parallax or 1.0
+      local cells_x = step * CELLS_PER_SPRITE_PX_X * parallax
+      local cells_y = step * CELLS_PER_SPRITE_PX_Y * parallax
       local phys = state_def.physics or {}
       local speed_x = math.abs(phys.target_vx or 0)
       entity.target_vx = speed_x * entity.heading_x
@@ -535,7 +626,7 @@ function M.step(dt, bounds)
         -- above is.
         local was_airborne = entity.y < entity.ground_y
         entity.vy = entity.vy + (phys.gravity * step)
-        entity.y = entity.y + (entity.vy * step * CELLS_PER_SPRITE_PX_Y)
+        entity.y = entity.y + (entity.vy * cells_y)
 
         if entity.y >= entity.ground_y then
           entity.y = entity.ground_y
@@ -551,10 +642,10 @@ function M.step(dt, bounds)
       else
         entity.vy = entity.vy + (entity.target_vy - entity.vy) * lerp_factor
         entity.vy = entity.vy + ((phys.accel_y or 0) * step)
-        entity.y = entity.y + (entity.vy * step * CELLS_PER_SPRITE_PX_Y)
+        entity.y = entity.y + (entity.vy * cells_y)
       end
 
-      entity.x = entity.x + (entity.vx * step * CELLS_PER_SPRITE_PX_X)
+      entity.x = entity.x + (entity.vx * cells_x)
 
       -- A path is a positional *override*, applied after integration so it
       -- replaces the velocity result on the axes it owns and leaves the others
@@ -567,7 +658,10 @@ function M.step(dt, bounds)
       -- 5. Screen boundary modes. Sizes come from the asset rather than a
       -- constant: the built-in sprites are 24 cells wide (cat, crab) and 16
       -- (sun), so a hardcoded 16 wrapped and bounced them in the wrong place.
+      -- Parallax shrinks the drawn art, so the footprint the boundary modes
+      -- measure against shrinks with it.
       local sprite_w, sprite_h = sprite_cell_size(entity.asset_name)
+      sprite_w, sprite_h = sprite_w * parallax, sprite_h * parallax
       local wrap_mode = phys.wrap_mode or "wrap"
 
       local edges = state_def.transitions or {}

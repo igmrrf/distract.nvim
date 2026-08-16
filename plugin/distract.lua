@@ -21,11 +21,16 @@ end, { desc = "Stop Distract render engine" })
 vim.api.nvim_create_user_command("DistractBackend", function(opts)
   local backend = vim.trim(opts.args or "")
   if backend == "" then
+    local caps = distract().get_backend_capabilities() or {}
     vim.notify(
       string.format(
-        "[Distract] Current backend: '%s' (available: %s)",
+        "[Distract] Current backend: '%s' (available: %s)\n"
+          .. "  sprite scaling: %s, transparency: per %s, z: draw order%s",
         distract().get_backend(),
-        table.concat(distract().get_available_backends(), ", ")
+        table.concat(distract().get_available_backends(), ", "),
+        caps.scale and "yes" or "no",
+        tostring(caps.alpha),
+        caps.scale and " and parallax" or " only"
       ),
       vim.log.levels.INFO
     )
@@ -44,14 +49,18 @@ end, {
   end,
 })
 
+--- Anchors `:DistractSpawn` accepts. The `{ x, y, z }` form of `anchor` is a
+--- Lua-only spelling of `x=`, `y=` and `z=`, which the command already has.
+local SPAWN_ANCHORS = { auto = true, bottom = true, top = true, free = true }
+
 --- Option names `:DistractSpawn` accepts, and how to read their values.
----
---- `z` and `anchor` are deliberately absent: they are specified, but until the
---- overlay understands them too, accepting them here would ship a flag that
---- worked in the terminal and quietly did nothing on the other backend.
 local SPAWN_OPTIONS = {
   x = tonumber,
   y = tonumber,
+  z = tonumber,
+  anchor = function(value)
+    return SPAWN_ANCHORS[value] and value or nil
+  end,
   flip_x = function(value)
     if value == "true" then
       return true
@@ -105,7 +114,7 @@ vim.api.nvim_create_user_command("DistractSpawn", function(opts)
   distract().spawn(pet_type, spawn_opts)
 end, {
   nargs = "*",
-  desc = "Spawn an entity (e.g. cat, crab, sun), optionally with x=, y=, flip_x=",
+  desc = "Spawn an entity (e.g. cat, crab, sun), optionally with x=, y=, z=, anchor=, flip_x=",
   complete = function(_, line)
     local parts = vim.split(line, "%s+")
     if #parts <= 2 then

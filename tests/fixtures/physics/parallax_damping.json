@@ -1,0 +1,9 @@
+{
+  "description": "Depth damping and the smaller footprint that comes with it. Parallax multiplies the displacement rather than the stored velocity, so vx stays at its target while x advances at half the rate, and the wrap boundary measures the shrunken sprite. `target_vx = 1.3` avoids a value that divides the width exactly: f32 and f64 would otherwise land either side of the wrap on the same step.",
+  "physics": { "target_vx": 1.3, "gravity": 0.0, "friction": 0.05, "wrap_mode": "wrap" },
+  "spawn": { "x": 100, "y": 12, "flip_x": false, "parallax": 0.5 },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "dt": 0.016666667,
+  "steps": 240
+}

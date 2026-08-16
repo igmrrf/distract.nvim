@@ -41,17 +41,35 @@ describe("distract.plugin DistractSpawn options", function()
     engine.clear()
   end)
 
-  it("rejects options no backend implements yet", function()
-    -- `z` and `anchor` are specified but land in the position/floor work, where
-    -- they reach the overlay and the terminal together. Accepting them here
-    -- would ship a flag that quietly did nothing on one of the two backends.
-    local warnings
+  -- `z` and `anchor` were rejected until the floor work reached both backends
+  -- together, because a flag that worked in the terminal and did nothing on the
+  -- overlay is worse than one that does not exist.
+  it("takes the depth it was given as the draw order", function()
+    local e = spawn_via_command("DistractSpawn cat z=42")
+    assert.are_equal(42, e.z, "z= was not forwarded to spawn")
+    assert.are_equal(42, e.z_index, "z overrides the manifest's z_index")
+    engine.clear()
+  end)
+
+  it("stands an entity on the floor when anchored to the bottom", function()
+    local e = spawn_via_command("DistractSpawn cat anchor=bottom")
+    assert.are_equal(e.ground_y, e.y, "a bottom anchor starts on the floor")
+    engine.clear()
+  end)
+
+  it("starts an entity at the top when anchored there", function()
+    local e = spawn_via_command("DistractSpawn cat anchor=top")
+    assert.are_equal(0, e.y, "a top anchor starts at row zero")
+    engine.clear()
+  end)
+
+  it("warns about an anchor that names nothing", function()
     distract.setup({ backend = "halfblock" })
-    warnings = quiet_warnings(function()
+    local warnings = quiet_warnings(function()
       engine.clear()
-      vim.cmd("DistractSpawn cat z=42")
+      vim.cmd("DistractSpawn cat anchor=sideways")
     end)
-    assert(warnings > 0, "an unimplemented option should be reported, not ignored")
+    assert(warnings > 0, "an unknown anchor should be reported, not ignored")
     engine.clear()
   end)
 

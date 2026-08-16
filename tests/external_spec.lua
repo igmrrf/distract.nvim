@@ -188,3 +188,75 @@ describe("distract.external spawn coordinates", function()
     assert.is_nil(sent.y)
   end)
 end)
+
+-- The overlay is told where the floor is rather than working it out: only the
+-- editor can see `cmdheight`, the statusline and where the buffer text ends.
+describe("distract.external placement", function()
+  local external = require("distract.external")
+  local position = require("distract.position")
+
+  local function configured(position_config)
+    external.setup({
+      cell_width = 10,
+      cell_height = 20,
+      position = position_config,
+      assets = {},
+    })
+  end
+
+  it("resolves the auto anchor against what the entity can physically do", function()
+    configured(nil)
+    local grounded = { initial_state = "walk", locomotion = "grounded", states = { walk = {} } }
+    local floating = {
+      initial_state = "drift",
+      locomotion = "omnidirectional",
+      states = { drift = {} },
+    }
+
+    assert.are_equal(position.BOTTOM, external.resolve_placement(grounded, {}).anchor)
+    assert.are_equal(position.FREE, external.resolve_placement(floating, {}).anchor)
+  end)
+
+  it("sends no anchor when the spawn already says where to go", function()
+    configured(nil)
+    local placement = external.resolve_placement(nil, { x = 5, y = 6 })
+    assert.is_nil(placement.anchor, "an explicit position leaves nothing to anchor")
+    assert.are_equal(5, placement.x)
+    assert.are_equal(6, placement.y)
+  end)
+
+  it("unpacks a table anchor into coordinates the engine understands", function()
+    configured({ anchor = { x = 3, y = 4, z = 2 } })
+    local placement = external.resolve_placement(nil, {})
+    assert.is_nil(placement.anchor)
+    assert.are_equal(3, placement.x)
+    assert.are_equal(4, placement.y)
+    assert.are_equal(2, placement.z)
+  end)
+
+  it("computes the parallax the overlay can actually honour", function()
+    configured({ parallax = { per_unit = 0.2, min = 0.4, max = 1.6 } })
+    assert.are_equal(1.4, external.resolve_placement(nil, { z = 2 }).parallax)
+    assert.are_equal(1.0, external.resolve_placement(nil, {}).parallax)
+  end)
+
+  it("remembers the floor it was given and does not resend an unchanged one", function()
+    configured(nil)
+    -- Whatever a previous spawn measured, from a known starting point.
+    external.set_ground_row(nil)
+
+    local sent = 0
+    local original = external.send_command
+    external.send_command = function()
+      sent = sent + 1
+      return true
+    end
+
+    external.set_ground_row(24)
+    external.set_ground_row(24)
+    external.send_command = original
+
+    assert.are_equal(24, external.get_ground_row())
+    assert.are_equal(1, sent, "a floor that has not moved is not worth a message")
+  end)
+end)

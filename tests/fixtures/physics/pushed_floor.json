@@ -1,0 +1,10 @@
+{
+  "description": "A fall onto the floor Neovim measured and pushed in, rather than onto the spawn point. Each engine subtracts the sprite height in its own units -- cells in Lua, pixels in Rust -- so this pins arithmetic that is written twice. Spawned well above the floor so the landing is a crossing rather than an immediate clamp.",
+  "physics": { "target_vx": 1.5, "gravity": 0.4, "friction": 0.05, "wrap_mode": "none" },
+  "spawn": { "x": 20, "y": 4, "flip_x": false },
+  "ground_row": 30,
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "dt": 0.016666667,
+  "steps": 180
+}

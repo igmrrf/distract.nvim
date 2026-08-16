@@ -2,7 +2,7 @@ use crate::asset::AssetManager;
 use crate::ipc::EntitySummary;
 use crate::manifest;
 use crate::manifest::{AssetManifest, PhysicsConfig, WrapMode};
-use crate::spawn::SpawnOptions;
+use crate::spawn::{Anchor, EntitySeed, SpawnOptions};
 
 /// Default terminal cell size in physical pixels.
 ///
@@ -70,45 +70,45 @@ pub struct Entity {
     pub return_state: Option<String>,
     pub is_locked: bool,
     pub z_index: i32,
+    /// Depth, dimensionless. Draw order comes from `z_index`, which a spawned
+    /// `z` overrides; this is what parallax is computed from.
+    pub z: f32,
+    /// How far depth damps this entity's motion and shrinks its art. Exactly 1
+    /// unless a configuration asked for parallax.
+    pub parallax: f32,
 }
 
 impl Entity {
-    pub fn new(
-        id: usize,
-        asset_name: String,
-        initial_state: String,
-        x: f32,
-        y: f32,
-        flip_x: bool,
-        z_index: i32,
-    ) -> Self {
-        let heading_x = if flip_x { -1.0 } else { 1.0 };
+    pub fn new(id: usize, asset_name: String, seed: EntitySeed) -> Self {
+        let heading_x = if seed.flip_x { -1.0 } else { 1.0 };
         Self {
             id,
             asset_name,
-            x,
-            y,
+            x: seed.x,
+            y: seed.y,
             vx: 0.0,
             vy: 0.0,
             target_vx: 0.0,
             target_vy: 0.0,
             heading_x,
-            flip_x,
-            current_state: initial_state,
+            flip_x: seed.flip_x,
+            current_state: seed.initial_state,
             state_time: 0.0,
             frame_idx: 0,
             frame_timer: 0.0,
             animation_finished: false,
             is_active: true,
-            base_x: x,
-            base_y: y,
-            ground_y: y,
+            base_x: seed.x,
+            base_y: seed.y,
+            ground_y: seed.y,
             path_phase: 0.0,
             action_timer: None,
             action_duration: None,
             return_state: None,
             is_locked: false,
-            z_index,
+            z_index: seed.z_index,
+            z: seed.z,
+            parallax: seed.parallax,
         }
     }
 
@@ -218,6 +218,18 @@ fn apply_path(
     }
 }
 
+/// Where an anchored spawn starts vertically, in overlay pixels.
+///
+/// `None` when the anchor asks for nothing in particular, or asks for a floor
+/// Neovim has not measured yet, leaving the caller's own default to apply.
+fn anchored_y(anchor: Option<Anchor>, floor_y: Option<f32>) -> Option<f32> {
+    match anchor {
+        Some(Anchor::Bottom) => floor_y,
+        Some(Anchor::Top) => Some(0.0),
+        Some(Anchor::Free) | None => None,
+    }
+}
+
 /// What the editor was doing when an event was sent.
 ///
 /// The cursor position is the most informative signal the editor has, and it
@@ -265,8 +277,21 @@ pub struct World {
     /// Where the user is working, in overlay pixels, if known.
     pub focus_x: Option<f32>,
     pub focus_y: Option<f32>,
+    /// The floor, in overlay pixels: the surface an entity's feet rest on.
+    ///
+    /// Measured by Neovim, which is the only side that knows about `cmdheight`,
+    /// the statusline and where the buffer text ends, and pushed over
+    /// `UpdateGrid` when it moves. `None` until one arrives, which is the
+    /// behaviour every entity had before floors existed: it stands where it
+    /// spawned.
+    pub ground_y: Option<f32>,
     rng: Rng,
 }
+
+/// How close two floors must be to count as the same one, in overlay pixels.
+///
+/// Sub-pixel: a floor that moved by less than this did not move.
+const FLOOR_MATCH_EPSILON_PX: f32 = 0.001;
 
 impl World {
     pub fn new(viewport_w: f32, viewport_h: f32) -> Self {
@@ -282,6 +307,7 @@ impl World {
             sprite_scale_y: DEFAULT_CELL_H / 2.0,
             focus_x: None,
             focus_y: None,
+            ground_y: None,
             // Fixed seed: reproducible across runs, which keeps the tests
             // deterministic while still desynchronising entities from
             // each other.
@@ -316,6 +342,49 @@ impl World {
         self.viewport_h = (rows as f32 * self.cell_h).max(100.0).min(max_h);
     }
 
+    /// Moves the floor, re-seating whatever was standing on the old one.
+    ///
+    /// Mirrors `engine.set_ground_row`. Only entities whose floor *is* the
+    /// previous world floor move: a manifest floor and the anchor a jump takes
+    /// are their own, and a screen that changed shape has nothing to say about
+    /// either. An entity already resting is carried down with the floor rather
+    /// than left hanging until gravity notices.
+    pub fn set_ground_y(&mut self, ground_y: f32) {
+        let previous = self.ground_y.replace(ground_y);
+        let Some(previous) = previous else {
+            return;
+        };
+        if (previous - ground_y).abs() < FLOOR_MATCH_EPSILON_PX {
+            return;
+        }
+
+        let scale_y = self.sprite_scale_y;
+        let frame_heights: Vec<Option<f32>> = self
+            .entities
+            .iter()
+            .map(|entity| {
+                self.asset_manager
+                    .get(&entity.asset_name)
+                    .map(|asset| asset.frame_h as f32 * scale_y * entity.parallax)
+            })
+            .collect();
+
+        for (entity, frame_h) in self.entities.iter_mut().zip(frame_heights) {
+            let Some(frame_h) = frame_h else {
+                continue;
+            };
+            let was = previous - frame_h;
+            if (entity.ground_y - was).abs() > FLOOR_MATCH_EPSILON_PX {
+                continue;
+            }
+            let is_resting = entity.y >= was - FLOOR_MATCH_EPSILON_PX;
+            entity.ground_y = ground_y - frame_h;
+            if is_resting {
+                entity.y = entity.ground_y;
+            }
+        }
+    }
+
     pub fn spawn(
         &mut self,
         asset_name: &str,
@@ -335,23 +404,38 @@ impl World {
             .ok_or_else(|| format!("Unknown asset '{}'", asset_name))?;
 
         let initial_state = asset.manifest.initial_state.clone();
-        let z_index = asset.manifest.z_index.unwrap_or(0);
         let id = self.next_id;
         self.next_id += 1;
 
-        let spawn_x = options.x.unwrap_or(self.viewport_w / 2.0);
-        let spawn_y = options.y.unwrap_or(self.viewport_h / 2.0);
-        let flip_x = options.flip_x.unwrap_or(false);
+        let parallax = options.parallax.unwrap_or(1.0);
+        // Parallax shrinks the art, so it shrinks the footprint the floor and
+        // the boundary modes measure against too.
+        let frame_h = asset.frame_h as f32 * self.sprite_scale_y * parallax;
+        let floor_y = self.ground_y.map(|surface| surface - frame_h);
 
-        let mut entity = Entity::new(
-            id,
-            asset_name.to_string(),
-            initial_state.clone(),
-            spawn_x,
-            spawn_y,
-            flip_x,
-            z_index,
-        );
+        let seed = EntitySeed {
+            initial_state: initial_state.clone(),
+            x: options.x.unwrap_or(self.viewport_w / 2.0),
+            y: options
+                .y
+                .or(anchored_y(options.anchor, floor_y))
+                .unwrap_or(self.viewport_h / 2.0),
+            flip_x: options.flip_x.unwrap_or(false),
+            // A spawned `z` is the draw order as well as the depth, so it wins
+            // over whatever the manifest declared.
+            z_index: options
+                .z
+                .map(|z| z.round() as i32)
+                .or(asset.manifest.z_index)
+                .unwrap_or(0),
+            z: options.z.unwrap_or(0.0),
+            parallax,
+        };
+
+        let mut entity = Entity::new(id, asset_name.to_string(), seed);
+        if let Some(floor_y) = floor_y {
+            entity.ground_y = floor_y;
+        }
 
         // Apply initial physics targets if defined
         if let Some(state_def) = asset.manifest.states.get(&initial_state) {
@@ -529,8 +613,10 @@ impl World {
                 None => continue,
             };
 
-            let frame_w = asset.frame_w as f32 * scale_x;
-            let frame_h = asset.frame_h as f32 * scale_y;
+            // Parallax shrinks the drawn art, so the footprint the boundary
+            // modes measure against shrinks with it.
+            let frame_w = asset.frame_w as f32 * scale_x * entity.parallax;
+            let frame_h = asset.frame_h as f32 * scale_y * entity.parallax;
 
             let state_def = asset.manifest.states.get(&entity.current_state);
 
@@ -574,9 +660,14 @@ impl World {
                 // wide. Converting on integration is what makes one manifest
                 // describe one behaviour on both backends; the two used to
                 // apply unrelated ad-hoc factors and moved at different speeds.
+                //
+                // Parallax damps the displacement rather than the stored
+                // velocity: damping the velocity every frame would decay it to
+                // zero instead of moving a distant thing slower at a steady
+                // speed.
                 let step = dt * 60.0;
-                let px = step * scale_x;
-                let py = step * scale_y;
+                let px = step * scale_x * entity.parallax;
+                let py = step * scale_y * entity.parallax;
                 let phys = &state_def.physics;
                 let speed_x = phys.target_vx.abs();
                 entity.target_vx = speed_x * entity.heading_x;
@@ -787,11 +878,15 @@ mod tests {
         let mut ent = Entity::new(
             1,
             "cat".to_string(),
-            "idle".to_string(),
-            10.0,
-            20.0,
-            false,
-            0,
+            EntitySeed {
+                initial_state: "idle".to_string(),
+                x: 10.0,
+                y: 20.0,
+                flip_x: false,
+                z_index: 0,
+                z: 0.0,
+                parallax: 1.0,
+            },
         );
         assert_eq!(ent.id, 1);
         assert_eq!(ent.current_state, "idle");
@@ -821,6 +916,182 @@ mod tests {
         assert!(world.despawn(id1));
         assert_eq!(world.entities.len(), 1);
         assert!(!world.despawn(999));
+    }
+
+    /// The floor an entity of this asset would stand on, in overlay pixels.
+    fn resting_y(world: &World, asset_name: &str, ground_y: f32) -> f32 {
+        let asset = world
+            .asset_manager
+            .get(asset_name)
+            .expect("built-in asset is registered");
+        ground_y - asset.frame_h as f32 * world.sprite_scale_y
+    }
+
+    #[test]
+    fn bottom_anchored_spawn_stands_on_the_pushed_floor() {
+        let mut world = World::new(800.0, 600.0);
+        world.set_ground_y(400.0);
+        world
+            .spawn(
+                "cat",
+                None,
+                SpawnOptions {
+                    anchor: Some(Anchor::Bottom),
+                    ..SpawnOptions::default()
+                },
+            )
+            .unwrap();
+
+        let expected = resting_y(&world, "cat", 400.0);
+        assert_eq!(world.entities[0].y, expected);
+        assert_eq!(world.entities[0].ground_y, expected);
+    }
+
+    #[test]
+    fn top_anchored_spawn_starts_at_the_viewport_top() {
+        let mut world = World::new(800.0, 600.0);
+        world.set_ground_y(400.0);
+        world
+            .spawn(
+                "cat",
+                None,
+                SpawnOptions {
+                    anchor: Some(Anchor::Top),
+                    ..SpawnOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(world.entities[0].y, 0.0);
+        // The anchor says where it starts, not what it falls to.
+        assert_eq!(
+            world.entities[0].ground_y,
+            resting_y(&world, "cat", 400.0),
+            "a top-anchored entity still owns the floor it will land on"
+        );
+    }
+
+    #[test]
+    fn an_explicit_position_wins_over_the_anchor() {
+        let mut world = World::new(800.0, 600.0);
+        world.set_ground_y(400.0);
+        world
+            .spawn(
+                "cat",
+                None,
+                SpawnOptions {
+                    y: Some(42.0),
+                    anchor: Some(Anchor::Bottom),
+                    ..SpawnOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(world.entities[0].y, 42.0);
+    }
+
+    #[test]
+    fn spawning_without_a_floor_leaves_the_entity_standing_where_it_spawned() {
+        let mut world = World::new(800.0, 600.0);
+        world
+            .spawn("cat", None, SpawnOptions::at(10.0, 20.0))
+            .unwrap();
+
+        assert_eq!(
+            world.entities[0].ground_y, 20.0,
+            "with no floor measured, an entity stands where it was put"
+        );
+    }
+
+    #[test]
+    fn moving_the_floor_carries_a_resting_entity_with_it() {
+        let mut world = World::new(800.0, 600.0);
+        world.set_ground_y(400.0);
+        world
+            .spawn(
+                "cat",
+                None,
+                SpawnOptions {
+                    anchor: Some(Anchor::Bottom),
+                    ..SpawnOptions::default()
+                },
+            )
+            .unwrap();
+
+        world.set_ground_y(300.0);
+
+        let expected = resting_y(&world, "cat", 300.0);
+        assert_eq!(world.entities[0].ground_y, expected);
+        assert_eq!(
+            world.entities[0].y, expected,
+            "an entity already on the floor moves with it rather than hanging"
+        );
+    }
+
+    #[test]
+    fn moving_the_floor_leaves_a_manifest_floor_alone() {
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "floored".to_string();
+        manifest
+            .states
+            .get_mut("idle")
+            .expect("cat has idle")
+            .physics
+            .ground_y = Some(5.0);
+
+        let mut world = World::new(800.0, 600.0);
+        world.set_ground_y(400.0);
+        world
+            .spawn("floored", Some(manifest), SpawnOptions::at(10.0, 20.0))
+            .unwrap();
+        let declared = world.entities[0].ground_y;
+
+        world.set_ground_y(300.0);
+
+        assert_eq!(
+            world.entities[0].ground_y, declared,
+            "a manifest declares its own floor; the screen has nothing to say about it"
+        );
+    }
+
+    #[test]
+    fn a_spawned_z_overrides_the_manifests_draw_order() {
+        let mut world = World::new(800.0, 600.0);
+        world
+            .spawn(
+                "sun",
+                None,
+                SpawnOptions {
+                    z: Some(3.0),
+                    ..SpawnOptions::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(world.entities[0].z_index, 3);
+        assert_eq!(world.entities[0].z, 3.0);
+    }
+
+    #[test]
+    fn parallax_damps_how_far_an_entity_travels() {
+        let mut near = World::new(800.0, 600.0);
+        near.spawn("cat", None, SpawnOptions::at(0.0, 0.0)).unwrap();
+        near.entities[0].vx = 2.0;
+
+        let mut far = World::new(800.0, 600.0);
+        far.spawn("cat", None, SpawnOptions::at(0.0, 0.0)).unwrap();
+        far.entities[0].vx = 2.0;
+        far.entities[0].parallax = 0.5;
+
+        near.update(1.0 / 60.0);
+        far.update(1.0 / 60.0);
+
+        assert!(
+            (far.entities[0].x - near.entities[0].x / 2.0).abs() < 1e-4,
+            "half the parallax should cover half the ground: near {}, far {}",
+            near.entities[0].x,
+            far.entities[0].x
+        );
     }
 
     #[test]
