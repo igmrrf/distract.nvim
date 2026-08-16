@@ -103,3 +103,130 @@ describe("distract.engine render fault tolerance", function()
     engine.clear()
   end)
 end)
+
+describe("distract.engine parity with the overlay", function()
+  local engine = require("distract.engine")
+
+  -- Each test registers its manifest under its own name. `engine.setup` merges
+  -- config with `tbl_deep_extend("force", ...)`, so reusing one name would let
+  -- a previous test's physics fields survive into the next one.
+  local probe_counter = 0
+
+  --- Spawns one entity under a manifest built for the test and returns it.
+  local function only_entity(manifest, state, opts)
+    engine.clear()
+    probe_counter = probe_counter + 1
+    local name = "probe_" .. probe_counter
+    manifest.name = name
+    engine.setup({ backend = "halfblock", assets = { [name] = manifest } })
+    local orig = vim.notify
+    vim.notify = function() end
+    engine.spawn(name, opts or {})
+    vim.notify = orig
+    local entities = engine.get_entities()
+    local e = entities[#entities]
+    e.current_state = state
+    return e
+  end
+
+  local function manifest_with(physics, transitions)
+    return {
+      initial_state = "run",
+      states = {
+        run = {
+          animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+          physics = physics,
+          transitions = transitions,
+        },
+        parked = {
+          animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+          physics = { target_vx = 0.0 },
+        },
+      },
+    }
+  end
+
+  it("wraps vertically, as the overlay always has", function()
+    local m = manifest_with({ target_vx = 0.0, wrap_mode = "wrap" })
+    local e = only_entity(m, "run")
+    e.y = vim.o.lines + 50
+    e.vy = 0
+    engine.tick()
+    assert(e.y < 0, string.format("entity below the screen did not wrap, y=%.1f", e.y))
+
+    e.y = -500
+    engine.tick()
+    assert(e.y > 0, string.format("entity above the screen did not wrap, y=%.1f", e.y))
+    engine.clear()
+  end)
+
+  it("bounces off the top and bottom, not just the sides", function()
+    local m = manifest_with({ target_vx = 0.0, wrap_mode = "bounce" })
+    local e = only_entity(m, "run")
+    e.y = -5
+    e.vy = -3
+    engine.tick()
+    assert(e.vy > 0, string.format("vertical bounce did not reverse vy, got %.2f", e.vy))
+    engine.clear()
+  end)
+
+  it("fires on_edge_right when it turns around at the right edge", function()
+    local m = manifest_with({ target_vx = 4.0, wrap_mode = "bounce" }, {
+      on_edge_right = "parked",
+    })
+    local e = only_entity(m, "run")
+    e.x = vim.o.columns
+    e.heading_x = 1
+    e.vx = 4
+    engine.tick()
+    assert.are_equal(
+      "parked",
+      e.current_state,
+      "hitting the right edge must fire the manifest's on_edge_right"
+    )
+    engine.clear()
+  end)
+
+  it("integrates accel_x instead of ignoring it", function()
+    local m = manifest_with({ target_vx = 0.0, accel_x = 0.5, wrap_mode = "none", friction = 0.05 })
+    local e = only_entity(m, "run")
+    e.vx = 0
+    e.x = 10
+    for _ = 1, 20 do
+      engine.tick()
+    end
+    -- `target_vx` is zero, so friction alone can only hold vx at exactly zero.
+    -- Any velocity at all is acceleration being integrated. The magnitude is
+    -- wall-clock dependent -- these ticks are microseconds apart -- so it is
+    -- deliberately not asserted.
+    assert(e.vx > 0, string.format("accel_x built no velocity, vx=%.4f", e.vx))
+    assert(e.x > 10, string.format("accel_x moved nothing, x=%.3f", e.x))
+    engine.clear()
+  end)
+
+  it("holds an entity still when accel_x is absent", function()
+    local m = manifest_with({ target_vx = 0.0, wrap_mode = "none", friction = 0.05 })
+    local e = only_entity(m, "run")
+    e.vx = 0
+    e.x = 10
+    for _ = 1, 20 do
+      engine.tick()
+    end
+    assert.are_equal(0, e.vx, "no accel and no target means no velocity")
+    engine.clear()
+  end)
+
+  it("integrates accel_y for an entity with no gravity", function()
+    local m = manifest_with({ target_vx = 0.0, accel_y = -0.4, wrap_mode = "none" })
+    local e = only_entity(m, "run")
+    local start_y = e.y
+    for _ = 1, 20 do
+      engine.tick()
+    end
+    assert(
+      e.y < start_y,
+      string.format("accel_y did not lift the entity, %.1f -> %.1f", start_y, e.y)
+    )
+    engine.clear()
+  end)
+end)

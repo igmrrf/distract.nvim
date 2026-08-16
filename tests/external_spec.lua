@@ -81,3 +81,54 @@ describe("distract.external command dispatchers", function()
     end)
   end)
 end)
+
+describe("distract.external spawn coordinates", function()
+  local external = require("distract.external")
+
+  it("converts spawn coordinates from terminal cells to overlay pixels", function()
+    external.setup({ cell_width = 10, cell_height = 20 })
+
+    local sent = nil
+    local orig_send = external.send_command
+    local orig_running = external.is_running
+    external.is_running = function()
+      return true
+    end
+    external.send_command = function(cmd)
+      sent = cmd
+      return true
+    end
+
+    external.spawn("cat", { x = 40, y = 12 })
+
+    external.send_command = orig_send
+    external.is_running = orig_running
+
+    assert.is_not_nil(sent, "spawn should have sent a command")
+    assert.are_equal(400, sent.x, "column 40 on a 10px cell is pixel 400, not pixel 40")
+    assert.are_equal(240, sent.y, "line 12 on a 20px cell is pixel 240")
+  end)
+
+  it("leaves the engine to choose a position when none is given", function()
+    external.setup({ cell_width = 10, cell_height = 20 })
+
+    local sent = nil
+    local orig_send = external.send_command
+    local orig_running = external.is_running
+    external.is_running = function()
+      return true
+    end
+    external.send_command = function(cmd)
+      sent = cmd
+      return true
+    end
+
+    external.spawn("cat", {})
+
+    external.send_command = orig_send
+    external.is_running = orig_running
+
+    assert.is_nil(sent.x)
+    assert.is_nil(sent.y)
+  end)
+end)

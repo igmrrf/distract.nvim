@@ -179,13 +179,16 @@ pub struct World {
     pub viewport_h: f32,
     pub cell_w: f32,
     pub cell_h: f32,
-    /// Integer upscale applied to sprite art when drawn.
+    /// Upscale applied to sprite art when drawn, per axis.
     ///
     /// Sprites are authored at terminal-cell resolution: one sprite pixel is
-    /// one cell wide and half a cell tall. Scaling by `cell_w` therefore makes
-    /// an overlay sprite the same apparent size as the same sprite drawn in the
-    /// terminal.
-    pub sprite_scale: u32,
+    /// one cell wide and *half* a cell tall. The two axes therefore scale by
+    /// different amounts — `cell_w` and `cell_h / 2` — and a single uniform
+    /// factor is only correct on a cell that happens to be exactly 2:1. On a
+    /// HiDPI 16x36 cell a uniform scale drew sprites 7.1 cells tall where the
+    /// terminal backend drew 8.
+    pub sprite_scale_x: f32,
+    pub sprite_scale_y: f32,
     /// Where the user is working, in overlay pixels, if known.
     pub focus_x: Option<f32>,
     pub focus_y: Option<f32>,
@@ -202,7 +205,8 @@ impl World {
             viewport_h,
             cell_w: DEFAULT_CELL_W,
             cell_h: DEFAULT_CELL_H,
-            sprite_scale: DEFAULT_CELL_W as u32,
+            sprite_scale_x: DEFAULT_CELL_W,
+            sprite_scale_y: DEFAULT_CELL_H / 2.0,
             focus_x: None,
             focus_y: None,
             // Fixed seed: reproducible across runs, which keeps the tests
@@ -232,7 +236,8 @@ impl World {
         if let Some(ch) = cell_h.filter(|v| *v > 0.0) {
             self.cell_h = ch;
         }
-        self.sprite_scale = (self.cell_w.round() as u32).clamp(1, 32);
+        self.sprite_scale_x = self.cell_w.clamp(1.0, 64.0);
+        self.sprite_scale_y = (self.cell_h / 2.0).clamp(1.0, 64.0);
 
         self.viewport_w = (cols as f32 * self.cell_w).max(100.0).min(max_w);
         self.viewport_h = (rows as f32 * self.cell_h).max(100.0).min(max_h);
@@ -417,7 +422,8 @@ impl World {
     pub fn update(&mut self, dt: f32) -> Vec<usize> {
         let viewport_w = self.viewport_w;
         let viewport_h = self.viewport_h;
-        let sprite_scale = self.sprite_scale;
+        let scale_x = self.sprite_scale_x;
+        let scale_y = self.sprite_scale_y;
 
         for entity in &mut self.entities {
             if !entity.is_active {
@@ -448,8 +454,8 @@ impl World {
                 None => continue,
             };
 
-            let frame_w = (asset.frame_w * sprite_scale) as f32;
-            let frame_h = (asset.frame_h * sprite_scale) as f32;
+            let frame_w = asset.frame_w as f32 * scale_x;
+            let frame_h = asset.frame_h as f32 * scale_y;
 
             let state_def = asset.manifest.states.get(&entity.current_state);
 
@@ -494,7 +500,8 @@ impl World {
                 // describe one behaviour on both backends; the two used to
                 // apply unrelated ad-hoc factors and moved at different speeds.
                 let step = dt * 60.0;
-                let px = step * sprite_scale as f32;
+                let px = step * scale_x;
+                let py = step * scale_y;
                 let phys = &state_def.physics;
                 let speed_x = phys.target_vx.abs();
                 entity.target_vx = speed_x * entity.heading_x;
@@ -506,10 +513,16 @@ impl World {
                 // Smooth exponential velocity lerping
                 let lerp_factor = (1.0 - (-phys.friction * step).exp()).clamp(0.01, 1.0);
                 entity.vx += (entity.target_vx - entity.vx) * lerp_factor;
+                // Constant acceleration, on top of the pull toward `target_vx`.
+                // These were declared in the manifest schema and read by
+                // nothing, so a manifest could set them and watch them do
+                // nothing. `gravity` is `accel_y` under a name that also brings
+                // a floor with it.
+                entity.vx += phys.accel_x * step;
 
                 if phys.gravity > 0.0 {
                     entity.vy += phys.gravity * step;
-                    entity.y += entity.vy * px;
+                    entity.y += entity.vy * py;
 
                     // Ground collision clamping
                     if entity.y >= entity.ground_y {
@@ -518,18 +531,19 @@ impl World {
                     }
                 } else {
                     entity.vy += (entity.target_vy - entity.vy) * lerp_factor;
+                    entity.vy += phys.accel_y * step;
                     // Pathing calculations
                     if let Some(ref path_type) = phys.path_type {
                         if path_type == "sine" {
-                            let amp = phys.path_amplitude.unwrap_or(4.0) * sprite_scale as f32;
+                            let amp = phys.path_amplitude.unwrap_or(4.0) * scale_y;
                             let freq = phys.path_frequency.unwrap_or(2.0);
                             entity.path_phase += dt * freq;
                             entity.y = entity.base_y + entity.path_phase.sin() * amp;
                         } else {
-                            entity.y += entity.vy * px;
+                            entity.y += entity.vy * py;
                         }
                     } else {
-                        entity.y += entity.vy * px;
+                        entity.y += entity.vy * py;
                     }
                 }
 
@@ -756,7 +770,8 @@ mod tests {
     #[test]
     fn test_bounce_wrap_mode() {
         let mut world = World::new(200.0, 200.0);
-        world.sprite_scale = 1;
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
         let id = world
             .spawn("crab", None, Some(190.0), Some(50.0), Some(false))
             .unwrap();
@@ -852,7 +867,8 @@ mod tests {
     #[test]
     fn update_reports_entities_it_despawns() {
         let mut world = World::new(200.0, 200.0);
-        world.sprite_scale = 1;
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
         let mut manifest = AssetManifest::default_cat();
         manifest.name = "runner".to_string();
         if let Some(state) = manifest.states.get_mut("idle") {
@@ -879,7 +895,8 @@ mod tests {
         // The old gate was `vx > 0 && x > viewport_w`. Park an entity past the
         // right edge with no velocity: it must still come back.
         let mut world = World::new(200.0, 200.0);
-        world.sprite_scale = 1;
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
         world
             .spawn("cat", None, Some(10.0), Some(10.0), None)
             .unwrap();
@@ -992,7 +1009,8 @@ mod tests {
         world.set_grid(80, 24, Some(16.0), Some(36.0), 1920.0, 1080.0);
         assert_eq!(world.cell_w, 16.0);
         assert_eq!(world.cell_h, 36.0);
-        assert_eq!(world.sprite_scale, 16);
+        assert_eq!(world.sprite_scale_x, 16.0);
+        assert_eq!(world.sprite_scale_y, 18.0);
         assert_eq!(world.viewport_w, 1280.0);
         assert_eq!(world.viewport_h, 864.0);
     }
@@ -1003,6 +1021,84 @@ mod tests {
         world.set_grid(80, 24, Some(0.0), Some(-4.0), 1920.0, 1080.0);
         assert_eq!(world.cell_w, DEFAULT_CELL_W);
         assert_eq!(world.cell_h, DEFAULT_CELL_H);
+    }
+
+    #[test]
+    fn sprite_scale_uses_a_separate_factor_per_axis() {
+        // A sprite pixel is one cell wide and half a cell tall. On a 16x36
+        // HiDPI cell a uniform scale drew a 16px-tall sprite 7.1 cells tall
+        // where the terminal backend drew 8.
+        let mut world = World::new(1920.0, 1080.0);
+        world.set_grid(80, 24, Some(16.0), Some(36.0), 1920.0, 1080.0);
+
+        let cat = world.asset_manager.get("cat").unwrap();
+        let drawn_h = cat.frame_h as f32 * world.sprite_scale_y;
+        assert_eq!(
+            drawn_h / world.cell_h,
+            cat.frame_h as f32 / 2.0,
+            "an overlay sprite must occupy the same number of cells as the terminal one"
+        );
+    }
+
+    #[test]
+    fn accel_x_is_integrated_rather_than_ignored() {
+        // `accel_x`/`accel_y` were in the manifest schema and read by nothing.
+        let mut world = World::new(2000.0, 2000.0);
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "thruster".to_string();
+        if let Some(state) = manifest.states.get_mut("idle") {
+            state.physics.target_vx = 0.0;
+            state.physics.accel_x = 0.5;
+            state.physics.wrap_mode = WrapMode::None;
+            state.transitions.timeout_ms = None;
+            state.transitions.on_timeout = None;
+        }
+        world
+            .spawn("thruster", Some(manifest), Some(0.0), Some(0.0), None)
+            .unwrap();
+
+        for _ in 0..30 {
+            world.update(1.0 / 60.0);
+        }
+        assert!(
+            world.entities[0].vx > 0.1,
+            "constant acceleration must build velocity, got vx={}",
+            world.entities[0].vx
+        );
+        assert!(world.entities[0].x > 0.0, "and must move the entity");
+    }
+
+    #[test]
+    fn accel_y_moves_an_entity_with_no_gravity_and_no_floor() {
+        let mut world = World::new(2000.0, 2000.0);
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "drifter".to_string();
+        if let Some(state) = manifest.states.get_mut("idle") {
+            state.physics.gravity = 0.0;
+            state.physics.accel_y = -0.4;
+            state.physics.path_type = None;
+            state.physics.wrap_mode = WrapMode::None;
+            state.transitions.timeout_ms = None;
+            state.transitions.on_timeout = None;
+        }
+        world
+            .spawn("drifter", Some(manifest), Some(50.0), Some(500.0), None)
+            .unwrap();
+
+        for _ in 0..30 {
+            world.update(1.0 / 60.0);
+        }
+        assert!(
+            world.entities[0].y < 500.0,
+            "accel_y must lift an entity that has no gravity, got y={}",
+            world.entities[0].y
+        );
     }
 
     #[test]

@@ -315,3 +315,76 @@ describe("generated sprite animation smoothness", function()
     end
   end)
 end)
+
+describe("distract custom asset registration", function()
+  local sprites = require("distract.terminal_sprites")
+  local distract = require("distract")
+
+  --- A 2x2 sprite set, deliberately unlike any built-in.
+  local function tiny_sprite()
+    local px = { 10, 20, 30 }
+    return {
+      frames = {
+        { { px, false }, { false, px } },
+        { { false, px }, { px, false } },
+      },
+      layout = { idle = { 0, 1 } },
+      width = 2,
+      height = 2,
+    }
+  end
+
+  it("warns instead of silently drawing a cat for an unknown asset", function()
+    local warned = {}
+    local orig = vim.notify
+    vim.notify = function(msg, level)
+      table.insert(warned, { msg = msg, level = level })
+    end
+
+    sprites.get_pixel_frames("no_such_creature")
+
+    vim.notify = orig
+    assert.is_true(#warned > 0, "an unknown asset must be reported, not substituted in silence")
+    assert.is_true(
+      warned[1].msg:find("no_such_creature", 1, true) ~= nil,
+      "the warning must name the asset that is missing"
+    )
+  end)
+
+  it("draws registered art rather than the cat", function()
+    distract.register_asset("tiny", { sprites = tiny_sprite() })
+
+    assert.is_true(sprites.has_sprite("tiny"))
+    local w, h = sprites.get_dimensions("tiny")
+    assert.are_equal(2, w)
+    assert.are_equal(2, h)
+    assert.are_equal(2, #sprites.get_pixel_frames("tiny"))
+
+    local cat_w = sprites.get_dimensions("cat")
+    assert.are_not_equal(cat_w, w, "a registered asset must not fall back to cat art")
+  end)
+
+  it("registers a manifest so the asset spawns with its own behaviour", function()
+    distract.setup({ backend = "halfblock" })
+    distract.register_asset("tiny", {
+      sprites = tiny_sprite(),
+      manifest = {
+        asset_type = "procedural",
+        initial_state = "idle",
+        states = {
+          idle = { animation = { frames = { 0, 1 }, fps = 4.0, loop_anim = true } },
+        },
+      },
+    })
+
+    local manifest = distract.config.assets["tiny"]
+    assert.is_not_nil(manifest, "a registered manifest must be visible to the engine")
+    assert.are_equal("tiny", manifest.name)
+    assert.is_true(vim.tbl_contains(distract.get_asset_names(), "tiny"))
+  end)
+
+  it("refuses a sprite set with no frames", function()
+    local ok = pcall(sprites.register, "broken", {})
+    assert.is_false(ok, "a sprite set without frames must not register")
+  end)
+end)

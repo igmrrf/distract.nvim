@@ -60,7 +60,7 @@ pub fn build_instances(world: &World, atlas: &Atlas) -> Vec<SpriteInstance> {
         world.entities.iter().filter(|e| e.is_active).collect();
     sorted.sort_by_key(|e| e.z_index);
 
-    let scale = world.sprite_scale as f32;
+    let (scale_x, scale_y) = (world.sprite_scale_x, world.sprite_scale_y);
     let mut out = Vec::with_capacity(sorted.len());
 
     for entity in sorted {
@@ -83,7 +83,10 @@ pub fn build_instances(world: &World, atlas: &Atlas) -> Vec<SpriteInstance> {
 
         out.push(SpriteInstance {
             pos: [entity.x, entity.y],
-            size: [asset.frame_w as f32 * scale, asset.frame_h as f32 * scale],
+            size: [
+                asset.frame_w as f32 * scale_x,
+                asset.frame_h as f32 * scale_y,
+            ],
             uv_min: [uv[0], uv[1]],
             uv_max: [uv[2], uv[3]],
         });
@@ -661,7 +664,8 @@ mod tests {
 
     fn world_with(entities: &[(&str, f32, f32)]) -> World {
         let mut world = World::new(800.0, 600.0);
-        world.sprite_scale = 1;
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
         for (name, x, y) in entities {
             world.spawn(name, None, Some(*x), Some(*y), None).unwrap();
         }
@@ -679,7 +683,8 @@ mod tests {
     #[test]
     fn instances_carry_pixel_position_and_scaled_size() {
         let mut world = world_with(&[("cat", 10.0, 20.0)]);
-        world.sprite_scale = 4;
+        world.sprite_scale_x = 4.0;
+        world.sprite_scale_y = 4.0;
         let atlas = Atlas::build(&world.asset_manager, 8192).unwrap();
         let instances = build_instances(&world, &atlas);
 

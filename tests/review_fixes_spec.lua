@@ -352,3 +352,110 @@ describe("startup cost", function()
     assert.is_true(ms < 5, string.format("require('distract') took %.2f ms", ms))
   end)
 end)
+
+describe("distract.renderer frame buffer reuse", function()
+  local renderer = require("distract.renderer")
+  local sprites = require("distract.terminal_sprites")
+  local engine = require("distract.engine")
+
+  after_each(function()
+    renderer.clear_all()
+    engine.stop()
+  end)
+
+  local function cat_entity(id, frame_idx)
+    return {
+      id = id,
+      asset_name = "cat",
+      x = 4,
+      y = 4,
+      frame_idx = frame_idx,
+      current_state = "walk",
+      z_index = 10,
+      manifest = require("distract.manifests.cat"),
+    }
+  end
+
+  it("advances a frame with one window call, not one per coloured cell", function()
+    -- The old path rewrote every line and re-set an extmark per coloured cell
+    -- on every frame change: ~90 API calls per entity per frame.
+    local e = cat_entity(1, 1)
+    local steps = #e.manifest.states.walk.animation.frames
+
+    -- Build every frame buffer once. That first lap is the whole cost; what is
+    -- measured below is what an animation costs from then on.
+    for step = 1, steps do
+      e.frame_idx = step
+      renderer.draw({ e }, "halfblock")
+    end
+
+    local extmarks, set_lines, set_buf = 0, 0, 0
+    local o_ext = vim.api.nvim_buf_set_extmark
+    local o_lines = vim.api.nvim_buf_set_lines
+    local o_setbuf = vim.api.nvim_win_set_buf
+    vim.api.nvim_buf_set_extmark = function(...)
+      extmarks = extmarks + 1
+      return o_ext(...)
+    end
+    vim.api.nvim_buf_set_lines = function(...)
+      set_lines = set_lines + 1
+      return o_lines(...)
+    end
+    vim.api.nvim_win_set_buf = function(...)
+      set_buf = set_buf + 1
+      return o_setbuf(...)
+    end
+
+    for _ = 1, 3 do
+      for step = 1, steps do
+        e.frame_idx = step
+        renderer.draw({ e }, "halfblock")
+      end
+    end
+
+    vim.api.nvim_buf_set_extmark = o_ext
+    vim.api.nvim_buf_set_lines = o_lines
+    vim.api.nvim_win_set_buf = o_setbuf
+
+    assert.are_equal(0, extmarks, "a warm frame must not re-set a single extmark")
+    assert.are_equal(0, set_lines, "a warm frame must not rewrite its lines")
+    assert(set_buf > 0, "advancing the animation should swap the window's buffer")
+  end)
+
+  it("shares one buffer between entities showing the same frame", function()
+    local a, b = cat_entity(1, 1), cat_entity(2, 1)
+    b.x = 40
+    renderer.draw({ a, b }, "halfblock")
+
+    local sa = renderer.window_state(1)
+    local sb = renderer.window_state(2)
+    assert.is_not_nil(sa)
+    assert.is_not_nil(sb)
+    assert.are_equal(sa.buf, sb.buf, "identical frames should share one buffer")
+  end)
+
+  it("keeps the shared frame buffer alive when one entity's window closes", function()
+    local e = cat_entity(1, 1)
+    renderer.draw({ e }, "halfblock")
+    local buf = renderer.window_state(1).buf
+
+    renderer.close_window(1)
+    assert.is_true(
+      vim.api.nvim_buf_is_valid(buf),
+      "closing one window must not delete a buffer other entities may be showing"
+    )
+  end)
+
+  it("rebuilds a frame buffer that was wiped out from under it", function()
+    local buf = sprites.get_frame_buffer("cat", 1, false)
+    vim.api.nvim_buf_delete(buf, { force = true })
+    local again = sprites.get_frame_buffer("cat", 1, false)
+    assert.is_true(vim.api.nvim_buf_is_valid(again))
+  end)
+
+  it("gives sprite windows a background that is not NormalFloat's", function()
+    local group = renderer.background_group()
+    local hl = vim.api.nvim_get_hl(0, { name = group, link = false })
+    assert.is_nil(hl.bg, "a sprite window must not paint a background rectangle")
+  end)
+end)

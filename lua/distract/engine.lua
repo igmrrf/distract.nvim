@@ -100,6 +100,17 @@ function M.spawn(asset_name, opts)
     if ok then
       manifest = loaded
     else
+      -- Reported rather than silently substituted: spawning a typo used to
+      -- produce a working-looking cat under the name you asked for.
+      vim.notify(
+        string.format(
+          "[Distract] No manifest for asset '%s'; using the cat's behaviour. "
+            .. "Define it in setup({ assets = { %s = ... } }).",
+          asset_name,
+          asset_name
+        ),
+        vim.log.levels.WARN
+      )
       manifest = require("distract.manifests.cat")
     end
   end
@@ -400,6 +411,10 @@ function M.tick()
       local friction = phys.friction or 0.05
       local lerp_factor = math.min(1.0, math.max(0.01, 1.0 - math.exp(-friction * step)))
       entity.vx = entity.vx + (entity.target_vx - entity.vx) * lerp_factor
+      -- Constant acceleration, on top of the pull toward `target_vx`. `gravity`
+      -- is the same thing on the y axis under a name that also brings a floor
+      -- with it; `accel_y` is the floorless version.
+      entity.vx = entity.vx + ((phys.accel_x or 0) * step)
 
       if (phys.gravity or 0) > 0 then
         entity.vy = entity.vy + (phys.gravity * step)
@@ -411,6 +426,7 @@ function M.tick()
         end
       else
         entity.vy = entity.vy + (entity.target_vy - entity.vy) * lerp_factor
+        entity.vy = entity.vy + ((phys.accel_y or 0) * step)
         if phys.path_type == "sine" then
           local amp = (phys.path_amplitude or 4.0) * CELLS_PER_SPRITE_PX_Y
           local freq = phys.path_frequency or 2.0
@@ -429,6 +445,8 @@ function M.tick()
       local sprite_w, sprite_h = sprite_cell_size(entity.asset_name)
       local wrap_mode = phys.wrap_mode or "wrap"
 
+      local edges = state_def.transitions or {}
+
       if wrap_mode == "wrap" then
         -- Gated on position, not on velocity: `vx` lerps toward its target, so
         -- a state whose target is zero decays it through zero and an entity
@@ -438,15 +456,41 @@ function M.tick()
         elseif entity.x < -sprite_w then
           entity.x = max_columns
         end
+        -- Vertical wrap too. The overlay has always wrapped both axes, so a
+        -- manifest with vertical motion described one behaviour there and a
+        -- different one here.
+        if entity.y > max_lines then
+          entity.y = -sprite_h
+        elseif entity.y < -sprite_h then
+          entity.y = max_lines
+        end
       elseif wrap_mode == "bounce" then
         if entity.x <= 0 then
           entity.x = 0
           entity.heading_x = 1
           entity.vx = math.max(0.5, math.abs(entity.vx))
+          entity.flip_x = false
+          if edges.on_edge_left then
+            M.set_entity_state(entity, edges.on_edge_left)
+          end
         elseif entity.x + sprite_w >= max_columns then
           entity.x = math.max(0, max_columns - sprite_w)
           entity.heading_x = -1
           entity.vx = -math.max(0.5, math.abs(entity.vx))
+          entity.flip_x = true
+          if edges.on_edge_right then
+            M.set_entity_state(entity, edges.on_edge_right)
+          end
+        end
+
+        if entity.vy ~= 0 then
+          if entity.y <= 0 then
+            entity.y = 0
+            entity.vy = math.abs(entity.vy)
+          elseif entity.y + sprite_h >= max_lines then
+            entity.y = math.max(0, max_lines - sprite_h)
+            entity.vy = -math.abs(entity.vy)
+          end
         end
       elseif wrap_mode == "clamp" then
         entity.x = math.max(0, math.min(entity.x, max_columns - sprite_w))

@@ -100,6 +100,70 @@ describe("distract.renderer frame resolution", function()
   end)
 end)
 
+describe("distract.renderer facing", function()
+  local cat = require("distract.manifests.cat")
+
+  --- An entity stub with an explicit heading.
+  local function facing(state, flip_x)
+    local e = entity(cat, state, 1)
+    e.flip_x = flip_x
+    return e
+  end
+
+  it("mirrors the art when the entity is heading left", function()
+    assert.is_false(renderer.resolve_flip(facing("walk", false)))
+    assert.is_true(
+      renderer.resolve_flip(facing("walk", true)),
+      "a cat walking left must be drawn mirrored, not facing right"
+    )
+  end)
+
+  it("does not mirror twice when the art is already authored facing left", function()
+    local manifest = {
+      name = "cat",
+      states = { walk = { animation = { frames = { 0 }, flip_x = true } } },
+    }
+    local e = entity(manifest, "walk", 1)
+    e.flip_x = true
+    assert.is_false(
+      renderer.resolve_flip(e),
+      "entity heading and authored facing must cancel, as they do on the overlay"
+    )
+  end)
+
+  it("renders a mirrored frame as the column reverse of the facing one", function()
+    local frames = sprites.get_pixel_frames("cat")
+    local matrix = frames[1]
+    local mirrored = sprites.mirror_matrix(matrix)
+    local width = #matrix[1]
+
+    for r = 1, #matrix do
+      for c = 1, width do
+        assert.are.same(
+          matrix[r][c],
+          mirrored[r][width - c + 1],
+          string.format("pixel (%d,%d) did not survive the mirror", r, c)
+        )
+      end
+    end
+  end)
+
+  it("caches facing and mirrored art separately", function()
+    local lines = sprites.get_rendered_frame("cat", 1, false)
+    local flipped = sprites.get_rendered_frame("cat", 1, true)
+
+    local differs = false
+    for i = 1, #lines do
+      if lines[i] ~= flipped[i] then
+        differs = true
+        break
+      end
+    end
+    assert.is_true(differs, "mirrored art must not come back from the facing cache slot")
+    assert.are.same(lines, sprites.get_rendered_frame("cat", 1, false))
+  end)
+end)
+
 describe("distract.renderer window geometry", function()
   it("computes a positive integer window width for every built in frame", function()
     for _, name in ipairs({ "cat", "crab", "sun" }) do

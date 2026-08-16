@@ -150,6 +150,22 @@ function M.setup(opts)
       M.stop()
     end,
   })
+
+  -- `:colorscheme` runs `:hi clear`, which deletes the per-colour highlight
+  -- groups the sprites are painted with. Everything cached against them has to
+  -- go with it, or every sprite draws in the default foreground until restart.
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = group,
+    callback = function()
+      local sprites = require("distract.terminal_sprites")
+      sprites.reset_highlights()
+      sprites.reset_cache()
+      local renderer = require("distract.renderer")
+      renderer.clear_all()
+      renderer.refresh_highlights()
+      renderer.invalidate_screen_map()
+    end,
+  })
 end
 
 function M.get_backend()
@@ -243,6 +259,34 @@ end
 --- Builds the overlay engine binary asynchronously.
 function M.build()
   require("distract.external").build()
+end
+
+--- Registers a custom asset: its manifest, its terminal art, or both.
+---
+--- Without this the terminal backend can only draw the three built-ins, so a
+--- custom manifest used to spawn under its own name and render as a cat.
+---
+--- @param name string asset name, as passed to `:DistractSpawn`
+--- @param spec table `{ manifest = <manifest>, sprites = <sprite module> }`
+function M.register_asset(name, spec)
+  if type(name) ~= "string" or name == "" then
+    error("distract.register_asset: name must be a non-empty string")
+  end
+  spec = spec or {}
+
+  if spec.sprites then
+    require("distract.terminal_sprites").register(name, spec.sprites)
+  end
+
+  if spec.manifest then
+    local manifest = vim.deepcopy(spec.manifest)
+    manifest.name = manifest.name or name
+    rawset(M.config.assets, name, manifest)
+  end
+
+  if not spec.sprites and not spec.manifest then
+    error("distract.register_asset: nothing to register; pass `manifest`, `sprites`, or both")
+  end
 end
 
 function M.get_asset_names()

@@ -271,13 +271,21 @@ function M.spawn(entity_name, opts)
     end
   end
 
+  -- Spawn coordinates are terminal cells on both backends. The overlay
+  -- positions in physical pixels, so they are converted here rather than left
+  -- for the caller: `spawn { x = 40 }` used to mean column 40 in the terminal
+  -- and pixel 40 — roughly column 4 — on the overlay.
+  local cell_w, cell_h = M.cell_size()
+  local x = opts.x and (opts.x * cell_w) or nil
+  local y = opts.y and (opts.y * cell_h) or nil
+
   send_or_start({
     command = "Spawn",
     entity_type = entity_name,
     path = abs_path,
     manifest = manifest_payload,
-    x = opts.x,
-    y = opts.y,
+    x = x,
+    y = y,
     flip_x = opts.flip_x or false,
   })
 end

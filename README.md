@@ -9,8 +9,13 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
 `distract.nvim` offers multiple rendering backends to suit your terminal environment:
 
 1. 🎨 **`halfblock` (In-Terminal Truecolor - Default)**:
-   - Renders 24-bit RGB pixel-art sprites directly inside Neovim using Unicode half-blocks (`▀` / `▄`) and native floating windows.
-   - **Zero OS window overlays**, transparent background, works in any truecolor terminal emulator (Ghostty, WezTerm, Kitty, Alacritty, iTerm2, tmux, SSH).
+   - Renders 24-bit RGB pixel-art sprites directly inside Neovim using Unicode half-blocks (`▀` / `▄`).
+   - **Genuinely transparent.** Rows of a sprite that sit over your code are drawn
+     as overlay virtual text, so only the cells with a pixel in them are touched
+     and the characters around each pixel survive. Rows below the end of the
+     buffer — where virtual text cannot be placed — fall back to a float whose
+     `Normal` has no background of its own. See [Transparency](#-transparency).
+   - **Zero OS window overlays**, works in any truecolor terminal emulator (Ghostty, WezTerm, Kitty, Alacritty, iTerm2, tmux, SSH).
 2. 🖥️ **`overlay` (Hardware-Accelerated GPU Window)**:
    - Transparent, borderless, click-through wgpu desktop window.
    - Draws one instanced quad per entity from a sprite atlas uploaded once, and
@@ -155,14 +160,47 @@ require("distract").setup({
 
 ---
 
+## 👻 Transparency
+
+A Neovim float paints *every* screen cell it covers, transparent ones included,
+so a sprite-sized float blanks a sprite-sized rectangle of your code. Overlay
+virtual text touches only the cells it is given, but cannot be placed where
+there is no buffer line — which is exactly where a pet usually walks.
+
+So each sprite is drawn on both surfaces at once:
+
+| Sprite rows | Surface | Result |
+|---|---|---|
+| over buffer text | overlay extmarks (`virt_text_win_col`) | code around each pixel is untouched |
+| past the last line | float with `Normal` = `bg=NONE` | terminal background shows through |
+
+Nothing is redrawn unless the picture, the placement, or the editor layout under
+it actually changed, so a sleeping pet costs no API calls at all.
+
+Two cases still fall back to the float, because a buffer line cannot address
+them: the continuation rows of a wrapped line, and folded lines.
+
+---
+
 ## 🐾 Defining Custom Assets
 
 Assets are fully data-driven. You can define custom animations, physics, and state transitions in your Neovim configuration.
 
-**Units.** Positions and velocities are in *sprite pixels*, and velocities are
-per frame at 60 FPS. One sprite pixel is one terminal cell wide and half a cell
-tall. Both backends convert from that same unit, so one manifest describes one
-behaviour everywhere. See `:help distract-units`.
+**Units.** Manifest velocities are in *sprite pixels* per frame at 60 FPS. One
+sprite pixel is one terminal cell wide and half a cell tall, and each backend
+scales the two axes separately, so one manifest describes one behaviour
+everywhere. Spawn coordinates (`x`, `y`) are in *terminal cells* on both
+backends. See `:help distract-units`.
+
+A custom asset needs art as well as a manifest. Without registered art the
+terminal backend has nothing to draw and says so:
+
+```lua
+require("distract").register_asset("my_pet", {
+  manifest = require("my_pet.manifest"),
+  sprites = require("my_pet.sprites"), -- { frames, layout, width, height }
+})
+```
 
 ```lua
 require("distract").setup({

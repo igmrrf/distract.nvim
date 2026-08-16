@@ -26,7 +26,7 @@ impl Compositor {
         dest_x: i32,
         dest_y: i32,
     ) {
-        Self::blend_sprite_ex(frame, win_w, win_h, sprite, dest_x, dest_y, false, 1);
+        Self::blend_sprite_ex(frame, win_w, win_h, sprite, dest_x, dest_y, false, 1, 1);
     }
 
     /// Blends a sprite with optional horizontal mirroring and integer nearest
@@ -45,30 +45,34 @@ impl Compositor {
         dest_x: i32,
         dest_y: i32,
         flip_x: bool,
-        scale: u32,
+        scale_x: u32,
+        scale_y: u32,
     ) {
         let (sw, sh) = sprite.dimensions();
         if sw == 0 || sh == 0 {
             return;
         }
-        let scale = scale.max(1);
+        // A sprite pixel is one cell wide and half a cell tall, so the two axes
+        // do not share a scale factor except on an exactly 2:1 cell.
+        let scale_x = scale_x.max(1);
+        let scale_y = scale_y.max(1);
 
-        for dy in 0..sh * scale {
+        for dy in 0..sh * scale_y {
             let py = dest_y + dy as i32;
             if py < 0 || py >= win_h as i32 {
                 continue;
             }
-            let sy = dy / scale;
+            let sy = dy / scale_y;
 
-            for dx in 0..sw * scale {
+            for dx in 0..sw * scale_x {
                 let px = dest_x + dx as i32;
                 if px < 0 || px >= win_w as i32 {
                     continue;
                 }
                 let sx = if flip_x {
-                    sw - 1 - (dx / scale)
+                    sw - 1 - (dx / scale_x)
                 } else {
-                    dx / scale
+                    dx / scale_x
                 };
 
                 let src = sprite.get_pixel(sx, sy);
@@ -133,7 +137,8 @@ impl Compositor {
             world.entities.iter().filter(|e| e.is_active).collect();
         sorted.sort_by_key(|e| e.z_index);
 
-        let scale = world.sprite_scale;
+        let scale_x = world.sprite_scale_x.round().max(1.0) as u32;
+        let scale_y = world.sprite_scale_y.round().max(1.0) as u32;
 
         for entity in sorted {
             let Some(asset) = world.asset_manager.get(&entity.asset_name) else {
@@ -163,7 +168,8 @@ impl Compositor {
                 entity.x as i32,
                 entity.y as i32,
                 flip,
-                scale,
+                scale_x,
+                scale_y,
             );
         }
     }
@@ -215,7 +221,7 @@ mod tests {
         sprite.put_pixel(1, 0, Rgba([0, 0, 255, 255]));
 
         let mut frame = vec![0u8; 2 * 4]; // 2x1 RGBA
-        Compositor::blend_sprite_ex(&mut frame, 2, 1, &sprite, 0, 0, true, 1);
+        Compositor::blend_sprite_ex(&mut frame, 2, 1, &sprite, 0, 0, true, 1, 1);
 
         assert_eq!(&frame[0..4], &[0, 0, 255, 255]);
         assert_eq!(&frame[4..8], &[255, 0, 0, 255]);
@@ -227,7 +233,7 @@ mod tests {
         sprite.put_pixel(0, 0, Rgba([10, 20, 30, 255]));
 
         let mut frame = vec![0u8; 3 * 3 * 4];
-        Compositor::blend_sprite_ex(&mut frame, 3, 3, &sprite, 0, 0, false, 3);
+        Compositor::blend_sprite_ex(&mut frame, 3, 3, &sprite, 0, 0, false, 3, 3);
 
         for i in 0..9 {
             assert_eq!(&frame[i * 4..i * 4 + 4], &[10, 20, 30, 255], "pixel {}", i);
@@ -269,7 +275,8 @@ mod tests {
     fn render_world_draws_low_z_index_first() {
         // The sun is z -10 and the cat z 10, so the cat must win the overlap.
         let mut world = World::new(200.0, 200.0);
-        world.sprite_scale = 1;
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
         world
             .spawn("sun", None, Some(20.0), Some(20.0), None)
             .unwrap();

@@ -1,10 +1,21 @@
 --- In-terminal renderer.
 ---
---- Each entity gets its own small floating window. That is deliberate rather
---- than incidental: a Neovim float always paints the screen cells it covers, so
---- a single full-screen float would blank the editor behind it. Keeping the
---- windows sprite-sized is what lets the editor show through everywhere the
---- sprite is not.
+--- A sprite is drawn on two different surfaces, because neither one alone can
+--- draw it without destroying something.
+---
+--- A float paints *every* screen cell it covers, transparent ones included, so
+--- a sprite-sized float blanks a sprite-sized rectangle of your code. Measured:
+--- a buffer cell reading `E` reads ` ` once a float is over it. What a float
+--- can do is draw anywhere on the screen.
+---
+--- Overlay virtual text touches only the cells it is given, so the code either
+--- side of a sprite pixel survives. What it cannot do is draw where there is no
+--- buffer line — below the end of the file, which is exactly where a pet
+--- usually walks.
+---
+--- So: rows of the sprite that sit over real buffer text are drawn as overlay
+--- extmarks, and the rest fall back to a float whose `Normal` has no background
+--- of its own. Together they give a sprite with nothing painted behind it.
 ---
 --- The cost that mattered was never the number of windows, it was calling into
 --- the Neovim API on every tick for every entity: `nvim_win_set_config` forces a
@@ -15,10 +26,139 @@ local M = {}
 local api = vim.api
 local sprites = require("distract.terminal_sprites")
 
-local ns_id = api.nvim_create_namespace("distract_sprites")
-
---- entity_id -> { buf, win, frame_idx, row, col, width, height }
+--- entity_id -> { buf, win, row, col, width, height, sig, marks }
 local active_windows = {}
+
+local overlay_ns = api.nvim_create_namespace("distract_sprite_overlay")
+
+--- Namespace the buffer-overlay extmarks live in.
+function M.overlay_namespace()
+  return overlay_ns
+end
+
+--- Highlight group a sprite window uses for `Normal`.
+---
+--- `NormalFloat` is wrong for a sprite: most colourschemes give it a background
+--- of its own, so every sprite dragged a visible rectangle of that colour
+--- around the screen. `bg = "NONE"` lets the terminal's own background through,
+--- which is as close to transparent as a float can get.
+local BACKGROUND_GROUP = "DistractSpriteNormal"
+local background_defined = false
+
+function M.background_group()
+  if not background_defined then
+    api.nvim_set_hl(0, BACKGROUND_GROUP, { bg = "NONE", fg = "NONE" })
+    background_defined = true
+  end
+  return BACKGROUND_GROUP
+end
+
+--- Re-declares the sprite background, after a colourscheme has cleared it.
+function M.refresh_highlights()
+  background_defined = false
+  M.background_group()
+end
+
+-- =========================================================================
+-- Screen row -> buffer line
+-- =========================================================================
+
+--- Where each screen row's buffer line lives, so a sprite row can be drawn
+--- straight onto it.
+---
+--- Rebuilt only when the layout actually changes. Building it costs a
+--- `screenpos` per visible line, which is not something to pay 30 times a
+--- second for a screen that has not scrolled.
+local screen_map = {}
+local screen_map_sig = nil
+local screen_map_version = 0
+
+--- A cheap fingerprint of everything that could move a buffer line to a
+--- different screen row.
+local function layout_signature(wins)
+  local parts = {}
+  for _, wi in ipairs(wins) do
+    parts[#parts + 1] = table.concat({
+      wi.winid,
+      wi.bufnr,
+      wi.winrow,
+      wi.wincol,
+      wi.width,
+      wi.height,
+      wi.topline,
+      wi.botline,
+      wi.textoff,
+    }, ":")
+  end
+  return table.concat(parts, "|")
+end
+
+--- Whether a window is one we may draw into: a normal, non-floating window
+--- showing an ordinary buffer.
+local function is_drawable_window(wi)
+  if wi.terminal == 1 then
+    return false
+  end
+  local ok, cfg = pcall(api.nvim_win_get_config, wi.winid)
+  if not ok then
+    return false
+  end
+  -- A float of our own, or someone else's popup, is not a drawing surface.
+  return cfg.relative == nil or cfg.relative == ""
+end
+
+local function rebuild_screen_map(wins)
+  local map = {}
+
+  for _, wi in ipairs(wins) do
+    if is_drawable_window(wi) then
+      -- `wincol`/`winrow` are 1-based screen coordinates of the window's
+      -- top-left cell; `textoff` is the width of the gutter (number column,
+      -- signs, folds) that virtual text is positioned relative to.
+      local text_left = wi.wincol - 1 + wi.textoff
+      local text_right = wi.wincol - 1 + wi.width - 1
+
+      -- Only the row a line *starts* on is mapped. A wrapped line occupies
+      -- several screen rows and only the first can be addressed by line number,
+      -- so the continuation rows are left out and fall through to the float --
+      -- correct rather than merely safe, since an extmark placed for them would
+      -- land back on the row the line started on. Folded lines report row 0 and
+      -- are skipped for the same reason.
+      for lnum = wi.topline, wi.botline do
+        local pos = vim.fn.screenpos(wi.winid, lnum, 1)
+        if pos.row > 0 then
+          map[pos.row - 1] = {
+            buf = wi.bufnr,
+            lnum = lnum,
+            text_left = text_left,
+            text_right = text_right,
+          }
+        end
+      end
+    end
+  end
+
+  return map
+end
+
+--- Refreshes the screen map if the layout moved. Returns its version, which
+--- changes whenever the map does.
+local function sync_screen_map()
+  local wins = vim.fn.getwininfo()
+  local sig = layout_signature(wins)
+  if sig ~= screen_map_sig then
+    screen_map_sig = sig
+    screen_map = rebuild_screen_map(wins)
+    screen_map_version = screen_map_version + 1
+  end
+  return screen_map_version
+end
+
+--- Drops the cached screen map. For tests, and for anything that changes the
+--- layout without changing the fingerprint.
+function M.invalidate_screen_map()
+  screen_map_sig = nil
+end
 
 --- In-terminal backends this module can actually draw. Anything not listed here
 --- must not be offered to users: an unknown name used to fall through to a
@@ -43,6 +183,10 @@ function M.draw(entities, backend)
 
   local max_columns = vim.o.columns
   local max_lines = vim.o.lines
+
+  -- Where the editor's text is, so sprite rows can be drawn onto it instead of
+  -- over it. Rebuilt only when the layout moved.
+  sync_screen_map()
 
   local live_ids = {}
   for _, entity in ipairs(entities) do
@@ -87,16 +231,148 @@ function M.resolve_pixel_frame(entity, frame_count)
   return (sheet_idx % frame_count) + 1
 end
 
+--- Whether an entity's art should be drawn mirrored.
+---
+--- `entity.flip_x` is which way the entity is heading; `animation.flip_x` is
+--- whether the art for this state was authored facing the other way. They
+--- combine, exactly as the overlay's `build_instances` combines them, so a
+--- state whose art already faces left is not mirrored twice.
+function M.resolve_flip(entity)
+  local manifest = entity.manifest
+  local state_def = manifest and manifest.states and manifest.states[entity.current_state]
+  local anim_flip = state_def and state_def.animation and state_def.animation.flip_x or false
+  local entity_flip = entity.flip_x or false
+  return entity_flip ~= anim_flip
+end
+
+--- Removes an entity's overlay extmarks.
+local function clear_overlay(entry)
+  if not entry or not entry.marks then
+    return
+  end
+  for _, mark in ipairs(entry.marks) do
+    if api.nvim_buf_is_valid(mark[1]) then
+      pcall(api.nvim_buf_del_extmark, mark[1], overlay_ns, mark[2])
+    end
+  end
+  entry.marks = nil
+end
+
+--- The first sprite row that cannot be drawn onto buffer text.
+---
+--- Everything from there down goes to the float. It is a tail rather than a set
+--- of individual rows because the rows that fail are almost always the ones
+--- below the end of the file, which are contiguous and at the bottom; treating
+--- an isolated failure in the middle as the start of the tail costs a few rows
+--- of occluded text, which is what every row cost before.
+local function first_unmappable_row(row, col, width, height)
+  for r = 0, height - 1 do
+    local slot = screen_map[row + r]
+    if not slot or col < slot.text_left or col + width - 1 > slot.text_right then
+      return r
+    end
+  end
+  return height
+end
+
+--- Draws sprite rows 0..`limit`-1 as overlay virtual text on the buffer lines
+--- underneath them. Returns the extmarks placed.
+local function draw_overlay_rows(rows, row, col, limit)
+  local marks = {}
+  for r = 0, limit - 1 do
+    local slot = screen_map[row + r]
+    for _, run in ipairs(rows[r] or {}) do
+      -- `virt_text_win_col` is measured from the window's first *text* column,
+      -- so the gutter has to come out of the screen column. Unlike
+      -- `virt_text_pos = "overlay"` it does not need the underlying line to be
+      -- long enough to reach that column.
+      local ok, id = pcall(api.nvim_buf_set_extmark, slot.buf, overlay_ns, slot.lnum - 1, 0, {
+        virt_text = run.chunks,
+        virt_text_win_col = col + run.col - slot.text_left,
+        hl_mode = "combine",
+        priority = 200,
+        ephemeral = false,
+      })
+      if ok then
+        marks[#marks + 1] = { slot.buf, id }
+      end
+    end
+  end
+  return marks
+end
+
+--- Places the float that covers sprite rows `from`..`height`-1.
+---
+--- The float shows the whole frame buffer, scrolled so `from` is its top line.
+--- That is what lets every entity keep sharing one buffer per frame instead of
+--- needing one per (frame, split point).
+local function place_float(entity, entry, frame_buf, geom)
+  local win = entry and entry.win
+  if not win or not api.nvim_win_is_valid(win) then
+    win = api.nvim_open_win(frame_buf, false, {
+      relative = "editor",
+      width = geom.width,
+      height = geom.float_height,
+      row = geom.float_row,
+      col = geom.col,
+      style = "minimal",
+      border = "none",
+      focusable = false,
+      noautocmd = true,
+      zindex = (entity.z_index or 0) + 100,
+    })
+    api.nvim_set_option_value("winblend", 0, { win = win })
+    api.nvim_set_option_value(
+      "winhighlight",
+      "Normal:" .. M.background_group() .. ",NormalNC:" .. M.background_group(),
+      { win = win }
+    )
+  elseif
+    entry.float_row ~= geom.float_row
+    or entry.col ~= geom.col
+    or entry.width ~= geom.width
+    or entry.float_height ~= geom.float_height
+  then
+    -- Only reposition when something actually moved. This call forces a full
+    -- redraw, so making it unconditionally cost a redraw per entity per tick.
+    api.nvim_win_set_config(win, {
+      relative = "editor",
+      row = geom.float_row,
+      col = geom.col,
+      width = geom.width,
+      height = geom.float_height,
+    })
+  end
+
+  -- Show a different picture by showing a different buffer.
+  if not entry or entry.buf ~= frame_buf then
+    api.nvim_win_set_buf(win, frame_buf)
+  end
+
+  -- Scroll to the first row the float is responsible for.
+  if not entry or entry.buf ~= frame_buf or entry.overlay_limit ~= geom.overlay_limit then
+    pcall(api.nvim_win_set_cursor, win, { geom.overlay_limit + 1, 0 })
+    pcall(api.nvim_win_call, win, function()
+      vim.fn.winrestview({ topline = geom.overlay_limit + 1, lnum = geom.overlay_limit + 1 })
+    end)
+  end
+
+  return win
+end
+
 function M.draw_halfblock_entity(entity, max_columns, max_lines)
   local frame_count = #sprites.get_pixel_frames(entity.asset_name)
   local frame_idx = M.resolve_pixel_frame(entity, frame_count)
+  local flip_x = M.resolve_flip(entity)
 
-  -- Cached: the strings and highlight spans for a frame never change.
-  local lines, highlights, sprite_w, sprite_h =
-    sprites.get_rendered_frame(entity.asset_name, frame_idx)
+  -- The buffer for a frame is built once, with its highlights already in it,
+  -- and shared by every entity showing that frame. Advancing the animation is
+  -- then one `nvim_win_set_buf` rather than a rewrite of every coloured cell.
+  local frame_buf, sprite_w, sprite_h =
+    sprites.get_frame_buffer(entity.asset_name, frame_idx, flip_x)
 
-  if sprite_w < 1 or sprite_h < 1 then
-    -- Nothing renderable for this frame; drop any window we still hold rather
+  if not frame_buf or sprite_w < 1 or sprite_h < 1 then
+    -- Nothing renderable for this frame; drop anything we still hold rather
     -- than asking nvim_open_win for a zero-sized window.
     M.close_window(entity.id)
     return
@@ -111,73 +387,81 @@ function M.draw_halfblock_entity(entity, max_columns, max_lines)
   local col = math.max(0, math.min(x, max_columns - width))
   local row = math.max(0, math.min(y, max_lines - height - 1))
 
+  -- Rows over buffer text are drawn onto it; the tail that is not goes to the
+  -- float.
+  local overlay_limit = first_unmappable_row(row, col, width, height)
+  local geom = {
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    overlay_limit = overlay_limit,
+    float_row = row + overlay_limit,
+    float_height = height - overlay_limit,
+  }
+
+  -- Nothing below is worth redoing unless the picture, the placement, or the
+  -- editor layout under it has changed. An idle pet costs no API calls.
+  local sig = table.concat({
+    frame_buf,
+    row,
+    col,
+    width,
+    height,
+    overlay_limit,
+    screen_map_version,
+  }, ":")
+
   local entry = active_windows[entity.id]
-  if not entry or not api.nvim_win_is_valid(entry.win) or not api.nvim_buf_is_valid(entry.buf) then
-    local buf = api.nvim_create_buf(false, true)
-    local win = api.nvim_open_win(buf, false, {
-      relative = "editor",
-      width = width,
-      height = height,
-      row = row,
-      col = col,
-      style = "minimal",
-      border = "none",
-      focusable = false,
-      noautocmd = true,
-      zindex = (entity.z_index or 0) + 100,
-    })
-
-    api.nvim_set_option_value("winblend", 0, { win = win })
-    api.nvim_set_option_value(
-      "winhighlight",
-      "Normal:NormalFloat,NormalNC:NormalFloat",
-      { win = win }
-    )
-
-    entry =
-      { buf = buf, win = win, frame_idx = -1, row = row, col = col, width = width, height = height }
-    active_windows[entity.id] = entry
-  elseif entry.row ~= row or entry.col ~= col or entry.width ~= width or entry.height ~= height then
-    -- Only reposition when something actually moved. This call forces a full
-    -- redraw, so making it unconditionally cost a redraw per entity per tick.
-    entry.row, entry.col, entry.width, entry.height = row, col, width, height
-    api.nvim_win_set_config(entry.win, {
-      relative = "editor",
-      row = row,
-      col = col,
-      width = width,
-      height = height,
-    })
+  if entry and entry.sig == sig and (not entry.win or api.nvim_win_is_valid(entry.win)) then
+    return
   end
 
-  -- Redraw frame content only when the frame changes.
-  if entry.frame_idx ~= frame_idx then
-    entry.frame_idx = frame_idx
-    api.nvim_buf_set_lines(entry.buf, 0, -1, false, lines)
-    api.nvim_buf_clear_namespace(entry.buf, ns_id, 0, -1)
-
-    for _, hl in ipairs(highlights) do
-      -- hl.col and hl.len are byte offsets: a half-block glyph is 3 bytes, so
-      -- an end_col of col + 1 would split the codepoint and mis-colour the row.
-      api.nvim_buf_set_extmark(entry.buf, ns_id, hl.row, hl.col, {
-        end_row = hl.row,
-        end_col = hl.col + hl.len,
-        hl_group = hl.hl,
-        priority = 100,
-      })
-    end
+  local previous = entry
+  if previous then
+    clear_overlay(previous)
   end
+
+  local marks = nil
+  if overlay_limit > 0 then
+    local rows = sprites.get_frame_runs(entity.asset_name, frame_idx, flip_x)
+    marks = draw_overlay_rows(rows, row, col, overlay_limit)
+  end
+
+  local win = nil
+  if geom.float_height > 0 then
+    win = place_float(entity, previous, frame_buf, geom)
+  elseif previous and previous.win and api.nvim_win_is_valid(previous.win) then
+    -- Every row landed on buffer text, so there is nothing left for a float to
+    -- do and nothing of the editor stays covered.
+    api.nvim_win_close(previous.win, true)
+  end
+
+  active_windows[entity.id] = {
+    buf = frame_buf,
+    win = win,
+    row = row,
+    col = col,
+    width = width,
+    height = height,
+    float_row = geom.float_row,
+    float_height = geom.float_height,
+    overlay_limit = overlay_limit,
+    sig = sig,
+    marks = marks,
+  }
 end
 
 function M.close_window(entity_id)
   local w = active_windows[entity_id]
   if w then
-    if api.nvim_win_is_valid(w.win) then
+    clear_overlay(w)
+    if w.win and api.nvim_win_is_valid(w.win) then
       api.nvim_win_close(w.win, true)
     end
-    if api.nvim_buf_is_valid(w.buf) then
-      api.nvim_buf_delete(w.buf, { force = true })
-    end
+    -- The buffer is not deleted: frame buffers are shared between every entity
+    -- showing that frame and outlive any one window. `terminal_sprites.reset_cache`
+    -- owns their lifetime.
     active_windows[entity_id] = nil
   end
 end
@@ -195,7 +479,18 @@ function M.window_state(entity_id)
   if not w then
     return nil
   end
-  return { row = w.row, col = w.col, width = w.width, height = w.height, frame_idx = w.frame_idx }
+  return {
+    row = w.row,
+    col = w.col,
+    width = w.width,
+    height = w.height,
+    buf = w.buf,
+    win = w.win,
+    float_row = w.float_row,
+    float_height = w.float_height,
+    overlay_limit = w.overlay_limit,
+    overlay_marks = w.marks and #w.marks or 0,
+  }
 end
 
 return M
