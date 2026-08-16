@@ -82,6 +82,62 @@ describe("distract.external command dispatchers", function()
   end)
 end)
 
+-- The overlay would reject a violating manifest on arrival, but the message
+-- would come back through the IPC error path rather than as the clean refusal
+-- the terminal backend gives. One manifest, one message, either backend.
+describe("distract.external capability gating", function()
+  local external = require("distract.external")
+
+  it("refuses a manifest that breaks its own capabilities before sending it", function()
+    external.setup({
+      cell_width = 10,
+      cell_height = 20,
+      assets = {
+        impossible = {
+          name = "impossible",
+          initial_state = "orbit",
+          locomotion = "grounded",
+          states = {
+            orbit = {
+              animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+              physics = { path_type = "orbital" },
+            },
+          },
+        },
+      },
+    })
+
+    local sent = nil
+    local orig_send, orig_running = external.send_command, external.is_running
+    local orig_notify = external.is_running and vim.notify
+    local errors = {}
+    external.is_running = function()
+      return true
+    end
+    external.send_command = function(cmd)
+      sent = cmd
+      return true
+    end
+    vim.notify = function(message, level)
+      if level and level >= vim.log.levels.ERROR then
+        errors[#errors + 1] = message
+      end
+    end
+
+    external.spawn("impossible")
+
+    vim.notify = orig_notify
+    external.send_command, external.is_running = orig_send, orig_running
+
+    assert.is_nil(sent, "a grounded orbit must not reach the overlay at all")
+    assert(#errors > 0, "the refusal must be reported, not silent")
+    assert(
+      errors[1]:find("orbit"),
+      "the message must name the offending state, got: " .. tostring(errors[1])
+    )
+  end)
+end)
+
 describe("distract.external spawn coordinates", function()
   local external = require("distract.external")
 

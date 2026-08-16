@@ -276,10 +276,40 @@ Built-ins declare:
 
 Validated **at manifest load, across all states at once** — never per frame.
 
-- Rust: parser returns
-  `Err(ManifestError::CapabilityViolation { state, locomotion, allowed })`.
+- Rust: `AssetManifest::validate_capabilities`, called from
+  `AssetManager::register_manifest`, so a violating manifest fails the spawn
+  that carried it.
 - Lua: `vim.notify(..., ERROR)` with the same wording; `spawn` returns `nil`
   and creates no entity.
+
+### 4.1 Settled during implementation
+
+- **A manifest-level `locomotion` default.** Only the cat's jump has gravity,
+  so under the § 2.1 derivation every other built-in state is
+  `omnidirectional` and the table above would be false the moment it was
+  enforced. The alternative was repeating `locomotion` in all seventeen state
+  physics tables per engine. Precedence: the state's own value, then the
+  asset's, then the derivation.
+- **Two constraints hold even when `capabilities` is omitted**, because both
+  describe a state that would silently do nothing: `omnidirectional` with
+  gravity (the gravity branch wins and clamps to a floor the state denies), and
+  a non-`linear`/`sine` path on a state that is not `omnidirectional` (both
+  engines skip paths entirely under gravity). An unknown class name is likewise
+  always an error.
+- **`Err(String)`, not a typed `ManifestError`.** `register_manifest` and
+  `load_asset` already return `Result<_, String>`; introducing one typed error
+  for this check alone would either sit beside them inconsistently or drag
+  every error path in the crate into this change.
+- **The Lua half lives in `lua/distract/locomotion.lua`.** Both backends need
+  it — `engine.lua` before it builds an entity, `external.lua` before it puts a
+  manifest on the wire — and requiring `engine.lua` from `external.lua` would
+  make every overlay user pay for the terminal sprite generation it pulls in.
+  The overlay validates again on arrival; checking on the Lua side too is what
+  makes the refusal read the same on both backends rather than surfacing
+  through the IPC error path.
+- **The cat's jump declares `ballistic` but still returns on its timeout.**
+  Wiring it to `on_land` changes how the jump feels, which is not the
+  capability gate's call to make.
 
 ---
 

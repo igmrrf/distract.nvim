@@ -264,6 +264,31 @@ touches the ground.
 Omitted, the floor is wherever the entity was when it entered the state, which
 is what makes a jump return to the ground it left.
 
+A manifest may set `locomotion` at the top level as the default for every
+state, which is usually what you want: only one of the cat's six states leaves
+the ground.
+
+                                                        *distract-capabilities*
+An asset can declare which classes it is allowed to use: >lua
+    capabilities = { locomotion = { "grounded", "ballistic" } },
+<
+Checked once when the manifest loads, across every state at once — never per
+frame. A violation is reported and the spawn produces nothing, on both
+backends. Omitted, all three are allowed, so no manifest written before this
+existed can newly fail.
+
+The built-ins declare `cat` = grounded, ballistic; `crab` = grounded; `sun` =
+omnidirectional.
+
+Two constraints hold whether or not you declare capabilities, because both
+describe states that would silently do nothing:
+
+    - `omnidirectional` with `gravity` set. Gravity brings a floor, so the
+      state would clamp to a floor it claims not to have.
+    - `orbital`, `lissajous` or `bezier` on a state that is not
+      `omnidirectional`. Those paths write `x` directly, and both engines skip
+      paths entirely under gravity.
+
 ------------------------------------------------------------------------------
 7.2 Paths                                                       *distract-paths*
 

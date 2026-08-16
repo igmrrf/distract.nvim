@@ -106,6 +106,11 @@ fn fixture_dir() -> PathBuf {
 fn run(fixture: &Fixture) -> Vec<Sample> {
     let mut manifest = AssetManifest::default_cat();
     manifest.name = "parity_probe".to_string();
+    // The fixtures describe physics, not an animal. Inheriting the cat's
+    // declaration would have the capability gate refuse the orbiting ones,
+    // which is right for a cat and wrong for a probe.
+    manifest.locomotion = None;
+    manifest.capabilities = Default::default();
 
     let state = manifest
         .states

@@ -7,6 +7,8 @@ local M = {
   asset_type = "procedural",
   spritesheet = {},
   initial_state = "idle",
+  locomotion = "grounded",
+  capabilities = { locomotion = { "grounded" } },
   z_index = 10,
   states = {
     idle = {

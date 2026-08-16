@@ -339,6 +339,110 @@ describe("distract.engine deterministic step", function()
   end)
 end)
 
+-- `path_type` and `locomotion` are open-ended strings, so a manifest could ask
+-- for a grounded orbit -- which both engines silently skip, because a path that
+-- writes x fights a floor. Declared capabilities turn that into a message.
+describe("distract.engine capability gating", function()
+  local probe_counter = 0
+
+  --- Registers `manifest` under a fresh name and returns spawn's result.
+  ---
+  --- Reports the ERROR-level notifications alongside it: a refusal that says
+  --- nothing is barely better than the silence it replaced.
+  local function try_spawn(manifest)
+    engine.clear()
+    probe_counter = probe_counter + 1
+    local name = "capprobe_" .. probe_counter
+    manifest.name = name
+    engine.setup({ backend = "halfblock", assets = { [name] = manifest } })
+
+    local original = vim.notify
+    local errors = {}
+    vim.notify = function(message, level)
+      if level and level >= vim.log.levels.ERROR then
+        errors[#errors + 1] = message
+      end
+    end
+    local id = engine.spawn(name)
+    vim.notify = original
+    return id, errors
+  end
+
+  local function one_state(physics, extra)
+    local manifest = {
+      initial_state = "only",
+      states = {
+        only = {
+          animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+          physics = physics,
+          transitions = {},
+        },
+      },
+    }
+    for key, value in pairs(extra or {}) do
+      manifest[key] = value
+    end
+    return manifest
+  end
+
+  it("refuses a state that breaks the asset's declared locomotion", function()
+    local id, errors = try_spawn(one_state({ locomotion = "ballistic", gravity = 0.3 }, {
+      capabilities = { locomotion = { "grounded" } },
+    }))
+    assert.is_nil(id, "a violating manifest must not produce an entity")
+    assert.are_equal(0, #engine.get_entities(), "a refused spawn must leave nothing behind")
+    assert(#errors > 0, "the refusal must be reported, not silent")
+    assert(
+      errors[1]:find("only") and errors[1]:find("ballistic"),
+      "the message must name the offending state and class, got: " .. tostring(errors[1])
+    )
+    engine.clear()
+  end)
+
+  it("refuses an exotic path on a grounded state", function()
+    local id = try_spawn(one_state({ path_type = "orbital" }, { locomotion = "grounded" }))
+    assert.is_nil(id, "a grounded orbit cannot be drawn, so it must not spawn")
+    engine.clear()
+  end)
+
+  it("allows sine and linear paths on the ground", function()
+    for _, path in ipairs({ "linear", "sine" }) do
+      local id = try_spawn(one_state({ path_type = path }, { locomotion = "grounded" }))
+      assert.is_not_nil(id, path .. " moves y at most, so it does not need omnidirectional")
+      engine.clear()
+    end
+  end)
+
+  it("refuses omnidirectional locomotion under gravity", function()
+    local id = try_spawn(one_state({ locomotion = "omnidirectional", gravity = 0.4 }))
+    assert.is_nil(id, "gravity brings a floor, so the state would clamp to one it denies")
+    engine.clear()
+  end)
+
+  it("refuses an unknown locomotion name", function()
+    local id = try_spawn(one_state({ locomotion = "hovering" }))
+    assert.is_nil(id)
+    engine.clear()
+  end)
+
+  it("still spawns a manifest that declares no capabilities", function()
+    local id = try_spawn(one_state({ locomotion = "omnidirectional", path_type = "orbital" }))
+    assert.is_not_nil(id, "an undeclared manifest must keep loading as it always has")
+    engine.clear()
+  end)
+
+  it("lets every built-in satisfy the capabilities it declares", function()
+    for _, name in ipairs({ "cat", "crab", "sun" }) do
+      local manifest = require("distract.manifests." .. name)
+      assert.is_not_nil(
+        manifest.capabilities and manifest.capabilities.locomotion,
+        name .. " should declare what it can do, or the gate proves nothing"
+      )
+      assert.is_nil(engine.validate_capabilities(manifest), name .. " violates its own declaration")
+    end
+  end)
+end)
+
 -- The cat's jump returns through the animation's `on_finish`, so today it lands
 -- when the art happens to run out rather than when it reaches the ground.
 describe("distract.engine locomotion", function()

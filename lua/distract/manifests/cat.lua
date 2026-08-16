@@ -15,6 +15,11 @@ local M = {
   -- drew the same picture. Set `spritesheet.path` only for genuinely custom art.
   spritesheet = {},
   initial_state = "idle",
+  -- Only `jump` leaves the ground, so `grounded` is the default for every state
+  -- and `jump` overrides it. Declared so a state that tried to orbit or hover
+  -- would be reported at load rather than silently doing nothing.
+  locomotion = "grounded",
+  capabilities = { locomotion = { "grounded", "ballistic" } },
   z_index = 10,
   states = {
     idle = {
@@ -62,6 +67,11 @@ local M = {
         jump_impulse_y = -2.2,
         gravity = 0.32,
         wrap_mode = "bounce",
+        -- The one state that leaves the ground, and the reason the cat declares
+        -- `ballistic` at all. It still returns on the timeout below rather than
+        -- through `on_land`; changing that changes how the jump feels, which is
+        -- not this change's to decide.
+        locomotion = "ballistic",
       },
       is_locked = true,
       transitions = {

@@ -7,6 +7,8 @@ local M = {
   asset_type = "procedural",
   spritesheet = {},
   initial_state = "shining",
+  locomotion = "omnidirectional",
+  capabilities = { locomotion = { "omnidirectional" } },
   z_index = -10,
   states = {
     shining = {

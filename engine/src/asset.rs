@@ -114,6 +114,9 @@ impl AssetManager {
     /// ten times. Returns `true` when frames were actually (re)loaded.
     pub fn register_manifest(&mut self, manifest: AssetManifest) -> Result<bool, String> {
         let name = manifest.name.clone();
+        // Checked here rather than per frame: a manifest that cannot work is
+        // worth one message when it arrives, not thirty a second forever.
+        manifest.validate_capabilities()?;
         let hash = manifest_hash(&manifest);
 
         if let Some(existing) = self.assets.get(&name) {

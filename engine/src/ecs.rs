@@ -1216,6 +1216,10 @@ mod tests {
         let mut manifest = AssetManifest::default_cat();
         manifest.name = "pathprobe".to_string();
         manifest.initial_state = "idle".to_string();
+        // Inherited from the cat, which walks. A probe that orbits does not, and
+        // the capability gate is right to say so.
+        manifest.locomotion = Some(manifest::OMNIDIRECTIONAL.to_string());
+        manifest.capabilities = Default::default();
         if let Some(state) = manifest.states.get_mut("idle") {
             state.animation.frames = vec![0];
             state.physics = physics;
@@ -1393,6 +1397,40 @@ mod tests {
             locomotion: locomotion.map(str::to_string),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn spawning_a_manifest_that_breaks_its_own_capabilities_is_refused() {
+        // Checked where the manifest arrives, not per frame: a manifest that
+        // cannot work is worth one message when it lands, not thirty a second.
+        let mut world = World::new(800.0, 600.0);
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "impossible".to_string();
+        manifest.initial_state = "orbit".to_string();
+        manifest.locomotion = Some(manifest::GROUNDED.to_string());
+        manifest.states.clear();
+        manifest.states.insert(
+            "orbit".to_string(),
+            StateDefinition {
+                physics: PhysicsConfig {
+                    path_type: Some("orbital".to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let error = world
+            .spawn("impossible", Some(manifest), None, None, None)
+            .expect_err("a grounded orbit cannot be drawn, so it must not spawn");
+        assert!(
+            error.contains("orbit"),
+            "the refusal must name the offending state, got: {error}"
+        );
+        assert!(
+            world.entities.is_empty(),
+            "a refused spawn must leave no entity behind"
+        );
     }
 
     #[test]

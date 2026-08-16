@@ -254,6 +254,19 @@ function M.spawn(entity_name, opts)
   local abs_path = nil
 
   if asset then
+    -- Checked before it goes on the wire. The overlay validates it too, but a
+    -- refusal that arrives back through the IPC error path is not the clean
+    -- message the terminal backend gives, and one manifest should be refused
+    -- with the same words whichever renderer is running.
+    local violation = require("distract.locomotion").validate(asset)
+    if violation then
+      vim.notify(
+        string.format("[Distract] Cannot spawn '%s': %s.", entity_name, violation),
+        vim.log.levels.ERROR
+      )
+      return
+    end
+
     -- Deep copy asset manifest
     manifest_payload = vim.deepcopy(asset)
     if manifest_payload.spritesheet then

@@ -252,6 +252,87 @@ pub struct ResolvedPath {
 pub const GROUNDED: &str = "grounded";
 pub const BALLISTIC: &str = "ballistic";
 pub const OMNIDIRECTIONAL: &str = "omnidirectional";
+pub const LOCOMOTION_CLASSES: [&str; 3] = [GROUNDED, BALLISTIC, OMNIDIRECTIONAL];
+
+/// Paths that move y at most, and so do not need a floor-free state.
+const FLOOR_SAFE_PATHS: [&str; 2] = ["linear", "sine"];
+
+impl AssetManifest {
+    /// The locomotion class a state runs under.
+    ///
+    /// The state's own value wins, then the asset-level default, then the
+    /// derivation from gravity that keeps pre-`locomotion` manifests working.
+    pub fn locomotion_for<'a>(&'a self, state: &'a StateDefinition) -> &'a str {
+        state
+            .physics
+            .locomotion
+            .as_deref()
+            .or(self.locomotion.as_deref())
+            .unwrap_or_else(|| state.physics.effective_locomotion())
+    }
+
+    /// Checks every state against this asset's declared capabilities.
+    ///
+    /// Run once at load rather than per frame: a manifest that cannot work is
+    /// worth one message when it arrives, not thirty a second forever.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first violation found, naming the state responsible.
+    pub fn validate_capabilities(&self) -> Result<(), String> {
+        let mut states: Vec<&String> = self.states.keys().collect();
+        // HashMap order is arbitrary, and an error that names a different state
+        // on every run is an error nobody can reproduce.
+        states.sort();
+
+        for name in states {
+            let Some(state) = self.states.get(name) else {
+                continue;
+            };
+            let locomotion = self.locomotion_for(state);
+
+            if !LOCOMOTION_CLASSES.contains(&locomotion) {
+                return Err(format!(
+                    "state '{name}' declares an unknown locomotion '{locomotion}'; \
+                     expected one of {}",
+                    LOCOMOTION_CLASSES.join(", ")
+                ));
+            }
+
+            if locomotion == OMNIDIRECTIONAL && state.physics.gravity > 0.0 {
+                return Err(format!(
+                    "state '{name}' declares '{OMNIDIRECTIONAL}' locomotion but sets \
+                     gravity {}; gravity brings a floor with it, so the state would \
+                     clamp to a floor it claims not to have",
+                    state.physics.gravity
+                ));
+            }
+
+            if let Some(path) = state.physics.path_type.as_deref() {
+                if !FLOOR_SAFE_PATHS.contains(&path) && locomotion != OMNIDIRECTIONAL {
+                    return Err(format!(
+                        "state '{name}' uses the '{path}' path, which writes x directly \
+                         and needs '{OMNIDIRECTIONAL}' locomotion, but the state is \
+                         '{locomotion}'"
+                    ));
+                }
+            }
+
+            if let Some(ref allowed) = self.capabilities.locomotion {
+                if !allowed.iter().any(|class| class == locomotion) {
+                    return Err(format!(
+                        "state '{name}' uses '{locomotion}' locomotion, which '{}' does \
+                         not declare; capabilities.locomotion allows {}",
+                        self.name,
+                        allowed.join(", ")
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
 
 impl PhysicsConfig {
     /// This state's locomotion class, derived when the manifest omits it.
@@ -380,6 +461,26 @@ pub struct AssetManifest {
     pub custom_actions: HashMap<String, CustomActionConfig>,
     #[serde(default)]
     pub z_index: Option<i32>,
+    /// Locomotion classes this asset is allowed to use, checked at load.
+    #[serde(default)]
+    pub capabilities: Capabilities,
+    /// Locomotion for every state that does not name its own.
+    ///
+    /// Only the cat's jump has gravity, so without this an asset would have to
+    /// repeat `locomotion` in each state's physics to say the one thing that is
+    /// true of all of them.
+    #[serde(default)]
+    pub locomotion: Option<String>,
+}
+
+/// What an asset declares it is allowed to do.
+///
+/// Permissive when omitted, so no manifest written before this existed can
+/// newly fail to load. Only an asset that declares capabilities can violate
+/// them.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Capabilities {
+    pub locomotion: Option<Vec<String>>,
 }
 
 fn default_asset_type() -> String {
@@ -504,6 +605,12 @@ impl AssetManifest {
                     jump_impulse_y: Some(-2.2),
                     gravity: 0.32,
                     wrap_mode: WrapMode::Bounce,
+                    // The one state that leaves the ground, and the reason the
+                    // cat declares `ballistic` at all. It still returns on the
+                    // timeout below rather than through `on_land`; changing
+                    // that changes how the jump feels, which is not this
+                    // change's to decide.
+                    locomotion: Some(BALLISTIC.to_string()),
                     ..Default::default()
                 },
                 transitions: TransitionConfig {
@@ -615,6 +722,10 @@ impl AssetManifest {
             states,
             custom_actions,
             z_index: Some(10),
+            capabilities: Capabilities {
+                locomotion: Some(vec![GROUNDED.to_string(), BALLISTIC.to_string()]),
+            },
+            locomotion: Some(GROUNDED.to_string()),
         }
     }
 
@@ -843,6 +954,10 @@ impl AssetManifest {
             states,
             custom_actions,
             z_index: Some(10),
+            capabilities: Capabilities {
+                locomotion: Some(vec![GROUNDED.to_string()]),
+            },
+            locomotion: Some(GROUNDED.to_string()),
         }
     }
 
@@ -1025,6 +1140,10 @@ impl AssetManifest {
             states,
             custom_actions,
             z_index: Some(-10),
+            capabilities: Capabilities {
+                locomotion: Some(vec![OMNIDIRECTIONAL.to_string()]),
+            },
+            locomotion: Some(OMNIDIRECTIONAL.to_string()),
         }
     }
 }
@@ -1032,6 +1151,149 @@ impl AssetManifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A one-state manifest declaring `capabilities` and running `physics`.
+    fn declared(allowed: Option<&[&str]>, physics: PhysicsConfig) -> AssetManifest {
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "declared".to_string();
+        manifest.initial_state = "only".to_string();
+        manifest.locomotion = None;
+        manifest.capabilities = Capabilities {
+            locomotion: allowed.map(|list| list.iter().map(|s| s.to_string()).collect()),
+        };
+        manifest.states.clear();
+        manifest.states.insert(
+            "only".to_string(),
+            StateDefinition {
+                physics,
+                ..Default::default()
+            },
+        );
+        manifest
+    }
+
+    #[test]
+    fn a_manifest_without_capabilities_accepts_any_locomotion() {
+        let manifest = declared(
+            None,
+            PhysicsConfig {
+                locomotion: Some(OMNIDIRECTIONAL.to_string()),
+                ..Default::default()
+            },
+        );
+        assert!(manifest.validate_capabilities().is_ok());
+    }
+
+    #[test]
+    fn a_state_outside_the_declared_locomotion_is_rejected() {
+        let manifest = declared(
+            Some(&[GROUNDED]),
+            PhysicsConfig {
+                locomotion: Some(BALLISTIC.to_string()),
+                gravity: 0.3,
+                ..Default::default()
+            },
+        );
+        let message = manifest
+            .validate_capabilities()
+            .expect_err("a ballistic state under a grounded-only asset must not load");
+        assert!(
+            message.contains("only") && message.contains(BALLISTIC),
+            "the message must name the offending state and class, got: {message}"
+        );
+    }
+
+    #[test]
+    fn an_exotic_path_requires_omnidirectional_locomotion() {
+        // Anything past `linear` and `sine` writes x directly, which fights a
+        // floor. The engines skip paths entirely under gravity, so a grounded
+        // orbit would silently do nothing at all.
+        let manifest = declared(
+            None,
+            PhysicsConfig {
+                locomotion: Some(GROUNDED.to_string()),
+                path_type: Some("orbital".to_string()),
+                ..Default::default()
+            },
+        );
+        assert!(manifest.validate_capabilities().is_err());
+    }
+
+    #[test]
+    fn sine_and_linear_paths_are_allowed_on_the_ground() {
+        for path in ["linear", "sine"] {
+            let manifest = declared(
+                None,
+                PhysicsConfig {
+                    locomotion: Some(GROUNDED.to_string()),
+                    path_type: Some(path.to_string()),
+                    ..Default::default()
+                },
+            );
+            assert!(
+                manifest.validate_capabilities().is_ok(),
+                "{path} moves y at most, so it does not need omnidirectional"
+            );
+        }
+    }
+
+    #[test]
+    fn declaring_omnidirectional_while_gravity_pulls_is_a_contradiction() {
+        // The gravity branch wins at runtime, so the state would clamp to a
+        // floor while claiming to have none.
+        let manifest = declared(
+            None,
+            PhysicsConfig {
+                locomotion: Some(OMNIDIRECTIONAL.to_string()),
+                gravity: 0.4,
+                ..Default::default()
+            },
+        );
+        assert!(manifest.validate_capabilities().is_err());
+    }
+
+    #[test]
+    fn an_unknown_locomotion_name_is_rejected() {
+        let manifest = declared(
+            None,
+            PhysicsConfig {
+                locomotion: Some("hovering".to_string()),
+                ..Default::default()
+            },
+        );
+        assert!(manifest.validate_capabilities().is_err());
+    }
+
+    #[test]
+    fn a_state_inherits_the_manifest_locomotion_when_it_names_none() {
+        let mut manifest = declared(Some(&[GROUNDED]), PhysicsConfig::default());
+        manifest.locomotion = Some(GROUNDED.to_string());
+        assert_eq!(
+            manifest.locomotion_for(&manifest.states["only"]),
+            GROUNDED,
+            "a walking state has no gravity, so without the asset-level default \
+             it would derive omnidirectional and violate its own declaration"
+        );
+        assert!(manifest.validate_capabilities().is_ok());
+    }
+
+    #[test]
+    fn every_builtin_satisfies_the_capabilities_it_declares() {
+        for manifest in [
+            AssetManifest::default_cat(),
+            AssetManifest::default_crab(),
+            AssetManifest::default_sun(),
+        ] {
+            let name = manifest.name.clone();
+            assert!(
+                manifest.capabilities.locomotion.is_some(),
+                "{name} should declare what it can do, or the gate proves nothing"
+            );
+            manifest
+                .validate_capabilities()
+                .unwrap_or_else(|error| panic!("{name} violates its own declaration: {error}"));
+        }
+    }
 
     #[test]
     fn an_empty_points_table_survives_the_lua_json_encoding() {

@@ -47,23 +47,14 @@ local consecutive_render_failures = 0
 --- the identical frames after it, so the first quiescent tick still draws.
 local quiescent_drawn = false
 
---- Locomotion class names, kept beside the Rust constants of the same name.
-local GROUNDED = "grounded"
-local BALLISTIC = "ballistic"
-local OMNIDIRECTIONAL = "omnidirectional"
+--- Locomotion classes and the capability gate, shared with `external.lua` so
+--- the same manifest is refused with the same words on either backend.
+local locomotion = require("distract.locomotion")
+local BALLISTIC = locomotion.BALLISTIC
 
---- A state's locomotion class, derived when the manifest omits it.
----
---- Mirrors `PhysicsConfig::effective_locomotion` in `manifest.rs`. No manifest
---- written before the field existed sets it, so the derived value has to be the
---- behaviour those manifests already had: a floor when there is gravity to fall
---- under, free movement otherwise.
-function M.effective_locomotion(phys)
-  if phys.locomotion then
-    return phys.locomotion
-  end
-  return (phys.gravity or 0) > 0 and GROUNDED or OMNIDIRECTIONAL
-end
+--- Re-exported for tests and for anyone reading a manifest by hand.
+M.effective_locomotion = locomotion.effective_locomotion
+M.validate_capabilities = locomotion.validate
 
 --- Path parameters with the legacy aliases and the defaults filled in.
 ---
@@ -209,6 +200,18 @@ function M.spawn(asset_name, opts)
       )
       manifest = require("distract.manifests.cat")
     end
+  end
+
+  -- Checked here rather than per frame, and before anything is allocated: a
+  -- manifest that cannot work is worth one message when it arrives, not thirty
+  -- a second forever.
+  local violation = M.validate_capabilities(manifest)
+  if violation then
+    vim.notify(
+      string.format("[Distract] Cannot spawn '%s': %s.", asset_name, violation),
+      vim.log.levels.ERROR
+    )
+    return nil
   end
 
   entity_counter = entity_counter + 1
