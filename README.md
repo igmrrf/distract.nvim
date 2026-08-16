@@ -8,7 +8,11 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
 
 `distract.nvim` offers multiple rendering backends to suit your terminal environment:
 
-1. 🎨 **`halfblock` (In-Terminal Truecolor - Default)**:
+The backend is chosen for you when you name none: a terminal that speaks the
+graphics protocol gets `kitty`, everything else gets `halfblock`. Naming one in
+`setup` or with `:DistractBackend` always wins.
+
+1. 🎨 **`halfblock` (In-Terminal Truecolor)**:
    - Renders 24-bit RGB pixel-art sprites directly inside Neovim using Unicode half-blocks (`▀` / `▄`).
    - **Genuinely transparent.** Rows of a sprite that sit over your code are drawn
      as overlay virtual text, so only the cells with a pixel in them are touched
@@ -35,6 +39,52 @@ A high-performance, data-driven rendering engine for **Neovim** and terminal env
    - Not available on X11: click-through is unsupported there, and a fullscreen
      always-on-top window without it would capture every mouse click on your
      desktop. The overlay refuses to start rather than trapping you.
+
+---
+
+## 🎞️ GIF assets
+
+Point a manifest's `spritesheet.path` at a `.gif` and every backend draws it:
+full pixel fidelity on `kitty` and `overlay`, half-block fidelity in the
+terminal. Nothing else in the manifest changes.
+
+```lua
+require("distract").setup({
+  assets = {
+    walking_cat = {
+      name = "walking_cat",
+      spritesheet = {
+        path = "assets/cat_walking_1.gif",  -- relative paths are plugin-relative
+        frame_width = 32,                   -- sprite pixels; required for a
+        frame_height = 24,                  -- GIF larger than the sprite
+      },
+      initial_state = "walk",
+      states = {
+        walk = {
+          -- No `fps`: the GIF's own per-frame delays time the animation.
+          animation = { frames = { 0, 1, 2, 3 }, loop_anim = true },
+          physics = { target_vx = 1.5, wrap_mode = "wrap" },
+        },
+      },
+    },
+  },
+})
+```
+
+- **Decoding is pure Lua** ([`lua/distract/gif/`](lua/distract/gif)) — GIF87a and
+  GIF89a, LZW, interlacing, local palettes, the transparency index and disposal
+  methods 0–3. No external process, no dependency.
+- **`frame_width` / `frame_height` are the size the sprite is drawn at**, in
+  sprite pixels, on every backend. A GIF authored at screen size is resampled to
+  them; without them the source size is the sprite size, and a canvas over the
+  budget is refused with a message naming the fields.
+- **Timing:** a state's `fps` wins. A state that declares none is timed by the
+  delays in the file itself.
+- **Colours:** imported art is reduced to `max_sprite_colours` (default 128)
+  before the half-block renderer turns colour pairs into highlight groups.
+  `kitty` and `overlay` take it at full colour.
+
+---
 
 > **Removed:** the ASCII `float` backend. Sprites are truecolor pixel art only;
 > `backend = "float"` resolves to `halfblock` and emits a warning.
@@ -105,9 +155,14 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
   "igmrrf/distract.nvim",
   config = function()
     require("distract").setup({
-      backend = "halfblock",  -- "halfblock" (in-terminal Truecolor), "kitty" (terminal graphics), or "overlay" (GPU window)
-      idle_timeout_ms = 5000, -- Time before pets fall asleep
-      debounce_ms = 50,       -- Keystroke event debounce
+      -- Unset picks the best backend this terminal can draw: "kitty" where the
+      -- graphics protocol is available, "halfblock" otherwise. "overlay" is the
+      -- GPU window.
+      backend = nil,
+      idle_timeout_ms = 5000,   -- Time before pets fall asleep
+      debounce_ms = 50,         -- Keystroke event debounce
+      max_sprite_colours = 128, -- Half-block only: palette cap for imported art
+      max_highlight_groups = 4096, -- Ceiling on live sprite highlight groups
       position = {
         anchor = "auto",      -- "auto" | "bottom" | "top" | "free" | { x =, y =, z = }
         ground = "screen",    -- "screen" | "text"
@@ -307,7 +362,7 @@ cargo test --manifest-path engine/Cargo.toml
 
 Run the Neovim Lua test suite (exits non-zero on failure):
 ```bash
-nvim --headless -u tests/minimal_init.lua -c "luafile tests/run_tests.lua"
+nvim --headless --noplugin -u tests/minimal_init.lua -l tests/run_tests.lua
 ```
 
 Lint and format gates, all enforced in CI:

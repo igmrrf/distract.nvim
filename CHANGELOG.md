@@ -10,6 +10,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **GIF assets on every backend.** A manifest whose `spritesheet.path` ends in
+  `.gif` is drawn per-pixel on `kitty` and `overlay` and in half-blocks in the
+  terminal, with no per-backend branching. Decoding in the terminal is pure Lua
+  (`lua/distract/gif/`) — GIF87a and GIF89a, LZW, interlacing, global and local
+  palettes, the transparency index and disposal methods 0-3 — so no engine
+  binary and no external process is involved. `spritesheet.frame_width` and
+  `frame_height` are the size the sprite is drawn at, in sprite pixels, on every
+  backend; a screen-sized animation is resampled to them.
+- **Source frame timing.** A state's `animation.fps` wins as before; a state
+  that declares none is timed by the per-frame delays stored in the GIF. Both
+  engines apply that precedence (`frame_duration_seconds` in
+  `lua/distract/engine.lua` and `engine/src/ecs.rs`).
+- **Palette quantisation for imported art** (`lua/distract/quantise.lua`,
+  frequency-weighted median cut) and a **ceiling on live highlight groups**
+  (`lua/distract/highlights.lua`). Groups belong to the asset that asked for
+  them; at `max_highlight_groups` the least recently drawn asset's groups are
+  cleared and its cached frames dropped, and the asset being drawn is never the
+  victim. New config: `max_sprite_colours` (128), `max_highlight_groups` (4096).
+- **The kitty graphics-protocol backend** (`lua/distract/kitty/`): real RGBA
+  sprites with per-pixel alpha, drawn by the terminal, in exactly the cells the
+  half-block renderer would use. Offered only when the terminal answers the
+  `a=q` query and `termguicolors` is set; `ghostty` and `wezterm` are aliases.
+- **Placement vocabulary**: `position.anchor` (`auto`, `bottom`, `top`, `free`,
+  or an explicit `{x, y, z}`), `position.ground` (`screen` or `text`), a `z`
+  axis that is both draw order and parallax depth, and a backend capability
+  table (`lua/distract/backends.lua`) that degrades parallax explicitly on a
+  backend that cannot scale a sprite. An asset may declare its own `anchor`.
+- **Locomotion classes and capability gating** (`grounded`, `ballistic`,
+  `omnidirectional`), parametric paths (`sine`, `orbital`, `lissajous`,
+  `bezier`), `transitions.on_land`, and spawn options for position and facing.
+  A manifest that asks for motion it declared it cannot do is refused once, at
+  spawn, with the same words on either backend.
+- **A cross-engine physics parity harness.** `engine/tests/physics_parity.rs`
+  generates goldens in `tests/fixtures/physics/` and `tests/physics_parity_spec.lua`
+  asserts the Lua engine reproduces them, in terminal cells, so the two
+  implementations cannot drift apart unnoticed. `engine.step(dt, bounds)` is the
+  injected-`dt` seam that makes it possible.
 - **Shared procedural sprite art on both backends.** `sprite_gen` and the cat,
   crab and sun assets are ported to Rust (`engine/src/sprite_gen.rs`,
   `engine/src/sprites/`), so the overlay draws the same pose curves and the same
@@ -36,6 +73,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.luacheckrc`. The same gates run in `.pre-commit-config.yaml`.
 
 ### Changed
+- **The backend is chosen for you when you name none.** `config.backend`
+  defaults to unset, and unset resolves to `kitty` where the terminal speaks the
+  graphics protocol and `halfblock` everywhere else. Naming one in `setup()` or
+  with `:DistractBackend` still wins, and is remembered across a later `setup()`
+  that names none.
+- **The overlay honours a declared GIF frame size.** `load_gif` resamples to
+  `spritesheet.frame_width`/`frame_height` instead of drawing the source canvas,
+  so one manifest describes one footprint on every backend. A GIF canvas may be
+  up to 4096 px per side before resampling; the drawn frame is still bounded at
+  1024.
+- **`distract.terminal_sprites` is decomposed.** Art sourcing moved to
+  `distract.sprite_sources`, the scratch-buffer cache to
+  `distract.frame_buffers`, and manifest path resolution — shared with the
+  overlay's IPC payload — to `distract.asset_path`. The public surface is
+  unchanged.
 - **Manifest units are defined and shared.** Positions and velocities are in
   sprite pixels, per frame at 60 FPS, where one sprite pixel is one terminal cell
   wide and half a cell tall. Both backends convert from that unit; they
@@ -59,6 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keeping a flipped copy of every frame for the process lifetime.
 
 ### Fixed
+- **`distract.kitty.reset()` left the renderer answering for a backend the
+  registry no longer offered**, which is the on-paper-only backend the two
+  registries are kept in step to prevent.
 - **Overlay window captured all mouse input on X11.** `set_cursor_hittest`
   returns `Err(NotSupported)` there and the result was discarded, leaving a
   fullscreen input trap dismissible only by killing the process.
