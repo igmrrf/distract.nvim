@@ -1,7 +1,7 @@
 # Handoff — fidelity, transparency and kinematics work
 
-Working notes for whoever picks this up next. Rewritten 2026-08-16 against
-`main` at `3739917`. The working tree is clean.
+Working notes for whoever picks this up next. Rewritten 2026-08-16, against the
+commit that landed P5.
 
 The authoritative design is
 [`docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md`](docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md).
@@ -36,14 +36,17 @@ same partition — the table maps both.
 | P2 | Locomotion, capabilities, paths, `on_land`, quiescence, spawn opts | 3 | **done** |
 | P3 | Position, anchors, floor, `z`, backend capability table | 3 | **done** |
 | P4 | Kitty backend | 5 | **done, unverified on screen** |
-| P5 | GIF decoder, `terminal_sprites` wiring, halfblock quantiser | 5 | **not started** |
-| — | Silhouette-first art redo, quantised palette | 4 | **not started** |
+| P5 | GIF decoder, sprite wiring, halfblock quantiser | 5 | **done, unverified on screen** |
+| — | Silhouette-first art redo | 4 | **not started** |
+
+Next in line: step 4 (art), which needs the art-parity harness built first --
+see "Step 4 — art" below -- and then whatever `future.md` planning selects.
 
 ---
 
 ## Verify the current state
 
-All four gates pass on `3739917`. Run them before and after any change.
+All four gates pass. Run them before and after any change.
 
 ```bash
 nvim --headless --noplugin -u tests/minimal_init.lua -l tests/run_tests.lua
@@ -61,12 +64,14 @@ stylua --check lua plugin tests
 cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
 ```
 
-Expected: **269 Lua tests**, **137 Rust tests** (128 lib + 6 headless GPU + 2
+Expected: **325 Lua tests**, **145 Rust tests** (136 lib + 6 headless GPU + 2
 parity + 1 screenshot; `parity_dump` is `#[ignore]`).
 
 Note the Lua invocation: `-l` with `--noplugin -u tests/minimal_init.lua`. The
-older `-c "luafile ..."` form in previous notes fails to resolve
-`distract.engine` because the runtimepath is set inside `minimal_init.lua`.
+`-c "luafile tests/run_tests.lua"` form CI uses also passes -- both were checked
+on 2026-08-16, so a previous note claiming the older form cannot resolve
+`distract.engine` was wrong. What does fail is either form without
+`-u tests/minimal_init.lua`, which is where the runtimepath is set.
 
 `luacheck` is listed in the README as a gate but **is broken on this machine** —
 it fails to load under the installed Lua 5.5. Environment problem, not a code
@@ -97,9 +102,15 @@ checking:
    own background over a graphics placement would blank the sprite there and
    leave the buffer-overlay rows visible. A cat cut off at the waist is this.
 
-The user has Ghostty. Get a human to look at the screen: `:DistractBackend
-kitty`, then `:DistractSpawn cat`. If it draws nothing at all, the first check
-is `:set termguicolors?` — the backend declines without it and says so.
+The user has Ghostty. Get a human to look at the screen: `:DistractSpawn cat`
+— since P5 the kitty backend is what a Ghostty session gets by default, so no
+`:DistractBackend` call is needed; `:DistractBackend` still reports which one is
+running. If it draws nothing at all, the first check is `:set termguicolors?` —
+the backend declines without it and says so.
+
+The same visit answers P5's open question: point a manifest at
+`assets/cat_walking_1.gif` with `frame_width = 32, frame_height = 24` and see
+whether an imported animation reads better than the procedural cat.
 
 ---
 
@@ -220,35 +231,63 @@ From P4:
   image rather than as a second placement of one image, which would need the
   placement id encoded in the cell's underline colour. Distinct rectangles are
   bounded by the sprite's own size, so this does not grow without limit.
-- **`engine.lua` is still 917 lines** against a 400-line cap, with `M.spawn` and
-  `M.step` well over the 60-line function cap. Owner's call, 2026-08-16: leave
-  it until the features are in, but no *new* file may break the standards.
-  `renderer.lua` is 488, down from the 496 it started P4 at.
+- **`engine.lua` is still over 900 lines** against a 400-line cap, with
+  `M.spawn` and `M.step` well over the 60-line function cap. Owner's call,
+  2026-08-16: leave it until the features are in, but no *new* file may break
+  the standards. `renderer.lua` is 501.
 
 ---
 
-## P5 — GIF support (do this next)
+## What P5 did
 
-Spec § 8. Pure-Lua GIF decoder, `terminal_sprites` wiring, halfblock palette
-quantiser.
+Spec § 8, in full, plus the two things it turned out to depend on.
 
-Owner's answer to the earlier question: **both**. GIF-on-overlay does not remove
-the need for the in-terminal graphics-protocol backend, so P4 and P5 were both
-in scope rather than alternatives.
+- **`lua/distract/gif/`** — a pure-Lua decoder. `lzw` (variable-width codes,
+  dictionary as `prefix`/`suffix`/`first` arrays), `parser` (block structure,
+  interlace, palettes, disposal and delay extraction), `resample` (area-average
+  to the sprite size), `sprite` (a manifest's declaration into a sprite set),
+  `init` (composition, budgets, the public `decode`/`decode_bytes`).
+- **`lua/distract/sprite_sources.lua`** — which art an asset has: a registered
+  set, a bound GIF, or a procedural module. Split out of `terminal_sprites`,
+  which was 506 lines before this work started.
+- **`lua/distract/frame_buffers.lua`** — the scratch-buffer cache, likewise
+  split out. `terminal_sprites` is 347 lines and back under the cap.
+- **`lua/distract/quantise.lua`** — frequency-weighted median cut. Applied to
+  imported art only, on the half-block path only.
+- **`lua/distract/highlights.lua`** — groups are owned by the asset that asked
+  for them, counted, and evicted least-recently-drawn-first at
+  `max_highlight_groups`. Eviction clears the groups *and* drops the frames
+  cached against them; the asset being drawn is never the victim.
+- **`lua/distract/asset_path.lua`** — one answer to "relative to what?", now
+  used by both the overlay's IPC payload and the in-terminal decoder.
+- **Rust**: `load_gif` returns per-frame delays and resamples to the manifest's
+  declared frame size; `LoadedAsset.frame_delays_ms` carries the timing;
+  `frame_duration_seconds` in `ecs.rs` mirrors the Lua rule exactly.
 
-**Check this first, before writing a decoder:** the overlay backend already
-decodes GIFs (`engine/src/asset.rs`, `load_gif`). Pointing a manifest's
-`spritesheet.path` at `assets/cat_walking_1.gif` should give reference fidelity
-on the overlay *today*, with no new code. If that covers the goal for the
-overlay, P5's scope is the in-terminal backends only.
+### The precedence rules, both engines
 
-P4 changes what P5 is worth on each backend. Kitty takes RGBA per pixel, so a
-decoded GIF frame goes to it essentially unaltered — `frames.describe` is the
-only place that would need to accept a decoded frame instead of a procedural
-matrix. Half-blocks still need § 8.3's quantiser, and still land two pixel rows
-per cell.
+- **Frame timing.** `animation.fps > 0` wins. Otherwise the source file's own
+  per-frame delay. Otherwise 0.1s. `lua/distract/engine.lua`
+  (`frame_duration_seconds`) and `engine/src/ecs.rs` (same name) must keep
+  saying this identically — it is the newest member of the divergence class the
+  parity harness exists for, and it is *not* covered by the physics fixtures.
+- **Sprite size.** `spritesheet.frame_width`/`frame_height` are the size the art
+  is *drawn* at, in sprite pixels, on every backend. Lua area-averages to it,
+  Rust resizes with a triangle filter, so the two agree on footprint and differ
+  slightly in colour — deliberate, and the reason the cap on the source canvas
+  (`MAX_SOURCE_DIM` / `gif.MAX_CANVAS_DIM`, both 4096) is looser than the cap on
+  the drawn frame.
 
----
+### What P5 deliberately did not do
+
+- **No decoding off the main loop.** `assets/cat_walking_1.gif` (1600x1200, 15
+  frames) decodes in ~130ms and `cat_walking_2.gif` (32 frames) in ~375ms, once,
+  on first draw. That is a visible hitch on the first frame of a large GIF and
+  nothing more; chunking it across ticks would need a coroutine seam that
+  nothing else wants yet.
+- **No `image()`-style asset for the overlay's own GIF path.** Rust still
+  decodes with the `image` crate; the Lua decoder is for the in-terminal
+  backends. Two decoders, one contract, pinned by the precedence rules above.
 
 ## Step 4 — art
 
@@ -343,17 +382,47 @@ and 2–3 tone bands will read better *and* collapse the highlight-group count.
     false, because there is no UI to answer the query. `detect.override(true)`
     is how a test gets past that; `detect.reset()` puts it back.
 
+13. **`kitty.reset()` now also unregisters the renderer surface.** It did not
+    before P5, so a spec that registered kitty left `renderer.supports("kitty")`
+    answering true for every spec that ran after it — with `distract.backends`
+    already put back, which is precisely the on-paper-only backend the two
+    registries are kept in step to prevent.
+
+14. **A spawn randomises `frame_idx`, `frame_timer` and `path_phase`** so two
+    entities spawned together do not move in lockstep. Any test that asserts on
+    elapsed animation time has to zero the first two afterwards;
+    `tests/gif_assets_spec.lua` has `spawn_at_first_frame()` for it.
+
+15. **The harness compares with `vim.inspect`, which prints table identity.**
+    `assert.are.same({ RED, RED }, row)` fails against a row of two equal but
+    distinct tables, because the expected side prints `{ <1>{...}, <table 1> }`.
+    Assert per pixel rather than per row.
+
+16. **`config.backend` is `nil` by default now**, and nil means "pick the best
+    this terminal can draw". A spec that wants the default path back has to
+    assign `distract.config.backend = nil` before calling `setup()`, because a
+    previous `setup()` resolved it to a concrete name and that is what "the user
+    chose it" looks like from the inside.
+
 ---
 
 ## Open questions for the owner
 
-1. **Should Ghostty and kitty users get the kitty backend by default?** It
-   registers itself when the environment names a confirmed terminal, but the
-   default backend is still `halfblock` — the user has to select it. Making it
-   the default would change what existing users see on upgrade without them
-   asking. Waiting for the on-screen confirmation above before deciding.
-2. **`cargo audit` in the root CI.** `engine/.github/workflows/rust-ci.yml` is
-   committed (`460292b`) and inert where it sits: GitHub only reads
-   `.github/workflows` at the repository root. Its one step the root workflow
-   lacks is `cargo audit`. Folding it in wants a non-blocking job — an advisory
-   anywhere in the wgpu tree would otherwise redden unrelated changes.
+1. ~~**Should Ghostty and kitty users get the kitty backend by default?**~~
+   Owner: yes. Implemented in P5: `config.backend` now defaults to *unset*, and
+   an unset backend resolves to `kitty` where the terminal answers the protocol
+   query and `halfblock` everywhere else. Naming one in `setup` or with
+   `:DistractBackend` still wins, and is remembered across a later `setup()`
+   that names none.
+
+2. **How large may a first-draw hitch be?** A GIF is decoded once, on the first
+   frame that needs it, on the main loop: ~130ms for the 15-frame reference
+   asset, ~375ms for the 32-frame one. If that is too much, the fix is a
+   coroutine seam in `sprite_sources.load_sprite` that yields between frames —
+   worth building only if someone actually notices it.
+
+3. **Should the half-block quantiser run on procedural art too?** It is gated on
+   imported art today, because the built-ins are drawn from a small palette by
+   construction. Step 4's redo changes that arithmetic; if the quantised palette
+   lands there, this gate can go and `max_sprite_colours` becomes the single
+   answer for every asset.

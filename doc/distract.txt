@@ -19,6 +19,7 @@ CONTENTS                                                    *distract-contents*
        7.2 Paths ............................ |distract-paths|
        7.3 Units ............................ |distract-units|
        7.4 Custom art ....................... |distract-custom-art|
+       7.5 GIF assets ....................... |distract-gif|
     8. Events ............................... |distract-events|
     9. Troubleshooting ...................... |distract-troubleshooting|
    10. Lua API .............................. |distract-api|
@@ -59,12 +60,14 @@ engine, or a prebuilt binary. See |distract-overlay|.
 
 >lua
     require("distract").setup({
-      backend = "halfblock",   -- "halfblock", "kitty" or "overlay"
+      backend = nil,           -- unset picks the best this terminal can draw
       fps = 30,                -- simulation rate
       idle_timeout_ms = 5000,  -- quiet time before an `idle` event fires
       debounce_ms = 50,        -- minimum gap between repeats of one event
       cell_width = nil,        -- overlay only, see |distract-overlay|
       cell_height = nil,       -- overlay only, see |distract-overlay|
+      max_sprite_colours = 128,    -- palette cap for imported art
+      max_highlight_groups = 4096, -- ceiling on live sprite highlight groups
       position = {             -- placement, see |distract-position|
         anchor = "auto",
         ground = "screen",
@@ -75,7 +78,25 @@ engine, or a prebuilt binary. See |distract-overlay|.
 <
                                                     *distract-config-backend*
 backend~
-    Which renderer to use. See |distract-backends|. Defaults to `"halfblock"`.
+    Which renderer to use. See |distract-backends|. Left unset, a terminal that
+    answers the graphics protocol query gets `"kitty"` and everything else gets
+    `"halfblock"`. Naming one here or with `:DistractBackend` always wins, and
+    is remembered across later `setup()` calls that name none.
+
+                                        *distract-config-max_sprite_colours*
+max_sprite_colours~
+    How many colours imported art (see |distract-gif|) is reduced to before the
+    half-block renderer draws it. Every distinct foreground/background pair
+    becomes a Neovim highlight group, and a GIF frame carries up to 256 colours
+    per frame. Procedural art is already drawn from a small palette and is left
+    at full fidelity. `kitty` and `overlay` are unaffected. Defaults to 128.
+
+                                      *distract-config-max_highlight_groups*
+max_highlight_groups~
+    Ceiling on how many sprite highlight groups stay defined at once. Groups
+    belong to the asset that asked for them; on reaching the ceiling the least
+    recently drawn asset's groups are cleared and its cached frames dropped.
+    The asset being drawn is never evicted. Defaults to 4096.
 
                                                         *distract-config-fps*
 fps~
@@ -518,10 +539,13 @@ Set `spritesheet.path` to use your own image instead of the generated sprites: >
       rows = 1,
     }
 <
-Animated GIFs are also accepted; every frame must be the same size.
+Animated GIFs are also accepted, on every backend; see |distract-gif|.
+
+A still spritesheet in any other format is decoded by the overlay engine only.
+In the terminal the asset has no art, which is reported once.
 
 Limits, so a large asset fails with a message rather than exhausting memory:
-    - 1024 px per side, per frame
+    - 1024 px per side, per drawn frame
     - 512 frames
     - 256 MiB decoded in total
 
@@ -531,6 +555,35 @@ an error rather than silently falling back to the generated art.
 Note that `animation.frames` indices must exist in your sheet. A four-frame
 sheet with a manifest referencing frame 28 wraps modulo four, so several states
 end up drawing the same picture.
+
+------------------------------------------------------------------------------
+7.5 GIF assets                                                     *distract-gif*
+
+A manifest whose `spritesheet.path` ends in `.gif` is drawn by every backend:
+per-pixel on |distract-kitty| and |distract-overlay|, in half-blocks on
+|distract-halfblock|. Nothing else in the manifest changes. >lua
+    spritesheet = {
+      path = "assets/cat_walking_1.gif",  -- relative paths are plugin-relative
+      frame_width = 32,                   -- sprite pixels
+      frame_height = 24,
+    }
+<
+Decoding in the terminal is pure Lua — GIF87a and GIF89a, LZW, interlacing,
+local palettes, the transparency index and disposal methods 0-3 — so no engine
+binary and no external process is involved.
+
+`frame_width` and `frame_height` are the size the sprite is *drawn* at, in
+sprite pixels (|distract-units|), on every backend. A GIF authored at screen
+size is resampled to them. Without them the source size is the sprite size, and
+a canvas past the budget is refused with a message naming the two fields.
+
+Timing follows `animation.fps` when a state declares one. A state that declares
+none is timed by the delays stored in the file, which is the rate the animation
+was authored at. Both backends apply that precedence.
+
+Imported art is reduced to |distract-config-max_sprite_colours| before the
+half-block renderer draws it, because every distinct colour pair there becomes a
+Neovim highlight group. `kitty` and `overlay` take it at full colour.
 
 ==============================================================================
 8. EVENTS                                                     *distract-events*

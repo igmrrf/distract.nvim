@@ -111,3 +111,59 @@ describe("distract.backends capability table", function()
     assert.is_false(pcall(backends.register, "", { scale = true, alpha = "pixel" }))
   end)
 end)
+
+describe("the backend a session gets by default", function()
+  local kitty = require("distract.kitty")
+  local detect = require("distract.kitty.detect")
+
+  --- Runs `fn` as though the terminal had answered the graphics-protocol query.
+  --- The registries are process-wide, so everything is put back afterwards.
+  local function with_kitty_available(fn)
+    local truecolor = vim.o.termguicolors
+    vim.o.termguicolors = true
+    detect.override(true)
+    kitty.setup()
+
+    local ok, err = pcall(fn)
+
+    kitty.reset()
+    backends.reset()
+    vim.o.termguicolors = truecolor
+    distract.config.backend = nil
+    distract.setup()
+    if not ok then
+      error(err)
+    end
+  end
+
+  before_each(function()
+    distract.config.backend = nil
+  end)
+
+  it("draws through the graphics protocol where the terminal has one", function()
+    with_kitty_available(function()
+      distract.setup()
+      assert.are_equal("kitty", distract.get_backend())
+    end)
+  end)
+
+  it("still honours a backend the user named", function()
+    with_kitty_available(function()
+      distract.setup({ backend = "halfblock" })
+      assert.are_equal("halfblock", distract.get_backend())
+    end)
+  end)
+
+  it("falls back to half-blocks where there is no graphics protocol", function()
+    distract.setup()
+    assert.are_equal("halfblock", distract.get_backend())
+  end)
+
+  it("keeps a chosen backend across a later setup that names none", function()
+    distract.setup({ backend = "overlay" })
+    distract.setup()
+    assert.are_equal("overlay", distract.get_backend())
+    distract.config.backend = nil
+    distract.setup()
+  end)
+end)

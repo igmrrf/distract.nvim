@@ -132,10 +132,38 @@ local function apply_path(entity, phys, dt)
   -- An unrecognised path is velocity integration, same as `linear`.
 end
 
+--- What one animation frame is shown for when nothing declares a rate.
+local FALLBACK_FRAME_SECONDS = 0.1
+
+local MS_PER_SECOND = 1000
+
+--- How long the entity's current animation frame is shown for, in seconds.
+---
+--- A manifest `fps` wins. Imported art whose state declares none is timed by
+--- the delays stored in the file, which is the only rate an animation authored
+--- elsewhere carries; `engine/src/ecs.rs` applies the same precedence, so a GIF
+--- asset runs at one speed on both backends.
+local function frame_duration_seconds(entity, anim)
+  if anim.fps and anim.fps > 0 then
+    return 1 / anim.fps
+  end
+
+  local sheet_index = anim.frames and anim.frames[entity.frame_idx]
+  if sheet_index then
+    local delay_ms = sprites.frame_delay_ms(entity.asset_name, sheet_index + 1)
+    if delay_ms and delay_ms > 0 then
+      return delay_ms / MS_PER_SECOND
+    end
+  end
+
+  return FALLBACK_FRAME_SECONDS
+end
+
 function M.setup(opts)
   if opts then
     config = vim.tbl_deep_extend("force", config, opts)
   end
+  sprites.configure(config)
 end
 
 function M.is_running()
@@ -251,6 +279,11 @@ function M.spawn(asset_name, opts)
     )
     return nil
   end
+
+  -- Art follows the manifest here as it does on the overlay: an asset pointing
+  -- at a GIF draws that GIF. Bound before the placement is resolved, because
+  -- the sprite's own size is what the anchors and the floor measure against.
+  sprites.bind_manifest(asset_name, manifest)
 
   entity_counter = entity_counter + 1
   local id = entity_counter
@@ -580,7 +613,7 @@ function M.step(dt, bounds)
       local anim = state_def.animation or { frames = { 0 }, fps = 6, loop_anim = true }
       local frame_count = #(anim.frames or { 0 })
       if frame_count > 0 then
-        local frame_duration = (anim.fps and anim.fps > 0) and (1 / anim.fps) or 0.1
+        local frame_duration = frame_duration_seconds(entity, anim)
         entity.frame_timer = entity.frame_timer + dt
 
         if entity.frame_timer >= frame_duration then

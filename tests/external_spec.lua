@@ -260,3 +260,68 @@ describe("distract.external placement", function()
     assert.are_equal(1, sent, "a floor that has not moved is not worth a message")
   end)
 end)
+
+describe("the spritesheet path the overlay is sent", function()
+  --- Captures the manifest an overlay spawn puts on the wire.
+  local function spawned_manifest(spritesheet)
+    external.setup({
+      cell_width = 10,
+      cell_height = 20,
+      assets = {
+        probe_sheet = {
+          name = "probe_sheet",
+          asset_type = "sprite",
+          spritesheet = spritesheet,
+          initial_state = "idle",
+          states = {
+            idle = {
+              animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+              physics = {},
+              transitions = {},
+            },
+          },
+        },
+      },
+    })
+
+    local sent = nil
+    local original_send, original_running = external.send_command, external.is_running
+    external.is_running = function()
+      return true
+    end
+    external.send_command = function(cmd)
+      sent = cmd
+      return true
+    end
+
+    external.spawn("probe_sheet")
+
+    external.send_command, external.is_running = original_send, original_running
+    return sent and sent.manifest
+  end
+
+  it("makes a plugin-relative path absolute", function()
+    local manifest = spawned_manifest({ path = "assets/cat_sprite.png" })
+    assert.is_not_nil(manifest)
+    assert.are_equal(
+      vim.fn.getcwd() .. "/assets/cat_sprite.png",
+      manifest.spritesheet.path,
+      "a relative path is relative to the plugin, not to the editor's cwd"
+    )
+  end)
+
+  it("leaves an absolute path alone", function()
+    local manifest = spawned_manifest({ path = "/tmp/elsewhere/sheet.png" })
+    assert.are_equal("/tmp/elsewhere/sheet.png", manifest.spritesheet.path)
+  end)
+
+  it("expands a home-relative path", function()
+    local manifest = spawned_manifest({ path = "~/sheet.png" })
+    assert.are_equal(vim.fn.expand("~") .. "/sheet.png", manifest.spritesheet.path)
+  end)
+
+  it("drops a spritesheet declaration with no path in it", function()
+    local manifest = spawned_manifest({})
+    assert.is_nil(manifest.spritesheet)
+  end)
+end)

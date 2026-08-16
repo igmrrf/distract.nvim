@@ -35,8 +35,10 @@ local function lazy_assets()
 end
 
 M.config = {
-  -- 'halfblock' (in-terminal truecolor) or 'overlay' (GPU window).
-  backend = "halfblock",
+  -- 'halfblock' (in-terminal truecolor), 'kitty' (graphics protocol) or
+  -- 'overlay' (GPU window). Left unset, the best backend this terminal can
+  -- actually draw is chosen; see `default_backend`.
+  backend = nil,
   fps = 30,
   idle_timeout_ms = 5000,
   debounce_ms = 50,
@@ -45,6 +47,13 @@ M.config = {
   -- See `:help distract-overlay`.
   cell_width = nil,
   cell_height = nil,
+  -- Half-block only: imported art (a manifest pointing at a GIF) is reduced to
+  -- this many colours before it is drawn, because every distinct colour pair
+  -- becomes a Neovim highlight group.
+  max_sprite_colours = 128,
+  -- Ceiling on how many of those highlight groups stay defined at once. The
+  -- least recently drawn asset's groups are cleared when it is reached.
+  max_highlight_groups = 4096,
   -- Where entities are placed and what they stand on. See
   -- `distract.position` for the anchor and ground vocabulary.
   position = vim.deepcopy(position.DEFAULTS),
@@ -72,11 +81,25 @@ local function admit_conditional_backends(requested)
   kitty.ensure_registered(requested)
 end
 
+--- The backend a session gets when nobody names one.
+---
+--- A terminal that speaks the graphics protocol draws sprites at full pixel
+--- fidelity, so a user on kitty, Ghostty or WezTerm gets that rather than
+--- half-blocks. Everyone else gets the renderer that works everywhere. Naming a
+--- backend still wins over both.
+local function default_backend()
+  local kitty = require("distract.kitty")
+  if kitty.is_registered() then
+    return kitty.NAME
+  end
+  return backends.HALFBLOCK
+end
+
 function M.setup(opts)
   opts = opts or {}
   M.config = vim.tbl_deep_extend("force", M.config, opts)
   admit_conditional_backends(M.config.backend)
-  M.config.backend = backends.resolve(M.config.backend)
+  M.config.backend = backends.resolve(M.config.backend or default_backend())
   -- `tbl_deep_extend` copies into a plain table, so re-attach the lazy loader
   -- while keeping anything the user supplied.
   M.config.assets = setmetatable(M.config.assets or {}, getmetatable(lazy_assets()))
@@ -111,7 +134,7 @@ function M.setup(opts)
 end
 
 function M.get_backend()
-  return M.config.backend
+  return M.config.backend or default_backend()
 end
 
 function M.get_available_backends()
