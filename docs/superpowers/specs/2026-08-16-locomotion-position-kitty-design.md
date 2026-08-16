@@ -356,28 +356,55 @@ exactly as on halfblock. Fidelity comes from pixel density inside that rect,
 not a larger rect, so positions, `ground_y`, and the unit contract are
 untouched. Parallax scales the rect via `c`/`r` and kitty resamples.
 
-### 7.3 Detection
+### 7.3 Writing to the terminal — settled by the P0 spike
 
-`$KITTY_WINDOW_ID` / `$TERM` / `$TERM_PROGRAM`, confirmed by the protocol's own
-`a=q` query with a timeout, falling back to halfblock. The three
-`SUBSTITUTED_ALIASES` in `init.lua` stop warning and resolve for real.
+Two mechanisms reach the terminal from inside Neovim 0.12, verified by driving
+a real `nvim` TUI under a pty and capturing the byte stream:
 
-### 7.4 Testability
+| Mechanism | Result |
+|---|---|
+| `io.stdout:write(seq)` | reaches the tty |
+| `vim.api.nvim_chan_send(vim.v.stderr, seq)` | reaches the tty |
+| `vim.api.nvim_chan_send(vim.api.nvim_list_uis()[1].chan, seq)` | **fails** — `Can't send raw data to rpc channel` |
+| `io.open("/dev/tty", "w")` | fails without a controlling terminal |
 
-The backend emits through an **injectable writer**. Headless tests capture the
-byte stream and assert chunk boundaries, base64 payloads, placeholder diacritic
-encoding, `z` values, and delete-on-despawn. Only visual confirmation needs a
-real kitty terminal.
+The UI-channel route is the one to avoid, and it is the obvious one to reach
+for. On 0.12 the entry `nvim_list_uis()` returns is an **RPC** channel, so raw
+bytes are rejected outright.
 
-### 7.5 Protocol spike, first
+**`vim.v.stderr` is the primary**, with `io.stdout` as fallback. Neovim's own
+TUI renders through stdout, so writing escapes there risks interleaving into
+the middle of one of its sequences; stderr reaches the same terminal without
+sharing a stream with the renderer.
 
-The one part of this design not grounded in code already in the repo is which
-Neovim channel write reliably reaches the terminal from a plugin, and what
-`nvim --headless` can exercise. Handoff trap #1 is precisely this failure mode.
+### 7.4 Detection
 
-So the plan opens with a **throwaway spike**: one hardcoded RGBA square onto a
-real kitty screen, and a determination of what headless can and cannot test.
-Everything in § 7.1–7.4 is designed after that answers.
+Confirmed against ghostty: `TERM=xterm-ghostty`, `TERM_PROGRAM=ghostty`, and
+the protocol query is answered:
+
+```
+-> \x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\
+<- \x1b_Gi=31;OK\x1b\\
+```
+
+So detection cannot key on kitty-specific variables alone — `$KITTY_WINDOW_ID`
+is absent under ghostty. The env check (`$TERM`, `$TERM_PROGRAM`,
+`$KITTY_WINDOW_ID`) is a fast path only; the `a=q` query with a timeout is the
+authority, and anything that does not answer `OK` falls back to halfblock. The
+three `SUBSTITUTED_ALIASES` in `init.lua` stop warning and resolve for real.
+
+### 7.5 Testability
+
+The backend emits through an **injectable writer**. Escape generation is pure
+string building, so headless tests capture the byte stream and assert chunk
+boundaries, base64 payloads, placeholder diacritic encoding, `z` values, and
+delete-on-despawn — no tty required.
+
+End-to-end confirmation does need a pty, since `nvim --headless` attaches no
+UI. `pty.openpty()` from Python drives a real `nvim` TUI and captures its
+output; `script(1)` does **not** work in a sandboxed session
+(`tcgetattr/ioctl: Operation not supported on socket`) because it needs a
+controlling terminal to inherit.
 
 ---
 
@@ -458,7 +485,7 @@ and may still run in CI.
 
 | Phase | Content | Precondition |
 |---|---|---|
-| P0 | Kitty protocol spike, throwaway | — |
+| P0 | Kitty protocol spike, throwaway | **done** — see § 7.3, § 7.4 |
 | P1 | `dt` seam, parity harness, goldens for **current** behaviour | — |
 | P2 | Locomotion, capabilities, path primitives, `on_land`, quiescence, `:DistractSpawn` opts | P1 green |
 | P3 | Position, anchors, floor, `z`, backend capability table, `UpdateGrid.ground_y` | P2 green |
