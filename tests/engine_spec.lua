@@ -339,6 +339,103 @@ describe("distract.engine deterministic step", function()
   end)
 end)
 
+-- The cat's jump returns through the animation's `on_finish`, so today it lands
+-- when the art happens to run out rather than when it reaches the ground.
+describe("distract.engine locomotion", function()
+  local probe_counter = 0
+
+  --- Spawns one entity running `physics` with `transitions`, and returns it.
+  local function jumper(physics, transitions)
+    engine.clear()
+    probe_counter = probe_counter + 1
+    local name = "jumper_" .. probe_counter
+    engine.setup({
+      backend = "halfblock",
+      assets = {
+        [name] = {
+          name = name,
+          initial_state = "flying",
+          states = {
+            flying = {
+              animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+              physics = physics,
+              transitions = transitions,
+            },
+            landed = {
+              animation = { frames = { 0 }, fps = 1.0, loop_anim = true },
+              physics = { target_vx = 0.0, wrap_mode = "none" },
+              transitions = {},
+            },
+          },
+        },
+      },
+    })
+    local orig = vim.notify
+    vim.notify = function() end
+    engine.spawn(name, { x = 100, y = 20 })
+    vim.notify = orig
+    local all = engine.get_entities()
+    return all[#all]
+  end
+
+  --- Physics that falls onto a floor 20 cells below the spawn point.
+  local function falling(locomotion)
+    return {
+      gravity = 0.6,
+      ground_y = 40,
+      wrap_mode = "none",
+      locomotion = locomotion,
+    }
+  end
+
+  local function run(steps)
+    for _ = 1, steps do
+      engine.step(1 / 60, { columns = 200, lines = 100 })
+    end
+  end
+
+  it("changes state when a ballistic entity touches down", function()
+    local e = jumper(falling("ballistic"), { on_land = "landed" })
+    run(120)
+    assert.are_equal(
+      "landed",
+      e.current_state,
+      "a ballistic entity that reached its floor must fire on_land"
+    )
+    engine.clear()
+  end)
+
+  it("does not fire on_land again while the entity rests on the floor", function()
+    -- Gravity re-accelerates a resting entity every tick and the clamp catches
+    -- it again, so a landing test written against the clamp alone fires forever.
+    local e = jumper(falling("ballistic"), { on_land = "landed" })
+    e.y = 40
+    e.vy = 0
+    e.current_state = "flying"
+    run(30)
+    assert.are_equal("flying", e.current_state, "sitting on the ground is not a landing")
+    engine.clear()
+  end)
+
+  it("ignores on_land for a grounded entity", function()
+    local e = jumper(falling("grounded"), { on_land = "landed" })
+    run(120)
+    assert.are_equal(
+      "flying",
+      e.current_state,
+      "on_land belongs to ballistic locomotion, not to every floor"
+    )
+    engine.clear()
+  end)
+
+  it("derives an omitted locomotion from gravity", function()
+    -- No manifest in the wild sets `locomotion`, so the derived value is what
+    -- every existing asset actually runs under.
+    assert.are_equal("grounded", engine.effective_locomotion(falling(nil)))
+    assert.are_equal("omnidirectional", engine.effective_locomotion({}))
+  end)
+end)
+
 -- `sine` was the only path either engine understood, and it moved y alone. The
 -- manifest schema has advertised `path_type` as open-ended since the start, so
 -- anything else a manifest asked for was silently ignored on both backends.

@@ -67,8 +67,19 @@ local function run(fixture)
           idle = {
             animation = { frames = { 0 }, fps = 8.0, loop_anim = true },
             physics = fixture.physics,
-            -- Any transition firing mid-run would swap in another state's
-            -- physics and the trajectory would stop describing the fixture.
+            -- Empty for almost every fixture: a transition firing mid-run swaps
+            -- in another state's physics and the trajectory stops describing
+            -- the fixture. `on_land` is the exception, since its whole subject
+            -- is *when* the state changes.
+            transitions = fixture.transitions or {},
+          },
+          -- A landing target for `on_land`, defined to match
+          -- `StateDefinition::default()` on the Rust side field for field, so
+          -- the state a fixture lands in has the same animation, physics and
+          -- quiescence whichever engine ran it.
+          landed = {
+            animation = { frames = { 0 }, fps = 8.0, loop_anim = true },
+            physics = {},
             transitions = {},
           },
         },

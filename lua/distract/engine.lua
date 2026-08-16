@@ -47,6 +47,24 @@ local consecutive_render_failures = 0
 --- the identical frames after it, so the first quiescent tick still draws.
 local quiescent_drawn = false
 
+--- Locomotion class names, kept beside the Rust constants of the same name.
+local GROUNDED = "grounded"
+local BALLISTIC = "ballistic"
+local OMNIDIRECTIONAL = "omnidirectional"
+
+--- A state's locomotion class, derived when the manifest omits it.
+---
+--- Mirrors `PhysicsConfig::effective_locomotion` in `manifest.rs`. No manifest
+--- written before the field existed sets it, so the derived value has to be the
+--- behaviour those manifests already had: a floor when there is gravity to fall
+--- under, free movement otherwise.
+function M.effective_locomotion(phys)
+  if phys.locomotion then
+    return phys.locomotion
+  end
+  return (phys.gravity or 0) > 0 and GROUNDED or OMNIDIRECTIONAL
+end
+
 --- Path parameters with the legacy aliases and the defaults filled in.
 ---
 --- Mirrors `PhysicsConfig::resolved_path` in `manifest.rs`. `path_amplitude`
@@ -508,12 +526,24 @@ function M.step(dt, bounds)
       entity.vx = entity.vx + ((phys.accel_x or 0) * step)
 
       if (phys.gravity or 0) > 0 then
+        -- Read before the integration: an entity already resting on the floor
+        -- is re-accelerated by gravity and caught by the clamp on every single
+        -- tick, so "the clamp ran" is not a landing. Crossing the floor from
+        -- above is.
+        local was_airborne = entity.y < entity.ground_y
         entity.vy = entity.vy + (phys.gravity * step)
         entity.y = entity.y + (entity.vy * step * CELLS_PER_SPRITE_PX_Y)
 
         if entity.y >= entity.ground_y then
           entity.y = entity.ground_y
+          local landed = was_airborne and entity.vy > 0
           entity.vy = 0
+          if landed and M.effective_locomotion(phys) == BALLISTIC then
+            local on_land = state_def.transitions and state_def.transitions.on_land
+            if on_land then
+              M.set_entity_state(entity, on_land)
+            end
+          end
         end
       else
         entity.vy = entity.vy + (entity.target_vy - entity.vy) * lerp_factor

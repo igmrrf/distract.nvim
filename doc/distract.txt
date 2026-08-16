@@ -12,9 +12,10 @@ CONTENTS                                                    *distract-contents*
        6.1 halfblock ........................ |distract-halfblock|
        6.2 overlay .......................... |distract-overlay|
     7. Assets and manifests ................. |distract-manifests|
-       7.1 Paths ............................ |distract-paths|
-       7.2 Units ............................ |distract-units|
-       7.3 Custom art ....................... |distract-custom-art|
+       7.1 Locomotion ....................... |distract-locomotion|
+       7.2 Paths ............................ |distract-paths|
+       7.3 Units ............................ |distract-units|
+       7.4 Custom art ....................... |distract-custom-art|
     8. Events ............................... |distract-events|
     9. Troubleshooting ...................... |distract-troubleshooting|
    10. Lua API .............................. |distract-api|
@@ -233,8 +234,38 @@ how it moves, and what makes it change state.
 positions in the animation. `wrap_mode` is one of `wrap`, `bounce`, `clamp`,
 `despawn` or `none`.
 
+Transition keys: `on_event`, `on_finish`, `timeout_ms` with `on_timeout`,
+`on_edge_left`, `on_edge_right` and `on_land` (see |distract-locomotion|).
+
 ------------------------------------------------------------------------------
-7.1 Paths                                                       *distract-paths*
+7.1 Locomotion                                             *distract-locomotion*
+
+`physics.locomotion` says how a state moves: >
+    grounded          gravity pulls it onto a floor at `ground_y`
+    ballistic         the same, and fires `on_land` when it arrives
+    omnidirectional   no gravity and no floor; the paths below apply
+<
+Omitted, it is derived — `gravity > 0` means `grounded`, anything else means
+`omnidirectional`. Every manifest written before the field existed therefore
+keeps its exact behaviour.
+
+`on_land` fires once, on the tick a `ballistic` entity's `y` reaches
+`ground_y` from above: >lua
+    jump = {
+      physics = { gravity = 0.4, jump_impulse_y = -6, locomotion = "ballistic" },
+      transitions = { on_land = "idle" },
+    }
+<
+Without it a jump has to guess when it is over — the built-in cat returns
+through `on_finish`, so it lands when the art runs out rather than when it
+touches the ground.
+
+`physics.ground_y` is in terminal cells, like every other manifest position.
+Omitted, the floor is wherever the entity was when it entered the state, which
+is what makes a jump return to the ground it left.
+
+------------------------------------------------------------------------------
+7.2 Paths                                                       *distract-paths*
 
 `physics.path_type` overrides position on top of the velocity integration,
 relative to where the entity was when it entered the state. One of: >
@@ -275,7 +306,7 @@ fights the floor. `path_amplitude` and `path_frequency` are the older names for
 `amp_y` and `freq_y` and still work.
 
 ------------------------------------------------------------------------------
-7.2 Units                                                       *distract-units*
+7.3 Units                                                       *distract-units*
 
 Positions and velocities are in *sprite pixels*, and velocities are per frame at
 60 FPS. One sprite pixel is one terminal cell wide and half a terminal cell
@@ -289,7 +320,7 @@ multiplies by its pixels-per-sprite-pixel scale (see |distract-cell-size|).
 sprite pixels and defaults to 4.
 
 ------------------------------------------------------------------------------
-7.3 Custom art                                              *distract-custom-art*
+7.4 Custom art                                              *distract-custom-art*
 
 Set `spritesheet.path` to use your own image instead of the generated sprites: >lua
     spritesheet = {

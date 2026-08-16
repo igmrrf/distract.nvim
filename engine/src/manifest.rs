@@ -171,6 +171,11 @@ pub struct PhysicsConfig {
     pub friction: f32,
     #[serde(default)]
     pub wrap_mode: WrapMode,
+    /// How this state moves: `grounded`, `ballistic` or `omnidirectional`.
+    ///
+    /// Derived from `gravity` when omitted, which is what every manifest
+    /// written before this field existed runs under.
+    pub locomotion: Option<String>,
     /// Positional override applied on top of velocity integration.
     ///
     /// One of `linear`, `sine`, `orbital`, `lissajous`, `bezier`. Anything else
@@ -242,7 +247,26 @@ pub struct ResolvedPath {
     pub phase_delta: f32,
 }
 
+/// Locomotion class names, in one place so both engines and the validator
+/// agree on the spelling.
+pub const GROUNDED: &str = "grounded";
+pub const BALLISTIC: &str = "ballistic";
+pub const OMNIDIRECTIONAL: &str = "omnidirectional";
+
 impl PhysicsConfig {
+    /// This state's locomotion class, derived when the manifest omits it.
+    ///
+    /// No manifest written before the field existed sets it, so the derived
+    /// value has to be the behaviour those manifests already had: a floor when
+    /// there is gravity to fall under, free movement otherwise.
+    pub fn effective_locomotion(&self) -> &str {
+        match self.locomotion.as_deref() {
+            Some(explicit) => explicit,
+            None if self.gravity > 0.0 => GROUNDED,
+            None => OMNIDIRECTIONAL,
+        }
+    }
+
     /// Resolves this state's path parameters.
     ///
     /// `path_amplitude` and `path_frequency` predate `path_params` and are
@@ -287,6 +311,7 @@ impl Default for PhysicsConfig {
             ground_y: None,
             friction: 0.05,
             wrap_mode: WrapMode::Wrap,
+            locomotion: None,
             path_type: None,
             path_amplitude: None,
             path_frequency: None,
@@ -311,6 +336,8 @@ pub struct TransitionConfig {
     pub on_edge_left: Option<String>,
     /// State to switch to when hitting the right edge.
     pub on_edge_right: Option<String>,
+    /// State to switch to on the tick a `ballistic` entity reaches its floor.
+    pub on_land: Option<String>,
 }
 
 /// Definition of a single entity state (e.g. "walk", "jump", "sleep", "eclipse").

@@ -1,5 +1,6 @@
 use crate::asset::AssetManager;
 use crate::ipc::EntitySummary;
+use crate::manifest;
 use crate::manifest::{AssetManifest, PhysicsConfig, WrapMode};
 
 /// Default terminal cell size in physical pixels.
@@ -361,7 +362,11 @@ impl World {
             entity.vy = entity.target_vy;
             entity.is_locked = state_def.is_locked;
             if let Some(gy) = state_def.physics.ground_y {
-                entity.ground_y = gy;
+                // A manifest floor is a position, and manifest positions are in
+                // terminal cells -- `spawn` is handed cells its caller already
+                // converted. Copying the raw number in put the same manifest's
+                // floor `cell_h` times further down here than in the terminal.
+                entity.ground_y = gy * self.cell_h;
             }
         }
 
@@ -592,13 +597,24 @@ impl World {
                 entity.vx += phys.accel_x * step;
 
                 if phys.gravity > 0.0 {
+                    // Read before the integration: an entity already resting on
+                    // the floor is re-accelerated by gravity and caught by the
+                    // clamp on every single tick, so "the clamp ran" is not a
+                    // landing. Crossing the floor from above is.
+                    let was_airborne = entity.y < entity.ground_y;
                     entity.vy += phys.gravity * step;
                     entity.y += entity.vy * py;
 
                     // Ground collision clamping
                     if entity.y >= entity.ground_y {
                         entity.y = entity.ground_y;
+                        let landed = was_airborne && entity.vy > 0.0;
                         entity.vy = 0.0;
+                        if landed && phys.effective_locomotion() == manifest::BALLISTIC {
+                            if let Some(ref land_state) = state_def.transitions.on_land {
+                                entity.set_state(land_state.clone());
+                            }
+                        }
                     }
                 } else {
                     entity.vy += (entity.target_vy - entity.vy) * lerp_factor;
@@ -760,7 +776,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{PathParams, PhysicsConfig};
+    use crate::manifest::{PathParams, PhysicsConfig, StateDefinition, TransitionConfig};
 
     fn plain(event: &str) -> EventContext {
         let _ = event;
@@ -868,9 +884,11 @@ mod tests {
         let mut world = World::new(800.0, 600.0);
         world.spawn("cat", None, None, None, None).unwrap();
 
-        assert!(world
-            .trigger_action(None, Some("cat"), "nonexistent_action")
-            .is_err());
+        assert!(
+            world
+                .trigger_action(None, Some("cat"), "nonexistent_action")
+                .is_err()
+        );
         assert!(world.trigger_action(Some(999), None, "jump").is_err());
     }
 
@@ -1331,6 +1349,167 @@ mod tests {
              got {} vs {}",
             legacy.entities[0].y,
             modern.entities[0].y
+        );
+    }
+
+    /// One entity under `physics` and `transitions`, at one pixel per cell.
+    fn locomotion_world(physics: PhysicsConfig, transitions: TransitionConfig) -> World {
+        let mut world = World::new(800.0, 600.0);
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
+        // One pixel per cell, so the manifest's floor and the entity's position
+        // are the same number and the assertions stay readable.
+        world.cell_w = 1.0;
+        world.cell_h = 1.0;
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "jumper".to_string();
+        manifest.initial_state = "flying".to_string();
+        manifest.states.clear();
+        manifest.states.insert(
+            "flying".to_string(),
+            StateDefinition {
+                physics,
+                transitions,
+                ..Default::default()
+            },
+        );
+        manifest
+            .states
+            .insert("landed".to_string(), StateDefinition::default());
+
+        world
+            .spawn("jumper", Some(manifest), Some(100.0), Some(200.0), None)
+            .expect("locomotion probe spawns");
+        world
+    }
+
+    /// Physics that falls onto a floor 20 cells below the spawn point.
+    fn falling(locomotion: Option<&str>) -> PhysicsConfig {
+        PhysicsConfig {
+            gravity: 0.6,
+            ground_y: Some(220.0),
+            wrap_mode: WrapMode::None,
+            locomotion: locomotion.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_manifest_floor_is_read_in_cells_like_every_other_position() {
+        // `physics.ground_y` is a position, and manifest positions are in
+        // terminal cells -- `spawn` is handed cells converted by its caller.
+        // Copying the raw number into `Entity::ground_y`, which is in pixels,
+        // put the same manifest's floor `cell_h` times further down on the
+        // overlay than in the terminal. No built-in sets the field, so nothing
+        // had exercised it.
+        let mut world = World::new(800.0, 600.0);
+        world.cell_w = 10.0;
+        world.cell_h = 20.0;
+
+        let mut manifest = AssetManifest::default_cat();
+        manifest.name = "floored".to_string();
+        manifest.initial_state = "idle".to_string();
+        manifest.states.clear();
+        manifest.states.insert(
+            "idle".to_string(),
+            StateDefinition {
+                physics: PhysicsConfig {
+                    ground_y: Some(15.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        world
+            .spawn("floored", Some(manifest), Some(0.0), Some(0.0), None)
+            .expect("floored probe spawns");
+
+        assert_eq!(
+            world.entities[0].ground_y, 300.0,
+            "a floor 15 cells down is 300 pixels down at a 20-pixel cell"
+        );
+    }
+
+    #[test]
+    fn a_ballistic_entity_changes_state_when_it_touches_down() {
+        // The cat's jump returns through the animation's `on_finish`, so today
+        // it lands when the art happens to run out rather than when it reaches
+        // the ground.
+        let mut world = locomotion_world(
+            falling(Some("ballistic")),
+            TransitionConfig {
+                on_land: Some("landed".to_string()),
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..120 {
+            world.update(1.0 / 60.0);
+        }
+
+        assert_eq!(
+            world.entities[0].current_state, "landed",
+            "a ballistic entity that reached its floor must fire on_land"
+        );
+    }
+
+    #[test]
+    fn on_land_does_not_fire_again_while_the_entity_rests_on_the_floor() {
+        // Gravity re-accelerates a resting entity every tick and the clamp
+        // catches it again, so a landing test written against the clamp alone
+        // fires forever.
+        let mut world = locomotion_world(
+            falling(Some("ballistic")),
+            TransitionConfig {
+                on_land: Some("landed".to_string()),
+                ..Default::default()
+            },
+        );
+        // Already at rest on the floor: nothing has just landed.
+        world.entities[0].y = 220.0;
+        world.entities[0].vy = 0.0;
+        world.entities[0].current_state = "flying".to_string();
+
+        for _ in 0..30 {
+            world.update(1.0 / 60.0);
+        }
+
+        assert_eq!(
+            world.entities[0].current_state, "flying",
+            "sitting on the ground is not a landing"
+        );
+    }
+
+    #[test]
+    fn a_grounded_entity_ignores_on_land() {
+        let mut world = locomotion_world(
+            falling(Some("grounded")),
+            TransitionConfig {
+                on_land: Some("landed".to_string()),
+                ..Default::default()
+            },
+        );
+
+        for _ in 0..120 {
+            world.update(1.0 / 60.0);
+        }
+
+        assert_eq!(
+            world.entities[0].current_state, "flying",
+            "on_land belongs to ballistic locomotion, not to every floor"
+        );
+    }
+
+    #[test]
+    fn an_omitted_locomotion_is_derived_from_gravity() {
+        // No manifest in the wild sets `locomotion`, so the derived value is
+        // what every existing asset actually runs under.
+        assert_eq!(falling(None).effective_locomotion(), "grounded");
+        assert_eq!(
+            PhysicsConfig::default().effective_locomotion(),
+            "omnidirectional"
         );
     }
 

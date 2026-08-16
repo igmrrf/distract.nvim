@@ -23,7 +23,7 @@
 //! y by `cell_h` puts both in the same frame with no fudge factor.
 
 use distract_engine::ecs::World;
-use distract_engine::manifest::{AssetManifest, PhysicsConfig};
+use distract_engine::manifest::{AssetManifest, PhysicsConfig, StateDefinition, TransitionConfig};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -53,6 +53,14 @@ struct Fixture {
     #[allow(dead_code)]
     description: String,
     physics: PhysicsConfig,
+    /// Transitions the probe state may fire.
+    ///
+    /// Empty for almost every fixture: a transition firing mid-run swaps in
+    /// another state's physics and the trajectory stops describing the fixture.
+    /// `on_land` is the exception, since its whole subject is *when* the state
+    /// changes, which is precisely what could drift between the engines.
+    #[serde(default)]
+    transitions: TransitionConfig,
     spawn: Spawn,
     cell: Cell,
     bounds: Bounds,
@@ -104,14 +112,19 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
         .get_mut("idle")
         .expect("the cat manifest has an idle state");
     state.physics = fixture.physics.clone();
-    // Any transition firing mid-run would swap in a different state's physics
-    // and the trajectory would stop describing the fixture.
-    state.transitions = Default::default();
+    state.transitions = fixture.transitions.clone();
     state.animation.loop_anim = true;
     // The cat's own idle animation is multi-frame, which alone would make the
     // world permanently non-quiescent and mask any disagreement in the rule.
     // The Lua runner uses a single frame, so this one must too.
     state.animation.frames = vec![0];
+
+    // A landing target for `on_land`, defined identically on both sides so the
+    // state a fixture lands in has the same animation, physics and quiescence
+    // whichever engine ran it.
+    manifest
+        .states
+        .insert("landed".to_string(), StateDefinition::default());
 
     let mut world = World::new(
         fixture.bounds.columns * fixture.cell.w,
@@ -119,6 +132,8 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
     );
     world.sprite_scale_x = fixture.cell.w;
     world.sprite_scale_y = fixture.cell.h / 2.0;
+    world.cell_w = fixture.cell.w;
+    world.cell_h = fixture.cell.h;
 
     world
         .spawn(
