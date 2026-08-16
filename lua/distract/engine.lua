@@ -41,6 +41,12 @@ local last_tick_time = nil
 local MAX_CONSECUTIVE_RENDER_FAILURES = 5
 local consecutive_render_failures = 0
 
+--- Whether the settled pose has already been painted.
+---
+--- Quiescence must not skip the frame that *reaches* the resting pose, only
+--- the identical frames after it, so the first quiescent tick still draws.
+local quiescent_drawn = false
+
 function M.setup(opts)
   if opts then
     config = vim.tbl_deep_extend("force", config, opts)
@@ -79,6 +85,7 @@ function M.stop()
   is_running = false
   renderer.clear_all()
   entities = {}
+  quiescent_drawn = false
 end
 
 --- Size of an asset's sprite in terminal cells.
@@ -177,6 +184,9 @@ function M.spawn(asset_name, opts)
   entity.path_phase = math.random() * 2 * math.pi
 
   table.insert(entities, entity)
+  -- A new entity may itself be perfectly still. Without this, an idle screen
+  -- that had already been marked drawn would skip its very first frame.
+  quiescent_drawn = false
 
   if not is_running then
     M.start()
@@ -196,6 +206,9 @@ end
 
 function M.set_entity_state(entity, new_state)
   if entity.current_state ~= new_state then
+    -- A new state brings new art even when the entity does not move, so the
+    -- settled pose that was painted no longer reflects the world.
+    quiescent_drawn = false
     entity.current_state = new_state
     entity.state_time = 0
     entity.frame_idx = 1
@@ -553,9 +566,20 @@ function M.tick()
 
   M.step(dt, { columns = vim.o.columns, lines = vim.o.lines })
 
+  -- Quiescence gates the *redraw*, never the step, matching how `ecs.rs` uses
+  -- it: `World::update` always runs there. Stepping is arithmetic; drawing is
+  -- the ~92 API calls per entity that this exists to avoid. Gating the step as
+  -- well meant an entity that needed a boundary wrap never got one.
+  local settled = M.is_quiescent()
+  if settled and quiescent_drawn then
+    return
+  end
+
   local ok, err = pcall(renderer.draw, entities, config.backend)
   if ok then
     consecutive_render_failures = 0
+    -- A failed draw must not count as having painted the resting pose.
+    quiescent_drawn = settled
   else
     consecutive_render_failures = consecutive_render_failures + 1
     -- `==` not `>=`: the counter only crosses the limit once, so the user is
@@ -609,6 +633,7 @@ function M.despawn(id)
     end
   end
   entities = new_entities
+  quiescent_drawn = false
   if #entities < initial_len then
     vim.notify(string.format("[Distract] Despawned entity #%d", id), vim.log.levels.INFO)
   end
@@ -623,7 +648,50 @@ end
 function M.clear()
   renderer.clear_all()
   entities = {}
+  quiescent_drawn = false
   vim.notify("[Distract] All entities cleared", vim.log.levels.INFO)
+end
+
+--- Whether anything in the world can still change without further input.
+---
+--- Mirrors `World::is_quiescent` in `ecs.rs` field for field, including the
+--- two results that read oddly on their own: an *inactive* entity is not
+--- quiescent, because it is still waiting to be despawned, and an empty world
+--- is, because it has nothing to draw.
+---
+--- Without this, `tick` returned early only when no entity existed at all, so
+--- a screen of sleeping cats woke the editor loop 30 times a second forever.
+function M.is_quiescent()
+  for _, e in ipairs(entities) do
+    if not e.is_active then
+      return false
+    end
+    if e.action_timer then
+      return false
+    end
+    if math.abs(e.vx) > 0.001 or math.abs(e.vy) > 0.001 then
+      return false
+    end
+
+    local states = e.manifest and e.manifest.states
+    local state_def = states and states[e.current_state]
+    if state_def then
+      -- A multi-frame animation, a pending timeout or a path all keep
+      -- producing new pictures with no further input.
+      local anim = state_def.animation
+      if anim and anim.frames and #anim.frames > 1 then
+        return false
+      end
+      local transitions = state_def.transitions
+      if transitions and transitions.timeout_ms then
+        return false
+      end
+      if state_def.physics and state_def.physics.path_type then
+        return false
+      end
+    end
+  end
+  return true
 end
 
 --- Live entities, for tests and diagnostics.

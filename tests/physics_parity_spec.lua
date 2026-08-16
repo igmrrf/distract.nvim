@@ -108,6 +108,7 @@ local function run(fixture)
       vy = e.vy,
       flip_x = e.flip_x,
       state = e.current_state,
+      quiescent = engine.is_quiescent(),
     }
   end
 
@@ -177,6 +178,16 @@ describe("distract physics parity with the overlay engine", function()
             )
           )
         end
+        assert(
+          want.quiescent == got.quiescent,
+          string.format(
+            "%s step %d: quiescence diverged, expected %s, got %s",
+            name,
+            i,
+            tostring(want.quiescent),
+            tostring(got.quiescent)
+          )
+        )
         assert(
           want.flip_x == got.flip_x,
           string.format(

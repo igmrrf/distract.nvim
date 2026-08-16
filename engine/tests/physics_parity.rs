@@ -68,6 +68,12 @@ struct Sample {
     vy: f32,
     flip_x: bool,
     state: String,
+    /// Whether the world can still change without further input.
+    ///
+    /// Tracked per step because the Lua side is a hand-written mirror of
+    /// `World::is_quiescent`, which is exactly the kind of duplication that has
+    /// drifted here before.
+    quiescent: bool,
 }
 
 /// Rust reproducing its own goldens is exact arithmetic, so the tolerance here
@@ -102,6 +108,10 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
     // and the trajectory would stop describing the fixture.
     state.transitions = Default::default();
     state.animation.loop_anim = true;
+    // The cat's own idle animation is multi-frame, which alone would make the
+    // world permanently non-quiescent and mask any disagreement in the rule.
+    // The Lua runner uses a single frame, so this one must too.
+    state.animation.frames = vec![0];
 
     let mut world = World::new(
         fixture.bounds.columns * fixture.cell.w,
@@ -132,6 +142,7 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
     let mut trajectory = Vec::with_capacity(fixture.steps);
     for _ in 0..fixture.steps {
         world.update(fixture.dt);
+        let quiescent = world.is_quiescent();
         let e = &world.entities[0];
         trajectory.push(Sample {
             x: e.x / fixture.cell.w,
@@ -140,6 +151,7 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
             vy: e.vy,
             flip_x: e.flip_x,
             state: e.current_state.clone(),
+            quiescent,
         });
     }
     trajectory
@@ -211,6 +223,10 @@ fn rust_physics_matches_the_golden_trajectories() {
             }
             assert_eq!(want.flip_x, got.flip_x, "{name} step {i}: flip_x diverged");
             assert_eq!(want.state, got.state, "{name} step {i}: state diverged");
+            assert_eq!(
+                want.quiescent, got.quiescent,
+                "{name} step {i}: quiescence diverged"
+            );
         }
     }
 }

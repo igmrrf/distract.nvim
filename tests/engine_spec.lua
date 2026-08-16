@@ -280,6 +280,49 @@ describe("distract.engine deterministic step", function()
     engine.clear()
   end)
 
+  it("reports a still, single-frame, pathless entity as quiescent", function()
+    local e = only_entity(
+      { target_vx = 0.0, gravity = 0.0, wrap_mode = "none" },
+      { x = 40, y = 10 }
+    )
+    e.vx, e.vy = 0, 0
+    assert.is_true(engine.is_quiescent(), "a motionless entity has nothing left to draw")
+    engine.clear()
+  end)
+
+  it("is not quiescent while an entity is still moving", function()
+    local e = only_entity(
+      { target_vx = 1.0, friction = 5.0, gravity = 0.0, wrap_mode = "none" },
+      { x = 40, y = 10 }
+    )
+    assert(math.abs(e.vx) > 0.001, "fixture should be moving")
+    assert.is_false(engine.is_quiescent(), "a moving entity still needs redrawing")
+    engine.clear()
+  end)
+
+  it("stops redrawing once every entity has settled", function()
+    local e = only_entity(
+      { target_vx = 0.0, gravity = 0.0, wrap_mode = "none" },
+      { x = 40, y = 10 }
+    )
+    e.vx, e.vy = 0, 0
+
+    local original = renderer.draw
+    local draws = 0
+    renderer.draw = function(...)
+      draws = draws + 1
+      return original(...)
+    end
+    for _ = 1, 10 do
+      engine.tick()
+    end
+    renderer.draw = original
+
+    -- One final frame so the settled pose is actually on screen, then nothing.
+    assert.are_equal(1, draws, "a screen of sleeping entities must not redraw every tick")
+    engine.clear()
+  end)
+
   it("takes screen bounds from its argument rather than from vim.o", function()
     -- 45 + 30 = 75, past the injected 50-column screen but inside the 80 a
     -- headless editor reports, so only a step that honours `bounds` wraps.
