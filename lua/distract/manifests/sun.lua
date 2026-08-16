@@ -9,6 +9,11 @@ local M = {
   initial_state = "shining",
   locomotion = "omnidirectional",
   capabilities = { locomotion = { "omnidirectional" } },
+  -- A sun belongs in the sky, and that is a fact about suns rather than about
+  -- anyone's configuration. `omnidirectional` only says it is free to leave the
+  -- floor, which on its own put it in the middle of the screen. A spawn or a
+  -- `position.anchor` still overrides this.
+  anchor = "top",
   z_index = -10,
   states = {
     shining = {

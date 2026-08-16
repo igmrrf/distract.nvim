@@ -117,13 +117,45 @@ end)
 
 describe("distract.position anchors", function()
   it("puts what gravity binds on the floor and lets the rest drift", function()
-    assert.are_equal(position.BOTTOM, position.effective_anchor(position.AUTO, "grounded"))
-    assert.are_equal(position.BOTTOM, position.effective_anchor(position.AUTO, "ballistic"))
-    assert.are_equal(position.FREE, position.effective_anchor(position.AUTO, "omnidirectional"))
+    assert.are_equal(position.BOTTOM, position.effective_anchor(position.AUTO, nil, "grounded"))
+    assert.are_equal(position.BOTTOM, position.effective_anchor(position.AUTO, nil, "ballistic"))
+    assert.are_equal(
+      position.FREE,
+      position.effective_anchor(position.AUTO, nil, "omnidirectional")
+    )
   end)
 
   it("leaves an anchor that was asked for alone", function()
-    assert.are_equal(position.TOP, position.effective_anchor(position.TOP, "grounded"))
+    assert.are_equal(position.TOP, position.effective_anchor(position.TOP, nil, "grounded"))
+  end)
+
+  it("prefers what the asset declares over what its locomotion implies", function()
+    assert.are_equal(
+      position.TOP,
+      position.effective_anchor(position.AUTO, position.TOP, "omnidirectional")
+    )
+    assert.are_equal(
+      position.FREE,
+      position.effective_anchor(position.AUTO, position.AUTO, "omnidirectional")
+    )
+  end)
+
+  it("lets a spawn override what the asset declares", function()
+    assert.are_equal(
+      position.BOTTOM,
+      position.effective_anchor(position.BOTTOM, position.TOP, "omnidirectional")
+    )
+  end)
+
+  it("reads the anchor an asset declares, and refuses one it made up", function()
+    assert.is_nil(position.manifest_anchor({ name = "probe" }))
+    assert.are_equal(position.TOP, position.manifest_anchor({ name = "sun", anchor = "top" }))
+    assert.is_false(pcall(position.manifest_anchor, { name = "probe", anchor = "botom" }))
+  end)
+
+  it("puts the sun in the sky rather than the middle of the screen", function()
+    local sun = require("distract.manifests.sun")
+    assert.are_equal(position.TOP, position.manifest_anchor(sun))
   end)
 end)
 

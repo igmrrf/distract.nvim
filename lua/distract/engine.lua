@@ -207,6 +207,7 @@ local function resolve_placement(asset_name, manifest, initial_def, opts)
     settings = settings,
     backend = config.backend,
     locomotion = locomotion.locomotion_for(manifest, initial_def),
+    declared_anchor = position.manifest_anchor(manifest),
     floor_row = spawn_floor_row,
     sprite_h = sprite_h,
     bounds = { columns = vim.o.columns, lines = vim.o.lines },

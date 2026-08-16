@@ -161,16 +161,51 @@ function M.parallax_for(z, settings, backend)
   return M.parallax_factor(z, parallax)
 end
 
+--- Anchors an asset may declare for itself.
+local DECLARABLE = { [M.AUTO] = true, [M.BOTTOM] = true, [M.TOP] = true, [M.FREE] = true }
+
+--- The anchor an asset declares, if it declares one.
+---
+--- Where a sun belongs is a property of a sun, not of a user's configuration,
+--- the same way `z_index` and `locomotion` are. A typo is refused at the point
+--- of asking rather than silently placing the asset in the middle of the
+--- screen.
+---@param manifest table|nil
+---@return string|nil
+function M.manifest_anchor(manifest)
+  local declared = manifest and manifest.anchor
+  if declared == nil then
+    return nil
+  end
+  if not DECLARABLE[declared] then
+    error(
+      string.format(
+        "distract: asset '%s' declares anchor '%s'; expected one of auto, bottom, top, free",
+        tostring(manifest.name),
+        tostring(declared)
+      )
+    )
+  end
+  return declared
+end
+
 --- The anchor an entity actually uses.
 ---
---- `auto` is resolved against what the entity can physically do: gravity binds
---- the cat and the crab to the floor, and the sun may drift anywhere.
----@param anchor string|table
+--- Three sources, most specific first: what this spawn or configuration asked
+--- for, what the asset declares about itself, and finally what the entity can
+--- physically do -- gravity binds the cat and the crab to the floor, and the
+--- sun may drift anywhere. Each falls through to the next only by saying
+--- `auto`, which is the vocabulary's way of having no opinion.
+---@param requested string|table `"auto"` when nothing was asked for
+---@param declared string|nil the asset's own preference
 ---@param entity_locomotion string
 ---@return string|table
-function M.effective_anchor(anchor, entity_locomotion)
-  if anchor ~= M.AUTO then
-    return anchor
+function M.effective_anchor(requested, declared, entity_locomotion)
+  if requested ~= M.AUTO then
+    return requested
+  end
+  if declared ~= nil and declared ~= M.AUTO then
+    return declared
   end
   if entity_locomotion == locomotion.OMNIDIRECTIONAL then
     return M.FREE
@@ -184,6 +219,7 @@ end
 ---@field settings DistractPositionConfig placement settings for this spawn
 ---@field backend string canonical backend name, for the parallax capability
 ---@field locomotion string the initial state's locomotion class
+---@field declared_anchor string|nil the anchor the asset declares for itself
 ---@field floor_row number|nil the floor in cells, or nil when none is measured
 ---@field sprite_h number sprite height, in cells, before parallax
 ---@field bounds table `{ columns, lines }`, in cells
@@ -203,7 +239,7 @@ end
 function M.placement(request)
   local opts = request.opts or {}
   local settings = request.settings
-  local anchor = M.effective_anchor(settings.anchor, request.locomotion)
+  local anchor = M.effective_anchor(settings.anchor, request.declared_anchor, request.locomotion)
 
   local placed = {}
   if type(anchor) == "table" then

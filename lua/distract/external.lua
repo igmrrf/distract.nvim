@@ -327,8 +327,11 @@ function M.resolve_placement(asset, opts)
   local settings = position.settings(config.position, opts)
   local manifest = asset or {}
   local initial_def = manifest.states and manifest.states[manifest.initial_state]
-  local anchor =
-    position.effective_anchor(settings.anchor, locomotion.locomotion_for(manifest, initial_def))
+  local anchor = position.effective_anchor(
+    settings.anchor,
+    position.manifest_anchor(asset),
+    locomotion.locomotion_for(manifest, initial_def)
+  )
 
   local x, y, z = opts.x, opts.y, opts.z
   if type(anchor) == "table" then
