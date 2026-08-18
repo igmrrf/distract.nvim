@@ -1,3 +1,5 @@
+mod decode;
+
 use std::path::PathBuf;
 use std::process;
 
