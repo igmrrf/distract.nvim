@@ -48,6 +48,20 @@ pub fn remove_background(frame: &RgbaImage, tolerance: f32, feather: f32) -> Rgb
     output
 }
 
+/// Whether a frame arrives with its background already cut out.
+///
+/// `remove_background` recomputes alpha from RGB distance to the corner color
+/// and ignores the alpha a pixel already has, so running it over art that is
+/// already cutout walks into the antialiased edge halo and overwrites correct
+/// edge alpha with a value derived from how close that pixel happens to be to
+/// black. Detecting the case is what keeps that from happening silently.
+pub fn is_already_cutout(frame: &RgbaImage) -> bool {
+    let (width, height) = frame.dimensions();
+    corners(width, height)
+        .iter()
+        .all(|&(x, y)| frame.get_pixel(x, y)[3] == 0)
+}
+
 fn corners(width: u32, height: u32) -> [(u32, u32); 4] {
     [
         (0, 0),
@@ -135,6 +149,28 @@ mod tests {
             output.get_pixel(2, 2)[3],
             255,
             "isolated same-colored pixel must stay opaque"
+        );
+    }
+
+    #[test]
+    fn is_already_cutout_reads_the_four_corners_alpha() {
+        let mut opaque = RgbaImage::new(4, 4);
+        for pixel in opaque.pixels_mut() {
+            *pixel = Rgba([10, 10, 10, 255]);
+        }
+        assert!(!is_already_cutout(&opaque));
+
+        let mut cutout = RgbaImage::new(4, 4);
+        for pixel in cutout.pixels_mut() {
+            *pixel = Rgba([0, 0, 0, 0]);
+        }
+        cutout.put_pixel(2, 2, Rgba([255, 0, 0, 255]));
+        assert!(is_already_cutout(&cutout));
+
+        cutout.put_pixel(0, 0, Rgba([0, 0, 0, 1]));
+        assert!(
+            !is_already_cutout(&cutout),
+            "one non-transparent corner is enough to disqualify a frame"
         );
     }
 

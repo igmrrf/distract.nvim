@@ -194,6 +194,14 @@ fn validate_frame_size(frame_width: u32, frame_height: u32) -> Result<(), String
     Ok(())
 }
 
+fn cut_out_frame(index: usize, frame: &RgbaImage, bg_tolerance: f32) -> RgbaImage {
+    if background::is_already_cutout(frame) {
+        eprintln!("import_sprite: frame {index} is already alpha-cutout, keeping its own edges");
+        return frame.clone();
+    }
+    background::remove_background(frame, bg_tolerance, FEATHER_BAND)
+}
+
 fn warn_blank_frames(frames: &[RgbaImage]) {
     for (index, frame) in frames.iter().enumerate() {
         if frame.pixels().all(|pixel| pixel[3] == 0) {
@@ -240,7 +248,8 @@ fn run(args: Args) -> Result<(), String> {
 
     let cutout: Vec<RgbaImage> = decoded
         .iter()
-        .map(|frame| background::remove_background(&frame.image, args.bg_tolerance, FEATHER_BAND))
+        .enumerate()
+        .map(|(index, frame)| cut_out_frame(index, &frame.image, args.bg_tolerance))
         .collect();
 
     let (padded, frame_width, frame_height) = pack::pad_to_common_canvas(&cutout);
@@ -480,6 +489,63 @@ mod integration_tests {
         assert!(manifest_text.contains("default = {"));
 
         std::fs::remove_file(&gif_path).ok();
+        std::fs::remove_dir_all(&out_dir).ok();
+        std::fs::remove_file(&manifest_path).ok();
+    }
+
+    /// A 2x1 grid of 4x4 cells, transparent apart from one opaque body pixel and
+    /// one deliberately semi-transparent edge pixel per cell.
+    fn write_cutout_atlas(path: &std::path::Path) {
+        let mut atlas = RgbaImage::new(8, 4);
+        for cell in 0..2u32 {
+            let origin_x = cell * 4;
+            atlas.put_pixel(origin_x + 1, 1, Rgba([200, 100, 50, 255]));
+            atlas.put_pixel(origin_x + 2, 1, Rgba([200, 100, 50, 128]));
+        }
+        atlas.save(path).expect("write cutout atlas");
+    }
+
+    #[test]
+    fn an_already_cutout_source_keeps_its_own_edge_alpha() {
+        let atlas_path = std::env::temp_dir().join("distract_import_sprite_cutout_test.png");
+        write_cutout_atlas(&atlas_path);
+        let out_dir = std::env::temp_dir().join("distract_import_sprite_cutout_test_out");
+        let manifest_path = std::env::temp_dir().join("distract_import_sprite_cutout_test.lua");
+        std::fs::remove_dir_all(&out_dir).ok();
+        std::fs::remove_file(&manifest_path).ok();
+
+        let args = Args {
+            gif: None,
+            frames_dir: None,
+            spritesheet: Some(atlas_path.clone()),
+            cell: Some((4, 4)),
+            row_counts: Some(vec![2]),
+            name: "cutout_test_asset".to_string(),
+            states: None,
+            out: out_dir.clone(),
+            manifest_out: manifest_path.clone(),
+            bg_tolerance: DEFAULT_BG_TOLERANCE,
+        };
+
+        run(args).expect("run");
+
+        let native_path = out_dir.join("cutout_test_asset_frames.rgba");
+        let (frame_width, frame_height, frames) =
+            rgba_sidecar::read_rgba_sidecar(&native_path).expect("read sidecar");
+
+        assert_eq!(frames.len(), 2);
+        assert_eq!((frame_width, frame_height), (4, 4));
+        for frame in &frames {
+            assert_eq!(
+                frame.get_pixel(2, 1),
+                &Rgba([200, 100, 50, 128]),
+                "an antialiased edge pixel must survive import untouched"
+            );
+            assert_eq!(frame.get_pixel(1, 1), &Rgba([200, 100, 50, 255]));
+            assert_eq!(frame.get_pixel(0, 0)[3], 0);
+        }
+
+        std::fs::remove_file(&atlas_path).ok();
         std::fs::remove_dir_all(&out_dir).ok();
         std::fs::remove_file(&manifest_path).ok();
     }
