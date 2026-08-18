@@ -1,5 +1,6 @@
 mod background;
 mod decode;
+mod manifest_scaffold;
 mod pack;
 mod rgba_sidecar;
 
