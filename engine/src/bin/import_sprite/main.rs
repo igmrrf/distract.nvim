@@ -17,6 +17,9 @@ const MAX_FRAME_DIMENSION: u32 = 4096;
 struct Args {
     gif: Option<PathBuf>,
     frames_dir: Option<PathBuf>,
+    spritesheet: Option<PathBuf>,
+    cell: Option<(u32, u32)>,
+    row_counts: Option<Vec<usize>>,
     name: String,
     states: Option<String>,
     out: PathBuf,
@@ -24,9 +27,61 @@ struct Args {
     bg_tolerance: f32,
 }
 
+fn parse_cell(raw: &str) -> Result<(u32, u32), String> {
+    let (width_text, height_text) = raw
+        .split_once('x')
+        .ok_or_else(|| format!("--cell '{raw}' is not WxH"))?;
+    let width = width_text
+        .trim()
+        .parse()
+        .map_err(|_| format!("--cell width '{width_text}' is not a number"))?;
+    let height = height_text
+        .trim()
+        .parse()
+        .map_err(|_| format!("--cell height '{height_text}' is not a number"))?;
+    Ok((width, height))
+}
+
+fn parse_row_counts(raw: &str) -> Result<Vec<usize>, String> {
+    raw.split(',')
+        .map(|entry| {
+            entry
+                .trim()
+                .parse()
+                .map_err(|_| format!("--row-counts entry '{entry}' is not a number"))
+        })
+        .collect()
+}
+
+fn validate_source_choice(args: &Args) -> Result<(), String> {
+    let source_count = [
+        args.gif.is_some(),
+        args.frames_dir.is_some(),
+        args.spritesheet.is_some(),
+    ]
+    .iter()
+    .filter(|is_set| **is_set)
+    .count();
+    if source_count != 1 {
+        return Err("exactly one of --gif, --frames or --spritesheet is required".to_string());
+    }
+
+    let has_grid = args.cell.is_some() && args.row_counts.is_some();
+    if args.spritesheet.is_some() && !has_grid {
+        return Err("--spritesheet needs both --cell and --row-counts".to_string());
+    }
+    if args.spritesheet.is_none() && (args.cell.is_some() || args.row_counts.is_some()) {
+        return Err("--cell and --row-counts only apply to --spritesheet".to_string());
+    }
+    Ok(())
+}
+
 fn parse_args_from(mut raw_args: impl Iterator<Item = String>) -> Result<Args, String> {
     let mut gif = None;
     let mut frames_dir = None;
+    let mut spritesheet = None;
+    let mut cell = None;
+    let mut row_counts = None;
     let mut name: Option<String> = None;
     let mut states = None;
     let mut out = None;
@@ -42,6 +97,9 @@ fn parse_args_from(mut raw_args: impl Iterator<Item = String>) -> Result<Args, S
         match flag.as_str() {
             "--gif" => gif = Some(PathBuf::from(take_value()?)),
             "--frames" => frames_dir = Some(PathBuf::from(take_value()?)),
+            "--spritesheet" => spritesheet = Some(PathBuf::from(take_value()?)),
+            "--cell" => cell = Some(parse_cell(&take_value()?)?),
+            "--row-counts" => row_counts = Some(parse_row_counts(&take_value()?)?),
             "--name" => name = Some(take_value()?),
             "--states" => states = Some(take_value()?),
             "--out" => out = Some(PathBuf::from(take_value()?)),
@@ -56,35 +114,60 @@ fn parse_args_from(mut raw_args: impl Iterator<Item = String>) -> Result<Args, S
     }
 
     let name = name.ok_or("--name is required")?;
-    if gif.is_some() == frames_dir.is_some() {
-        return Err("exactly one of --gif or --frames is required".to_string());
-    }
 
     let out = out.unwrap_or_else(|| PathBuf::from(format!("assets/{name}")));
     let manifest_out =
         manifest_out.unwrap_or_else(|| PathBuf::from(format!("lua/distract/manifests/{name}.lua")));
 
-    Ok(Args {
+    let args = Args {
         gif,
         frames_dir,
+        spritesheet,
+        cell,
+        row_counts,
         name,
         states,
         out,
         manifest_out,
         bg_tolerance,
-    })
+    };
+    validate_source_choice(&args)?;
+    Ok(args)
 }
 
 fn parse_args() -> Result<Args, String> {
     parse_args_from(std::env::args().skip(1))
 }
 
+fn decode_spritesheet_source(args: &Args) -> Result<Vec<decode::DecodedFrame>, String> {
+    let path = args
+        .spritesheet
+        .as_ref()
+        .ok_or("--spritesheet is required here")?;
+    let (cell_width, cell_height) = args.cell.ok_or("--spritesheet needs --cell")?;
+    let row_counts = args
+        .row_counts
+        .as_ref()
+        .ok_or("--spritesheet needs --row-counts")?;
+
+    decode::decode_spritesheet_grid(
+        path,
+        &decode::GridSpec {
+            cell_width,
+            cell_height,
+            row_counts,
+        },
+    )
+}
+
 fn decode_source(args: &Args) -> Result<Vec<decode::DecodedFrame>, String> {
-    match (&args.gif, &args.frames_dir) {
-        (Some(path), None) => decode::decode_gif(path),
-        (None, Some(dir)) => decode::decode_png_folder(dir),
-        _ => Err("exactly one of --gif or --frames is required".to_string()),
+    if let Some(path) = &args.gif {
+        return decode::decode_gif(path);
     }
+    if let Some(dir) = &args.frames_dir {
+        return decode::decode_png_folder(dir);
+    }
+    decode_spritesheet_source(args)
 }
 
 fn average_fps(frames: &[decode::DecodedFrame]) -> f32 {
@@ -241,6 +324,63 @@ mod tests {
     }
 
     #[test]
+    fn a_spritesheet_source_counts_as_the_one_source_and_needs_its_grid() {
+        let without_grid =
+            parse_args_from(args(&["--spritesheet", "atlas.webp", "--name", "x"]).into_iter());
+        assert!(without_grid.is_err());
+
+        let with_grid = parse_args_from(
+            args(&[
+                "--spritesheet",
+                "atlas.webp",
+                "--cell",
+                "192x208",
+                "--row-counts",
+                "7,8,8",
+                "--name",
+                "dog",
+            ])
+            .into_iter(),
+        )
+        .expect("parse");
+        assert_eq!(with_grid.cell, Some((192, 208)));
+        assert_eq!(with_grid.row_counts, Some(vec![7, 8, 8]));
+
+        let alongside_gif = parse_args_from(
+            args(&[
+                "--gif",
+                "a.gif",
+                "--spritesheet",
+                "atlas.webp",
+                "--cell",
+                "1x1",
+                "--row-counts",
+                "1",
+                "--name",
+                "x",
+            ])
+            .into_iter(),
+        );
+        assert!(alongside_gif.is_err());
+    }
+
+    #[test]
+    fn a_grid_flag_without_a_spritesheet_is_rejected() {
+        let result =
+            parse_args_from(args(&["--gif", "a.gif", "--cell", "8x8", "--name", "x"]).into_iter());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn malformed_grid_flags_are_rejected() {
+        assert!(parse_cell("192-208").is_err());
+        assert!(parse_cell("192xwide").is_err());
+        assert!(parse_row_counts("7,eight").is_err());
+        assert_eq!(parse_cell("192x208"), Ok((192, 208)));
+        assert_eq!(parse_row_counts(" 7 , 8 "), Ok(vec![7, 8]));
+    }
+
+    #[test]
     fn defaults_out_and_manifest_out_from_name() {
         let parsed =
             parse_args_from(args(&["--gif", "a.gif", "--name", "cat_walking"]).into_iter())
@@ -312,6 +452,9 @@ mod integration_tests {
         let args = Args {
             gif: Some(gif_path.clone()),
             frames_dir: None,
+            spritesheet: None,
+            cell: None,
+            row_counts: None,
             name: "cli_test_asset".to_string(),
             states: None,
             out: out_dir.clone(),
