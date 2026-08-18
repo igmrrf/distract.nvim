@@ -1,3 +1,4 @@
+mod background;
 mod decode;
 
 use std::path::PathBuf;
