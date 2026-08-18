@@ -1,5 +1,6 @@
 mod background;
 mod decode;
+mod pack;
 
 use std::path::PathBuf;
 use std::process;
