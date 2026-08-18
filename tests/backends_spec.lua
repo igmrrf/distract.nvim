@@ -52,8 +52,14 @@ end)
 -- branches, so the kitty renderer could not arrive without editing them.
 describe("distract.backends capability table", function()
   it("says what each backend can do with a sprite", function()
-    assert.are.same({ scale = false, alpha = "cell" }, backends.capabilities("halfblock"))
-    assert.are.same({ scale = true, alpha = "pixel" }, backends.capabilities("overlay"))
+    assert.are.same(
+      { scale = false, alpha = "cell", native_resolution = false },
+      backends.capabilities("halfblock")
+    )
+    assert.are.same(
+      { scale = true, alpha = "pixel", native_resolution = true },
+      backends.capabilities("overlay")
+    )
     assert.is_nil(backends.capabilities("nothing_registered_here"))
   end)
 
@@ -93,8 +99,22 @@ describe("distract.backends capability table", function()
     assert.are_equal(1, warnings, "one notice per name, not one per call")
   end)
 
+  it("halfblock and overlay report native_resolution explicitly", function()
+    assert.is_false(backends.capabilities(backends.HALFBLOCK).native_resolution)
+    assert.is_true(backends.capabilities(backends.OVERLAY).native_resolution)
+  end)
+
+  it("register requires native_resolution alongside scale and alpha", function()
+    assert.is_false(pcall(backends.register, "missing_field", { scale = true, alpha = "pixel" }))
+    backends.reset()
+  end)
+
   it("lets a backend register itself out of being a substitution", function()
-    backends.register("kitty", { scale = true, alpha = "pixel" }, { "ghostty" })
+    backends.register(
+      "kitty",
+      { scale = true, alpha = "pixel", native_resolution = true },
+      { "ghostty" }
+    )
 
     assert.are_equal("kitty", backends.resolve("kitty", true))
     assert.are_equal("kitty", backends.resolve("ghostty", true))

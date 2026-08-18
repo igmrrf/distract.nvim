@@ -315,7 +315,10 @@ describe("distract.kitty backend registration", function()
 
   it("advertises per-pixel alpha and the scaling parallax needs", function()
     with_kitty(function()
-      assert.are.same({ scale = true, alpha = "pixel" }, backends.capabilities("kitty"))
+      assert.are.same(
+        { scale = true, alpha = "pixel", native_resolution = true },
+        backends.capabilities("kitty")
+      )
       assert.is_true(backends.supports_parallax("kitty"))
     end)
   end)
