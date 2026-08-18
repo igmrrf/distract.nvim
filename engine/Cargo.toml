@@ -15,6 +15,10 @@ path = "src/main.rs"
 name = "export_sprites"
 path = "src/bin/export_sprites/main.rs"
 
+[[bin]]
+name = "import_sprite"
+path = "src/bin/import_sprite/main.rs"
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
