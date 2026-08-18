@@ -17,6 +17,7 @@ local SPECS = {
   "tests.sprite_assets_spec",
   "tests.highlights_spec",
   "tests.quantise_spec",
+  "tests.native_sprite_spec",
   "tests.gif_spec",
   "tests.gif_assets_spec",
   "tests.renderer_spec",
