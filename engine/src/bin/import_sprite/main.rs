@@ -1,6 +1,7 @@
 mod background;
 mod decode;
 mod pack;
+mod rgba_sidecar;
 
 use std::path::PathBuf;
 use std::process;
