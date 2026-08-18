@@ -8,6 +8,7 @@
 --- there is to render.
 
 local gif_sprite = require("distract.gif.sprite")
+local native_sprite = require("distract.native_sprite")
 
 local M = {}
 
@@ -38,10 +39,21 @@ local registered = {}
 ---@type table<string, DistractGifSource>
 local gif_sources = {}
 
+--- `.rgba` sidecars an asset's manifest points at, for the backends that can
+--- show real resolution. Kept separate from `gif_sources` and, critically, from
+--- `sprite_cache`: two backends can request different resolutions for the same
+--- asset, and a cache keyed only by asset name cannot represent that without
+--- leaking one backend's request into the other's.
+---@type table<string, DistractNativeSpriteSource>
+local native_sources = {}
+
 --- Assets whose GIF has already been reported as undecodable, for the same
 --- reason a missing asset is: a file that fails to decode fails on every draw,
 --- and it is not going to change mid-tick.
 local decode_warned = {}
+
+--- Assets whose `.rgba` sidecar has already been reported as unreadable.
+local native_warned = {}
 
 --- Reported once per asset, not once per draw: an unknown asset is asked for at
 --- 30 FPS, and a notification per tick makes the editor unusable.
@@ -83,13 +95,24 @@ end
 ---@param manifest table|nil
 function M.bind_manifest(asset_name, manifest)
   local source = gif_sprite.source_of(manifest)
-  if gif_sprite.same_source(gif_sources[asset_name], source) then
-    return
+  local native_source = native_sprite.source_of(manifest)
+  local changed = false
+
+  if not gif_sprite.same_source(gif_sources[asset_name], source) then
+    gif_sources[asset_name] = source
+    decode_warned[asset_name] = nil
+    changed = true
   end
 
-  gif_sources[asset_name] = source
-  decode_warned[asset_name] = nil
-  announce_change(asset_name)
+  if not native_sprite.same_source(native_sources[asset_name], native_source) then
+    native_sources[asset_name] = native_source
+    native_warned[asset_name] = nil
+    changed = true
+  end
+
+  if changed then
+    announce_change(asset_name)
+  end
 end
 
 --- Forgets an asset's declared art. For tests, and for an asset being replaced.
@@ -139,6 +162,22 @@ local function warn_decode_failure(asset_name, source, error_message)
     string.format(
       "[Distract] Could not decode '%s' for asset '%s': %s",
       source.path,
+      asset_name,
+      error_message
+    ),
+    vim.log.levels.WARN
+  )
+end
+
+local function warn_native_failure(asset_name, native_source, error_message)
+  if native_warned[asset_name] then
+    return
+  end
+  native_warned[asset_name] = true
+  vim.notify(
+    string.format(
+      "[Distract] Could not read native sprite '%s' for asset '%s': %s",
+      native_source.native_path,
       asset_name,
       error_message
     ),
@@ -204,7 +243,26 @@ end
 
 --- Frame matrices for an asset. Unknown assets fall back to the cat.
 --- Draws the asset on first call.
-function M.get_pixel_frames(asset_name)
+---
+--- `opts.native_resolution` is the calling backend's own capability. When it is
+--- true and the asset's manifest declared a `.rgba` sidecar, the sidecar's
+--- frames are returned instead -- resolved ahead of, never inside, the cache
+--- below, which is keyed by asset name alone and so cannot tell two backends
+--- apart.
+---@param asset_name string
+---@param opts table|nil `{ native_resolution = boolean }`
+function M.get_pixel_frames(asset_name, opts)
+  if opts and opts.native_resolution then
+    local native_source = native_sources[asset_name]
+    if native_source then
+      local frames, err = native_sprite.load(native_source.native_path)
+      if frames then
+        return frames
+      end
+      warn_native_failure(asset_name, native_source, err)
+    end
+  end
+
   local sprite = load_sprite(asset_name)
   if type(sprite.frames) == "function" then
     return sprite.frames()

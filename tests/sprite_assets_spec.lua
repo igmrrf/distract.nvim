@@ -388,3 +388,114 @@ describe("distract custom asset registration", function()
     assert.is_false(ok, "a sprite set without frames must not register")
   end)
 end)
+
+describe("native-resolution frames as a fourth art source", function()
+  local sources = require("distract.sprite_sources")
+  local native_sprite = require("distract.native_sprite")
+
+  local function u32(value)
+    return string.char(
+      value % 256,
+      math.floor(value / 256) % 256,
+      math.floor(value / 65536) % 256,
+      math.floor(value / 16777216) % 256
+    )
+  end
+
+  --- Writes a one-pixel `.rgba` sidecar whose single pixel is `{9, 9, 9}`.
+  local function write_sidecar(path)
+    local file = io.open(path, "wb")
+    file:write("DRGB" .. string.char(1) .. u32(1) .. u32(1) .. u32(1) .. string.char(9, 9, 9, 255))
+    file:close()
+  end
+
+  --- Runs `fn` with `vim.notify` silenced: an asset bound to art that does not
+  --- resolve reports itself, and that report is not what these tests are about.
+  local function quietly(fn)
+    local original = vim.notify
+    vim.notify = function() end
+    local ok, err = pcall(fn)
+    vim.notify = original
+    if not ok then
+      error(err)
+    end
+  end
+
+  after_each(function()
+    native_sprite.reset()
+  end)
+
+  it("ignores native_resolution when the manifest has no native_path", function()
+    quietly(function()
+      sources.bind_manifest("native_test_no_native", { spritesheet = { path = "x.png" } })
+
+      local without_opts = sources.get_pixel_frames("native_test_no_native")
+      local with_native =
+        sources.get_pixel_frames("native_test_no_native", { native_resolution = true })
+
+      assert.are_equal(without_opts, with_native)
+      sources.unbind_manifest("native_test_no_native")
+    end)
+  end)
+
+  it("returns native frames only when native_resolution is requested", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_sidecar(fixture_path)
+
+      sources.bind_manifest(
+        "native_test_with_native",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      local native_frames =
+        sources.get_pixel_frames("native_test_with_native", { native_resolution = true })
+      local standard_frames = sources.get_pixel_frames("native_test_with_native")
+
+      assert.are.same({ 9, 9, 9 }, native_frames[1][1][1])
+      assert.are_not_equal(native_frames, standard_frames)
+
+      sources.unbind_manifest("native_test_with_native")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("never serves halfblock native frames, whichever backend asked first", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_sidecar(fixture_path)
+
+      sources.bind_manifest(
+        "native_test_order",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      sources.get_pixel_frames("native_test_order", { native_resolution = true })
+      local halfblock_frames = sources.get_pixel_frames("native_test_order")
+
+      assert.is_true(
+        #halfblock_frames[1] > 1,
+        "halfblock must get the fallback art, not the 1x1 native frame"
+      )
+
+      sources.unbind_manifest("native_test_order")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("falls through to the standard chain when the sidecar is unreadable", function()
+    quietly(function()
+      sources.bind_manifest(
+        "native_test_broken",
+        { spritesheet = { path = "x.png", native_path = "/does/not/exist.rgba" } }
+      )
+
+      local frames = sources.get_pixel_frames("native_test_broken", { native_resolution = true })
+
+      assert.is_not_nil(frames)
+      assert.is_true(#frames > 0, "a bad sidecar must not take down the render loop")
+
+      sources.unbind_manifest("native_test_broken")
+    end)
+  end)
+end)
