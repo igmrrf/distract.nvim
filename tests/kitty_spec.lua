@@ -223,6 +223,53 @@ describe("distract.kitty frames", function()
       end
     end
   end)
+
+  -- Pins the assumption that this module and `protocol.lua` are resolution-
+  -- agnostic (spec:
+  -- docs/superpowers/specs/2026-08-16-sprite-import-pipeline-design.md § 3.4).
+  -- If this needs a code change to pass, the placement or transmission math
+  -- assumed a cell-grid-sized frame somewhere -- fix it there, not here.
+  it("encodes a native-resolution frame the same way as a cell-grid one", function()
+    local sources = require("distract.sprite_sources")
+    local native_sprite = require("distract.native_sprite")
+    local asset_name = "native_res_characterization_test"
+    local width, height = 24, 16
+
+    local function u32(value)
+      return string.char(
+        value % 256,
+        math.floor(value / 256) % 256,
+        math.floor(value / 65536) % 256,
+        math.floor(value / 16777216) % 256
+      )
+    end
+
+    local pixels = {}
+    for _ = 1, width * height do
+      pixels[#pixels + 1] = string.char(10, 20, 30, 255)
+    end
+    local fixture_path = vim.fn.tempname() .. ".rgba"
+    local file = io.open(fixture_path, "wb")
+    file:write(
+      "DRGB" .. string.char(1) .. u32(width) .. u32(height) .. u32(1) .. table.concat(pixels)
+    )
+    file:close()
+
+    sources.bind_manifest(asset_name, { spritesheet = { native_path = fixture_path } })
+
+    local described = frames.describe(asset_name, 1, false)
+
+    assert.is_not_nil(described)
+    assert.are_equal(width, described.pixel_w)
+    assert.are_equal(height, described.pixel_h)
+    assert.are_equal(width, described.cols)
+    assert.are_equal(height / 2, described.rows)
+    assert.are_equal(width * height * 4, #described.rgba)
+
+    sources.unbind_manifest(asset_name)
+    native_sprite.reset()
+    os.remove(fixture_path)
+  end)
 end)
 
 describe("distract.kitty writer", function()

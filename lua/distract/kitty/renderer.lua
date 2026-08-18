@@ -20,6 +20,15 @@ local sprites = require("distract.terminal_sprites")
 
 local frame_ns = api.nvim_create_namespace("distract_kitty_frames")
 
+--- The graphics protocol transmits real pixels, so this backend asks for an
+--- asset's native-resolution art where its manifest declares one. Passed as a
+--- literal rather than looked up through `distract.backends`: this module is the
+--- kitty backend's own internals, and `kitty/init.lua` already requires it, so
+--- reading the registry back would be a circular require. Hoisted rather than
+--- built per call: this runs once per entity per tick.
+---@type table
+local KITTY_CAPABILITY = { native_resolution = true }
+
 --- Image ids this Neovim may allocate.
 ---
 --- Ids are terminal-wide, not per-process, so two editors sharing one window
@@ -166,7 +175,7 @@ end
 ---@param entity table
 ---@return DistractFrameSurface|nil
 function M.surface(entity)
-  local frame_count = #sprites.get_pixel_frames(entity.asset_name)
+  local frame_count = #sprites.get_pixel_frames(entity.asset_name, KITTY_CAPABILITY)
   local frame_idx = renderer.resolve_pixel_frame(entity, frame_count)
   local flip_x = renderer.resolve_flip(entity)
 

@@ -19,6 +19,14 @@ local PIXEL_ROWS_PER_CELL = 2
 
 local TRANSPARENT_PIXEL = "\0\0\0\0"
 
+--- The graphics protocol transmits real pixels, so this backend asks for an
+--- asset's native-resolution art where its manifest declares one. Passed as a
+--- literal rather than looked up through `distract.backends`: this module is the
+--- kitty backend's own internals, and `kitty/init.lua` already requires it, so
+--- reading the registry back would be a circular require.
+---@type table
+local KITTY_CAPABILITY = { native_resolution = true }
+
 --- One frame of one asset, ready to transmit and to place.
 ---@class DistractKittyFrame
 ---@field key string identifies the frame and its facing, not its placement size
@@ -107,7 +115,7 @@ function M.describe(asset_name, frame_idx, flip_x)
     return entry
   end
 
-  local pixel_frames = sprites.get_pixel_frames(asset_name)
+  local pixel_frames = sprites.get_pixel_frames(asset_name, KITTY_CAPABILITY)
   local matrix = pixel_frames[frame_idx] or pixel_frames[1]
   if not matrix then
     return nil

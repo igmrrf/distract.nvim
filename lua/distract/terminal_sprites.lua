@@ -47,6 +47,12 @@ function M.configure(opts)
   highlights.configure({ max_groups = opts.max_highlight_groups })
 end
 
+--- This module renders into half-block cells, so its own frame lookups ask for
+--- the cell-grid art rather than a manifest's native-resolution sidecar.
+--- Hoisted rather than built per call: this runs once per cache miss per frame.
+---@type table
+local HALFBLOCK_CAPABILITY = { native_resolution = false }
+
 --- Which art an asset has is `distract.sprite_sources`' answer; this module
 --- re-exports it so a caller asking for a frame and a caller asking what to
 --- draw it from talk to one place.
@@ -176,7 +182,7 @@ function M.get_rendered_frame(asset_name, frame_idx, flip_x)
 
   local entry = by_facing[frame_idx]
   if not entry then
-    local frames = M.get_pixel_frames(asset_name)
+    local frames = M.get_pixel_frames(asset_name, HALFBLOCK_CAPABILITY)
     local matrix = frames[frame_idx] or frames[1]
     if not matrix then
       return {}, {}, 0, 0

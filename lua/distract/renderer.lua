@@ -27,6 +27,13 @@ local api = vim.api
 local sprites = require("distract.terminal_sprites")
 local screen_map = require("distract.screen_map")
 
+--- This renderer is the half-block backend, whose smallest addressable unit is
+--- half a character cell, so it always asks for the cell-grid art rather than a
+--- manifest's native-resolution sidecar. Hoisted rather than built per call:
+--- this runs once per entity per tick.
+---@type table
+local HALFBLOCK_CAPABILITY = { native_resolution = false }
+
 --- entity_id -> { buf, win, row, col, width, height, sig, marks }
 local active_windows = {}
 
@@ -431,7 +438,7 @@ end
 ---@param entity table
 ---@return DistractFrameSurface|nil
 local function halfblock_surface(entity)
-  local frame_count = #sprites.get_pixel_frames(entity.asset_name)
+  local frame_count = #sprites.get_pixel_frames(entity.asset_name, HALFBLOCK_CAPABILITY)
   local frame_idx = M.resolve_pixel_frame(entity, frame_count)
   local flip_x = M.resolve_flip(entity)
 
