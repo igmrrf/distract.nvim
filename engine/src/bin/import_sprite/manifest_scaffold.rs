@@ -59,6 +59,31 @@ pub struct ManifestParams<'a> {
     pub fps: f32,
 }
 
+const LUA_KEYWORDS: [&str; 21] = [
+    "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto", "if", "in",
+    "local", "nil", "not", "or", "repeat", "return", "then", "true", "while",
+];
+
+/// A state name as a Lua table key.
+///
+/// Real-world action names carry hyphens (`running-right`), which are a syntax
+/// error as a bare key, so anything that is not a plain identifier is emitted in
+/// bracket form instead.
+fn lua_table_key(name: &str) -> String {
+    let is_identifier = !name.is_empty()
+        && !name.starts_with(|character: char| character.is_ascii_digit())
+        && name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
+        && !LUA_KEYWORDS.contains(&name);
+
+    if is_identifier {
+        name.to_string()
+    } else {
+        format!("[\"{}\"]", name.replace('\\', "\\\\").replace('"', "\\\""))
+    }
+}
+
 fn render_state(state: &StateSpec, fps: f32) -> String {
     let frames: Vec<String> = (state.start..=state.end)
         .map(|frame| frame.to_string())
@@ -70,7 +95,7 @@ fn render_state(state: &StateSpec, fps: f32) -> String {
       transitions = {{ on_event = {{}} }},
     }},
 ",
-        name = state.name,
+        name = lua_table_key(&state.name),
         frames = frames.join(", "),
         fps = fps,
     )
@@ -147,6 +172,45 @@ mod tests {
         assert_eq!(states.len(), 1);
         assert_eq!(states[0].name, "default");
         assert_eq!((states[0].start, states[0].end), (0, 4));
+    }
+
+    #[test]
+    fn lua_table_key_brackets_anything_that_is_not_a_plain_identifier() {
+        assert_eq!(lua_table_key("idle"), "idle");
+        assert_eq!(lua_table_key("run_alt2"), "run_alt2");
+        assert_eq!(lua_table_key("running-right"), "[\"running-right\"]");
+        assert_eq!(lua_table_key("2fast"), "[\"2fast\"]");
+        assert_eq!(lua_table_key("end"), "[\"end\"]");
+        assert_eq!(lua_table_key("look around"), "[\"look around\"]");
+    }
+
+    #[test]
+    fn a_hyphenated_state_name_renders_as_a_bracketed_key() {
+        let states = vec![StateSpec {
+            name: "running-right".to_string(),
+            start: 0,
+            end: 1,
+        }];
+        let params = ManifestParams {
+            name: "pet",
+            sheet_path: "a.png",
+            native_path: "a.rgba",
+            frame_width: 192,
+            frame_height: 208,
+            columns: 8,
+            rows: 10,
+            states: &states,
+            fps: 12.0,
+        };
+
+        let manifest = render_manifest(&params);
+
+        assert!(manifest.contains("[\"running-right\"] = {"));
+        assert!(
+            !manifest.contains("\n    running-right = {"),
+            "a bare hyphenated key is a Lua syntax error"
+        );
+        assert!(manifest.contains("initial_state = \"running-right\""));
     }
 
     #[test]
