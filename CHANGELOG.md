@@ -183,6 +183,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   structural, and both landed behind tests written first:
   `spawn_characterisation_spec.lua` pins what a spawn produces field by field,
   because the physics fixtures cover the step and barely touch the spawn.
+- **The three built-in manifests moved to `engine/src/manifests/`**, one file each,
+  and the hand-written `SpritesheetConfig` deserialiser to
+  `engine/src/spritesheet.rs`. `manifest.rs` comes down from 1,458 lines to 719.
+  `AssetManifest::default_cat` and its siblings are still the entry points, so
+  nothing that reads a built-in manifest changed; the sprite- and physics-parity
+  goldens confirm it.
 - **`GpuRenderer::sync_atlas` is now `sync_assets`**, because it uploads the voxel
   meshes as well as the sprite atlas. Neither half does any work when what it
   depends on has not changed, and the mesh half does none at all in a session that

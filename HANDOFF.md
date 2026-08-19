@@ -504,7 +504,7 @@ extracting `frame_source.lua`.
 | `sprite_gen.lua` | 445 | 400 |
 | `init.lua` | 441 | 400 |
 | `engine/src/gpu.rs` | 935 | 400 |
-| `engine/src/manifest.rs` | 1,458 | 400 |
+| `engine/src/manifest.rs` | 719 | 400 |
 | `engine/src/ecs.rs` | 2,174 | 400 |
 
 What is left in most of them is one function whose locals every branch shares:
@@ -516,10 +516,14 @@ as one.
 
 Three of these are worth naming as the next targets, with what each needs:
 
-- **`manifest.rs` (1,458)** is almost entirely `default_cat`, `default_crab` and
-  `default_sun` — three long literal state tables. §5 exempts pure static data
-  tables in dedicated data files, so moving each into `src/manifests/<name>.rs`
-  brings the module to about 300 lines and is a pure move. Cheapest win here.
+- **`manifest.rs` (719, of which 294 are its tests)** came down from 1,458: the
+  three literal state tables moved to `src/manifests/{cat,crab,sun}.rs` and the
+  hand-written `SpritesheetConfig` deserialiser to `src/spritesheet.rs`. Moving the
+  tests to `engine/tests/` — the move `ipc.rs` and `voxel.rs` both made — takes it
+  to 425, and `PhysicsConfig`/`PathParams`/`ResolvedPath` are the one seam left
+  after that. Stopped there deliberately: the remaining production code is a single
+  coherent schema, and splitting it further would be fragmentation rather than
+  decomposition.
 - **`gpu.rs` (935)** is mostly `GpuRenderer::new`: surface, device, pipeline and
   buffer construction. The seam is real (`gpu_setup.rs`), but nothing covers that
   path except the screenshot and headless suites, and the headless ones *skip*
