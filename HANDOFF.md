@@ -65,12 +65,28 @@ running; CI enforces it.
 The Lua suite needs `-u tests/minimal_init.lua`; that is where the runtimepath is
 set. Either `-l` or CI's `-c "luafile ..."` form works.
 
-`luacheck` is listed in the README as a gate but **is broken on this machine** —
-luacheck 1.2.0 under Lua 5.5 dies with `attempt to assign to const variable
-'field_name'` before it reads any project file, and fails identically on files
-nobody touched. Run it against an unmodified file to confirm before chasing it.
-`stylua --check` is the real local Lua gate. CI may still run luacheck; a green
-local run does not mean it passed.
+**`luacheck` is now green, and it was not before.** It fails to *run* under Lua
+5.5 — luacheck 1.2.0 dies inside its own `standards.lua` with `attempt to assign
+to const variable 'field_name'` before it reads any project file — so the local
+gate looked absent and nobody could see that CI's `luacheck lua plugin tests` step
+was failing on 24 warnings. It is a plain invocation with no ratchet and no
+`--no-warnings`, so any warning at all exits non-zero.
+
+The breakage is the interpreter, not the project. Install it against 5.1 and run
+it through luajit:
+
+```bash
+luarocks --lua-version=5.1 --tree=/tmp/lr install luacheck
+sh /tmp/lr/bin/luacheck lua plugin tests   # 0 warnings / 0 errors in 91 files
+```
+
+The 24 warnings were all trivial and all are fixed: locals left dead by earlier
+extractions, four aliases in `sprites/crab.lua` and one in `sprites/cat.lua` that
+nothing read, a `position`/`highlights`/`spans` shadow apiece, one over-long line,
+and five specs that re-`require`d a module their own file scope already held. None
+of it changed behaviour; all 530 tests and every golden are unchanged.
+
+`stylua --check` is still the formatting gate and is separate.
 
 `cargo test --test gpu3d_headless` and `--test gpu_headless` **skip rather than
 fail** when no GPU adapter is available, so a green run on a headless runner does

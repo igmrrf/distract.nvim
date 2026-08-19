@@ -336,7 +336,6 @@ describe("generated sprite animation smoothness", function()
 end)
 
 describe("distract custom asset registration", function()
-  local sprites = require("distract.terminal_sprites")
   local distract = require("distract")
 
   --- A 2x2 sprite set, deliberately unlike any built-in.

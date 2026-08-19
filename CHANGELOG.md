@@ -246,6 +246,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `require("distract.manifests." .. name)`, fail, and draw the cat under the
   asked-for name — the exact failure `register_asset` exists to prevent. Only the
   art half held, because `terminal_sprites` is a live registry.
+- **The `luacheck` CI gate was failing, and nothing local could see it.** luacheck
+  1.2.0 cannot run under Lua 5.5 at all — it dies inside its own `standards.lua`
+  before reading any project file — so the gate looked absent locally while CI's
+  plain `luacheck lua plugin tests` step exited non-zero on 24 warnings. All 24 are
+  fixed: locals left dead by earlier extractions, sprite palette aliases nothing
+  read, three shadowed names, one over-long line, and five specs that re-`require`d
+  a module their file scope already held. `HANDOFF.md` records how to run luacheck
+  locally against Lua 5.1. Behaviour is unchanged; every golden and all 530 tests
+  are untouched.
 - **A duplicate `*distract-capabilities*` help tag** made `helptags` fail outright
   and `:help distract-capabilities` ambiguous. The asset-declaration one is now
   `*distract-asset-capabilities*`.

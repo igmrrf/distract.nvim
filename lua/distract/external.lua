@@ -42,18 +42,14 @@ function M.overlay_args(overlay)
     return {}
   end
 
-  local position = overlay.position
-  if position ~= nil then
-    if
-      type(position) ~= "table"
-      or type(position.x) ~= "number"
-      or type(position.y) ~= "number"
-    then
+  local point = overlay.position
+  if point ~= nil then
+    if type(point) ~= "table" or type(point.x) ~= "number" or type(point.y) ~= "number" then
       return nil, "overlay.position must be { x = <number>, y = <number> }"
     end
     return {
       "--overlay-position",
-      string.format("%d,%d", math.floor(position.x), math.floor(position.y)),
+      string.format("%d,%d", math.floor(point.x), math.floor(point.y)),
     }
   end
 

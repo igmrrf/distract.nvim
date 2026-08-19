@@ -24,9 +24,6 @@ local plugins = require("distract.plugins")
 local viewport = require("distract.viewport")
 local visibility = require("distract.visibility")
 
---- Sprite pixels per terminal cell.
-local CELLS_PER_SPRITE_PX_X = kinematics.CELLS_PER_SPRITE_PX_X
-local CELLS_PER_SPRITE_PX_Y = kinematics.CELLS_PER_SPRITE_PX_Y
 --- Reference frame rate the manifest velocities are expressed against.
 local REFERENCE_FPS = kinematics.REFERENCE_FPS
 
@@ -55,15 +52,10 @@ local consecutive_render_failures = 0
 --- the identical frames after it, so the first quiescent tick still draws.
 local quiescent_drawn = false
 
---- Locomotion classes and the capability gate, shared with `external.lua` so
---- the same manifest is refused with the same words on either backend.
+--- The capability gate, shared with `external.lua` so the same manifest is
+--- refused with the same words on either backend. Placement now travels with
+--- entity construction, in `entity_spawn.lua`.
 local locomotion = require("distract.locomotion")
-local BALLISTIC = locomotion.BALLISTIC
-
---- Placement, floors and parallax, shared with `external.lua` for the same
---- reason: one manifest and one `position` config place an entity the same way
---- on either backend.
-local position = require("distract.position")
 
 --- Re-exported for tests and for anyone reading a manifest by hand.
 M.effective_locomotion = locomotion.effective_locomotion

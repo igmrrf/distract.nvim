@@ -506,6 +506,13 @@ stylua --check lua plugin tests
 luacheck lua plugin tests
 ```
 
+`luacheck` cannot run under Lua 5.5 — it fails inside its own source before
+reading any project file — so install it against 5.1 to run the gate locally:
+```bash
+luarocks --lua-version=5.1 --tree=/tmp/lr install luacheck
+sh /tmp/lr/bin/luacheck lua plugin tests
+```
+
 ---
 
 ## 📖 Documentation

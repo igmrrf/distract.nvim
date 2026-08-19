@@ -88,7 +88,7 @@ local LOWER_HALF = "\u{2584}"
 --- byte offset `col` and byte length `len` (suitable for `nvim_buf_set_extmark`).
 function M.render_halfblock_frame(pixel_rows, owner)
   local lines = {}
-  local highlights = {}
+  local spans = {}
   local width = frame_source.matrix_width(pixel_rows)
 
   for r = 1, #pixel_rows, 2 do
@@ -119,7 +119,7 @@ function M.render_halfblock_frame(pixel_rows, owner)
       end
 
       if hl then
-        table.insert(highlights, { row = row_idx, col = byte_col, len = #glyph, hl = hl })
+        table.insert(spans, { row = row_idx, col = byte_col, len = #glyph, hl = hl })
       end
       table.insert(line_chars, glyph)
       byte_col = byte_col + #glyph
@@ -128,7 +128,7 @@ function M.render_halfblock_frame(pixel_rows, owner)
     table.insert(lines, table.concat(line_chars))
   end
 
-  return lines, highlights, width, #lines
+  return lines, spans, width, #lines
 end
 
 -- Rendering a frame depends only on `(asset, frame index, facing)`, and the
@@ -161,8 +161,8 @@ function M.get_rendered_frame(asset_name, frame_idx, flip_x)
     if not matrix then
       return {}, {}, 0, 0
     end
-    local lines, highlights, w, h = M.render_halfblock_frame(matrix, asset_name)
-    entry = { lines = lines, highlights = highlights, width = w, height = h }
+    local lines, spans, width, height = M.render_halfblock_frame(matrix, asset_name)
+    entry = { lines = lines, highlights = spans, width = width, height = height }
     by_facing[frame_idx] = entry
   end
 
@@ -188,9 +188,9 @@ end
 ---
 --- Adjacent cells sharing a highlight are merged into one chunk, so a row is
 --- typically one or two extmarks rather than one per cell.
-local function build_runs(lines, highlights)
+local function build_runs(lines, highlight_spans)
   local by_row = {}
-  for _, hl in ipairs(highlights) do
+  for _, hl in ipairs(highlight_spans) do
     local row = by_row[hl.row]
     if not row then
       row = {}
@@ -257,11 +257,11 @@ function M.get_frame_runs(asset_name, frame_idx, flip_x)
 
   local entry = by_facing[frame_idx]
   if not entry then
-    local lines, highlights, w, h = M.get_rendered_frame(asset_name, frame_idx, flip_x)
-    if w < 1 or h < 1 then
+    local lines, spans, width, height = M.get_rendered_frame(asset_name, frame_idx, flip_x)
+    if width < 1 or height < 1 then
       return nil
     end
-    entry = { rows = build_runs(lines, highlights), width = w, height = h }
+    entry = { rows = build_runs(lines, spans), width = width, height = height }
     by_facing[frame_idx] = entry
   end
 

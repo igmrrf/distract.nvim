@@ -24,7 +24,7 @@ local ZZZ = { 168, 206, 250 }
 -- kept for the accents that must read as holes: eyes and an open mouth.
 local RIM = FUR_DARK
 
-local sin, pi, max, floor, abs = math.sin, math.pi, math.max, math.floor, math.abs
+local sin, pi, max, floor = math.sin, math.pi, math.max, math.floor
 
 --- The tail: the cat's primary motion cue, so it is drawn thick enough to read.
 ---

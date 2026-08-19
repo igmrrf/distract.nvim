@@ -105,8 +105,6 @@ describe("distract.engine render fault tolerance", function()
 end)
 
 describe("distract.engine parity with the overlay", function()
-  local engine = require("distract.engine")
-
   -- Each test registers its manifest under its own name. `engine.setup` merges
   -- config with `tbl_deep_extend("force", ...)`, so reusing one name would let
   -- a previous test's physics fields survive into the next one.

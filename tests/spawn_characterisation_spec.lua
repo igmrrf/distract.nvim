@@ -254,20 +254,22 @@ describe("spawn initial state", function()
     distract.setup({ backend = "halfblock" })
     engine.clear()
 
-    local frame_indices, phases = {}, {}
+    local phases = {}
     quietly(function()
       for _ = 1, 12 do
         engine.spawn("cat")
       end
     end)
     for _, entity in ipairs(engine.get_entities()) do
-      frame_indices[entity.frame_idx] = true
       table.insert(phases, entity.path_phase)
       assert.is_true(entity.frame_idx >= 1, "a Lua frame index is 1-based")
       assert.is_true(entity.frame_timer >= 0 and entity.frame_timer < 0.1)
       assert.is_true(entity.path_phase >= 0 and entity.path_phase < 2 * math.pi)
     end
 
+    -- Distinctness is asserted on the phase rather than on the frame index: the
+    -- phase comes from a continuous source, while a frame index is drawn from as
+    -- few as one frame and twelve draws from it may legitimately coincide.
     local distinct_phases = {}
     for _, phase in ipairs(phases) do
       distinct_phases[tostring(phase)] = true
