@@ -205,9 +205,38 @@ struct Sample {
     animation_finished: bool,
 }
 
-/// Rust reproducing its own goldens is exact arithmetic, so the tolerance here
-/// only absorbs JSON's decimal round-trip. The Lua side carries the wider one.
-const TOLERANCE: f32 = 1e-5;
+/// The floor, for samples at or near zero where a relative bound collapses.
+///
+/// Absorbs JSON's decimal round-trip, which is all this needed back when the
+/// goldens were only ever compared on the machine that wrote them.
+const ABSOLUTE_TOLERANCE: f32 = 1e-5;
+
+/// Accumulated drift allowed, in f32 units of least precision, relative to the
+/// sample's own magnitude.
+///
+/// Rust reproducing its own goldens is *not* exact arithmetic across platforms,
+/// which this harness assumed for a long time because it only ever ran on one.
+/// `entity_step` computes its friction lerp with `f32::exp`, and `expf` is not
+/// required to be correctly rounded — Apple's libm, glibc and the MSVC CRT each
+/// return their own last bit. One differing ULP at the first step compounds
+/// through the integration, so a golden written on macOS missed an absolute
+/// 1e-5 bound on Windows by step 12 of `accel_floorless`.
+///
+/// Relative rather than absolute because an absolute bound silently tightens as
+/// a trajectory travels: 1e-5 is 26 ULP at x = 5 and 3 ULP at x = 57. That was
+/// an accident of which fixtures ran far, not a policy.
+///
+/// This stays far below anything a real divergence produces. A wrong constant
+/// or a mis-ordered branch moves a trajectory by whole cells and grows without
+/// bound over the 120 steps a fixture runs; 64 ULP at these magnitudes is under
+/// a thousandth of one cell.
+const DRIFT_ULPS: f32 = 64.0;
+
+/// How far two samples of the same trajectory may sit apart.
+fn tolerance_for(expected: f32, actual: f32) -> f32 {
+    let magnitude = expected.abs().max(actual.abs());
+    ABSOLUTE_TOLERANCE.max(f32::EPSILON * DRIFT_ULPS * magnitude)
+}
 
 fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is `engine/`; fixtures are shared with the Lua suite.
@@ -439,9 +468,12 @@ fn rust_physics_matches_the_golden_trajectories() {
                 ("vx", want.vx, got.vx),
                 ("vy", want.vy, got.vy),
             ] {
+                let allowed = tolerance_for(w, g);
                 assert!(
-                    (w - g).abs() <= TOLERANCE,
-                    "{name} step {i}: {field} drifted, golden {w} vs {g}"
+                    (w - g).abs() <= allowed,
+                    "{name} step {i}: {field} drifted, golden {w} vs {g} \
+                     (differs by {}, allowed {allowed})",
+                    (w - g).abs()
                 );
             }
             assert_eq!(want.flip_x, got.flip_x, "{name} step {i}: flip_x diverged");
