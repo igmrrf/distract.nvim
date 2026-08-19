@@ -16,6 +16,7 @@ local uv = vim.uv or vim.loop
 local renderer = require("distract.renderer")
 local sprites = require("distract.terminal_sprites")
 
+local entity_spawn = require("distract.entity_spawn")
 local entity_step = require("distract.entity_step")
 local kinematics = require("distract.kinematics")
 local obstacles = require("distract.obstacles")
@@ -122,63 +123,11 @@ local FLOOR_MATCH_EPSILON_CELLS = 1e-6
 --- floor. Nil until the first spawn or the first `set_ground_row`.
 local floor_row = nil
 
---- Size of an asset's sprite in terminal cells.
-local function sprite_cell_size(asset_name)
-  local ok, w, h = pcall(sprites.get_dimensions, asset_name)
-  if not ok or not w then
-    return 16, 8
-  end
-  return w * CELLS_PER_SPRITE_PX_X, h * CELLS_PER_SPRITE_PX_Y
-end
-
---- Where one spawn lands, how deep it is, and what it stands on.
----
---- The floor is whatever was last pushed in, exactly as it is on the overlay:
---- only the editor can see `cmdheight`, the statusline and where the text ends,
---- so only the editor measures, and both engines are told. A spawn naming its
---- own `ground` is the one case that measures here, because it is asking about
---- a surface the pushed floor does not describe.
-local function resolve_placement(asset_name, manifest, initial_def, opts)
-  local settings = position.settings(config.position, opts)
-  local spawn_floor_row = opts.ground and position.floor_row(settings.ground) or floor_row
-
-  local _, sprite_h = sprite_cell_size(asset_name)
-  return position.placement({
-    settings = settings,
-    backend = config.backend,
-    locomotion = locomotion.locomotion_for(manifest, initial_def),
-    declared_anchor = position.manifest_anchor(manifest),
-    floor_row = spawn_floor_row,
-    sprite_h = sprite_h,
-    bounds = viewport.bounds(),
-    opts = opts,
-  })
-end
-
 function M.spawn(asset_name, opts)
   opts = opts or {}
   asset_name = asset_name or "cat"
 
-  local manifest = config.assets and config.assets[asset_name]
-  if not manifest then
-    local ok, loaded = pcall(require, "distract.manifests." .. asset_name)
-    if ok then
-      manifest = loaded
-    else
-      -- Reported rather than silently substituted: spawning a typo used to
-      -- produce a working-looking cat under the name you asked for.
-      vim.notify(
-        string.format(
-          "[Distract] No manifest for asset '%s'; using the cat's behaviour. "
-            .. "Define it in setup({ assets = { %s = ... } }).",
-          asset_name,
-          asset_name
-        ),
-        vim.log.levels.WARN
-      )
-      manifest = require("distract.manifests.cat")
-    end
-  end
+  local manifest = entity_spawn.resolve_manifest(asset_name, config.assets)
 
   -- Checked here rather than per frame, and before anything is allocated: a
   -- manifest that cannot work is worth one message when it arrives, not thirty
@@ -198,77 +147,23 @@ function M.spawn(asset_name, opts)
   sprites.bind_manifest(asset_name, manifest)
 
   entity_counter = entity_counter + 1
-  local id = entity_counter
   local initial_state = manifest.initial_state or "idle"
-
   local initial_def = manifest.states and manifest.states[initial_state]
-  local placement = resolve_placement(asset_name, manifest, initial_def, opts)
 
-  -- `z` is draw order as well as depth, and it wins over the manifest's
-  -- `z_index` when a spawn asks for one.
-  local z_index = placement.z and math.floor(placement.z + 0.5) or manifest.z_index or 10
-
-  local start_x = placement.x
-  local start_y = placement.y
-  local flip_x = opts.flip_x or false
-  local heading_x = flip_x and -1 or 1
-
-  local entity = {
-    id = id,
+  local entity = entity_spawn.build({
+    id = entity_counter,
     asset_name = asset_name,
     manifest = manifest,
-    x = start_x,
-    y = start_y,
-    vx = 0,
-    vy = 0,
-    target_vx = 0,
-    target_vy = 0,
-    heading_x = heading_x,
-    flip_x = flip_x,
-    current_state = initial_state,
-    state_time = 0,
-    frame_idx = 1,
-    frame_timer = 0,
-    animation_finished = false,
-    is_active = true,
-    -- Where a path primitive anchors its x axis, re-taken on every state
-    -- change. `base_y` has always existed for `sine`; the paths that write x
-    -- need the other half of the same idea.
-    base_x = start_x,
-    base_y = start_y,
-    ground_y = placement.ground_y or start_y,
-    path_phase = 0,
-    action_timer = nil,
-    action_duration = nil,
-    return_state = nil,
-    is_locked = false,
-    z_index = z_index,
-    z = placement.z or 0,
-    parallax = placement.parallax,
-  }
-
-  -- Apply initial state physics
-  local state_def = initial_def
-  if state_def and state_def.physics then
-    local p = state_def.physics
-    entity.target_vx = (p.target_vx or 0) * heading_x
-    entity.target_vy = p.target_vy or 0
-    entity.vx = entity.target_vx
-    entity.vy = entity.target_vy
-    entity.is_locked = state_def.is_locked or false
-    if p.ground_y then
-      entity.ground_y = p.ground_y
-    end
-  end
-
-  -- Desynchronise from anything already alive. Two cats spawned together
-  -- otherwise share a frame index, a frame timer and a path phase for the rest
-  -- of their lives, which reads as a chorus line rather than as two animals.
-  local anim = state_def and state_def.animation
-  local frame_count = (anim and anim.frames and #anim.frames) or 1
-  entity.frame_idx = math.random(1, math.max(1, frame_count))
-  entity.frame_timer = math.random() * 0.1
-  entity.path_phase = math.random() * 2 * math.pi
+    flip_x = opts.flip_x or false,
+    placement = entity_spawn.placement({
+      asset_name = asset_name,
+      manifest = manifest,
+      initial_def = initial_def,
+      opts = opts,
+      config = config,
+      floor_row = floor_row,
+    }),
+  })
 
   table.insert(entities, entity)
   -- A new entity may itself be perfectly still. Without this, an idle screen
@@ -283,12 +178,12 @@ function M.spawn(asset_name, opts)
     string.format(
       "[Distract] Spawned %s (#%d) [%s] (in-terminal mode)",
       asset_name,
-      id,
+      entity.id,
       initial_state
     ),
     vim.log.levels.INFO
   )
-  return id
+  return entity.id
 end
 
 --- Moves the floor, re-seating whatever was standing on the old one.
@@ -337,7 +232,7 @@ function M.set_ground_row(row)
   end
 
   for _, entity in ipairs(entities) do
-    local _, sprite_h = sprite_cell_size(entity.asset_name)
+    local _, sprite_h = entity_spawn.sprite_cell_size(entity.asset_name)
     sprite_h = sprite_h * (entity.parallax or 1.0)
     local was = previous - sprite_h
     if math.abs(entity.ground_y - was) < FLOOR_MATCH_EPSILON_CELLS then
@@ -580,7 +475,7 @@ function M.step(dt, bounds)
         obstacle_rects = obstacle_rects,
         collisions = collisions,
         set_state = M.set_entity_state,
-        sprite_cell_size = sprite_cell_size,
+        sprite_cell_size = entity_spawn.sprite_cell_size,
       })
     then
       despawned = true
