@@ -131,6 +131,11 @@ local function run(fixture)
   engine.set_ground_row(nil)
   engine.set_ground_row(fixture.ground_row)
 
+  -- Obstacles are engine state for the same reason, and are already in cells:
+  -- the Rust runner converts them to pixels, this side reads them as they are,
+  -- exactly as `external.lua` and `engine.lua` treat a provider's rectangles.
+  engine.set_obstacles(fixture.obstacles or {})
+
   quietly(function()
     engine.spawn(name, {
       x = fixture.spawn.x,
@@ -173,7 +178,15 @@ local function run(fixture)
     return frames[position]
   end
 
-  local bounds = { columns = fixture.bounds.columns, lines = fixture.bounds.lines }
+  -- `col` and `row` are absent on almost every fixture, which means the whole
+  -- editor grid. Present, they describe a scoped rectangle inside it, exactly as
+  -- `positioning.scope = "buffer"` produces.
+  local bounds = {
+    columns = fixture.bounds.columns,
+    lines = fixture.bounds.lines,
+    col = fixture.bounds.col,
+    row = fixture.bounds.row,
+  }
   local trajectory = {}
   for _ = 1, fixture.steps do
     quietly(function()

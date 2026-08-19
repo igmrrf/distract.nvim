@@ -7,31 +7,40 @@
 use std::f32::consts::PI;
 
 use super::SpriteSet;
-use crate::sprite_gen::{self as g, Canvas, CelOrbOpts, Rgb};
+use crate::sprite_gen::{self as g, Canvas, Rgb};
 
 const W: u32 = 24;
 const H: u32 = 16;
 
-const SHELL: Rgb = [238, 52, 44];
-const SHELL_DARK: Rgb = [156, 24, 28];
-const SHELL_LIGHT: Rgb = [255, 124, 88];
-const SHELL_SPEC: Rgb = [255, 172, 140];
-const SHELL_GROOVE: Rgb = [120, 18, 22];
-const CONTOUR: Rgb = [48, 14, 18];
+// Flat, banded palette. Mirrors `lua/distract/sprites/crab.lua`. Four shell tones
+// did not read at 24x16 -- a carapace twelve pixels across cannot carry a gradient
+// -- and every distinct colour pair is a Neovim highlight group.
+const CONTOUR: Rgb = [44, 14, 18];
+const SHELL: Rgb = [232, 54, 46];
+const SHELL_DARK: Rgb = [150, 24, 28];
+const SHELL_LIGHT: Rgb = [255, 132, 96];
 const CLAW: Rgb = [252, 108, 64];
-const CLAW_DARK: Rgb = [184, 52, 36];
-const CLAW_LIGHT: Rgb = [255, 148, 108];
 const CLAW_TOOTH: Rgb = [255, 246, 230];
-const LEG: Rgb = [204, 40, 36];
-const LEG_DARK: Rgb = [136, 20, 22];
-const LEG_LIGHT: Rgb = [240, 72, 64];
 const EYE_WHITE: Rgb = [255, 255, 255];
 const EYE_DARK: Rgb = [24, 20, 32];
-const WHITE: Rgb = [255, 255, 255];
 const SAND: Rgb = [224, 192, 138];
-const SPARKLE: Rgb = [255, 248, 160];
+const SAND_DEEP: Rgb = [186, 154, 104];
 const ZZZ: Rgb = [176, 212, 255];
-const ZZZ_FADE: Rgb = [140, 180, 235];
+
+// The bands the old five-term model spent on gradient, aliased so every drawing
+// call still names the part of the crab it is drawing.
+const SHELL_SPEC: Rgb = SHELL_LIGHT;
+const SHELL_GROOVE: Rgb = SHELL_DARK;
+const LEG_DARK: Rgb = SHELL_DARK;
+
+/// The rim is a darker shell tone rather than the near-black contour, for the same
+/// reason the cat's is: a near-black outline merges into a dark editor background
+/// and takes the silhouette's edge with it. CONTOUR is kept for the eye pupil and
+/// the closed-eye line, which must read as holes.
+const RIM: Rgb = SHELL_DARK;
+const WHITE: Rgb = EYE_WHITE;
+const SPARKLE: Rgb = CLAW_TOOTH;
+const ZZZ_FADE: Rgb = ZZZ;
 
 /// One crab pose.
 #[derive(Debug, Clone, Copy)]
@@ -73,12 +82,6 @@ fn draw_legs(c: &mut Canvas, cx: f32, cy: f32, shell_ry: f32, leg: f32, sink: f3
     if sink >= 0.75 {
         return;
     }
-    let leg_opts = CelOrbOpts {
-        shadow: Some(LEG_DARK),
-        highlight: Some(LEG_LIGHT),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
     for i in 0..=3 {
         let hip_x = cx - 3.4 + i as f32 * 2.2;
         let dir = if i < 2 { -1.0_f32 } else { 1.0_f32 };
@@ -86,65 +89,36 @@ fn draw_legs(c: &mut Canvas, cx: f32, cy: f32, shell_ry: f32, leg: f32, sink: f3
         let swing = ((leg + phase) * 2.0 * PI).sin();
         let foot_x = hip_x + dir * (2.8 + swing * 1.3);
         let foot_y = cy + 3.6 + (-swing).max(0.0) * 1.1;
-        c.cel_limb(
+        // Fill and contour are the same tone: a leg one pixel across cannot
+        // carry both, and the leg is already the darkest thing on the crab.
+        c.limb(
             [hip_x, cy + shell_ry * 0.5],
             [foot_x, foot_y],
             1.15,
-            LEG,
-            &leg_opts,
+            LEG_DARK,
+            LEG_DARK,
         );
     }
 }
 
 fn draw_claws(c: &mut Canvas, cx: f32, cy: f32, shell_rx: f32, raise: f32, clamp: f32) {
-    let arm_opts = CelOrbOpts {
-        shadow: Some(SHELL_DARK),
-        highlight: Some(SHELL_LIGHT),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
-    let top_claw_opts = CelOrbOpts {
-        shadow: Some(CLAW_DARK),
-        highlight: Some(CLAW_LIGHT),
-        outline: Some(CONTOUR),
-        rim: Some(0.3),
-        rim_color: Some(WHITE),
-        ..Default::default()
-    };
-    let bottom_claw_opts = CelOrbOpts {
-        shadow: Some(CLAW_DARK),
-        highlight: Some(SHELL_LIGHT),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
     for side in [-1.0_f32, 1.0_f32] {
         let base_x = cx + side * (shell_rx + 0.6);
         let base_y = cy - 0.4 - raise * 3.4;
         let reach_x = base_x + side * 2.2;
-        c.cel_limb(
+        // The arm is thin so the pincer at the end of it is the wide part.
+        c.limb(
             [cx + side * shell_rx * 0.7, cy - 0.2],
             [base_x + side * 1.4, base_y],
-            1.3,
-            SHELL,
-            &arm_opts,
+            1.1,
+            SHELL_DARK,
+            SHELL_DARK,
         );
-        let gap = (1.0 - clamp) * 2.6;
-        c.cel_orb(
-            reach_x,
-            base_y - gap * 0.5 - 0.4,
-            2.2,
-            1.5,
-            CLAW,
-            &top_claw_opts,
-        );
-        c.cel_orb(
-            reach_x,
-            base_y + gap * 0.5 + 0.4,
-            2.2,
-            1.5,
-            CLAW,
-            &bottom_claw_opts,
-        );
+        let gap = 1.2 + (1.0 - clamp) * 3.4;
+        // Two prongs with daylight between them, which is the only way a pincer
+        // reads as a pincer at this size.
+        c.blob(reach_x, base_y - gap * 0.5, 2.4, 1.3, CLAW, RIM);
+        c.blob(reach_x, base_y + gap * 0.5, 2.4, 1.3, CLAW, RIM);
         c.set(reach_x + side * 1.6, base_y - gap * 0.3, CLAW_TOOTH);
         c.set(reach_x + side * 1.6, base_y + gap * 0.3, CLAW_TOOTH);
         if clamp > 0.85 {
@@ -154,18 +128,13 @@ fn draw_claws(c: &mut Canvas, cx: f32, cy: f32, shell_rx: f32, raise: f32, clamp
 }
 
 fn draw_eyestalks(c: &mut Canvas, cx: f32, cy: f32, stalk: f32, eye: f32) {
-    let eye_opts = CelOrbOpts {
-        shadow: Some(SHELL_DARK),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
     for side in [-1.0_f32, 1.0_f32] {
         let sx = cx + side * 2.1;
         let sy = cy - 2.8 - stalk * 1.6;
-        c.line(sx, cy - 1.2, sx, sy + 1.2, CONTOUR);
+        c.line(sx, cy - 1.2, sx, sy + 1.2, RIM);
         c.line(sx, cy - 1.0, sx, sy + 1.4, SHELL);
         if eye > 0.3 {
-            c.cel_orb(sx, sy, 1.6, 1.6, EYE_WHITE, &eye_opts);
+            c.blob(sx, sy, 1.6, 1.6, EYE_WHITE, RIM);
             c.set(sx, sy, EYE_DARK);
             c.set(sx + 0.4, sy - 0.4, WHITE);
         } else {
@@ -179,10 +148,12 @@ fn draw_sand_and_sleep(c: &mut Canvas, cx: f32, cy: f32, sink: f32, zzz: f32) {
         let mound_w = (4.0 + sink * 7.0).floor() as i32;
         let mound_y = 13_i32;
         let rows = (sink * 3.0).floor() as i32;
+        // Two flat tones, not a per-pixel ramp: `shade` per column gave the mound
+        // a distinct colour per pixel, which is a highlight group per pixel.
         for row in 0..=rows {
             let half = mound_w - row * 2;
+            let tone = if row == 0 { SAND } else { SAND_DEEP };
             for dx in -half..=half {
-                let tone = g::shade(SAND, -0.08 * row as f32 + 0.05 * (dx as f32 * 0.9).cos());
                 c.set(cx + dx as f32, (mound_y - row) as f32, tone);
             }
         }
@@ -216,34 +187,25 @@ fn draw_sand_and_sleep(c: &mut Canvas, cx: f32, cy: f32, sink: f32, zzz: f32) {
 pub fn draw(p: &Pose) -> Canvas {
     let mut c = Canvas::new(W, H);
     let cx = 12.0;
-    let cy = 8.4 + p.bob * 0.6 + p.sink * 4.0;
+    // Seated low enough that the legs reach the bottom of the canvas: an asset's
+    // cell footprint is its whole canvas, so empty rows underneath would float the
+    // crab above the floor it is anchored to.
+    let cy = 9.8 + p.bob * 0.6 + p.sink * 4.0;
     let shell_rx = 5.6;
     let shell_ry = 3.4;
 
     draw_legs(&mut c, cx, cy, shell_ry, p.leg, p.sink);
     draw_claws(&mut c, cx, cy, shell_rx, p.raise, p.clamp);
 
-    let shell_opts = CelOrbOpts {
-        shadow: Some(SHELL_DARK),
-        highlight: Some(SHELL_LIGHT),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
-    c.cel_orb(cx, cy, shell_rx, shell_ry, SHELL, &shell_opts);
+    c.blob(cx, cy, shell_rx, shell_ry, SHELL, RIM);
 
-    let crest_opts = CelOrbOpts {
-        shadow: Some(CONTOUR),
-        highlight: Some(SHELL),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
-    c.cel_orb(
+    c.blob(
         cx,
         cy + 0.5,
         shell_rx * 0.66,
         shell_ry * 0.52,
         SHELL_DARK,
-        &crest_opts,
+        RIM,
     );
 
     c.set(cx - 2.0, cy - 1.2, SHELL_SPEC);

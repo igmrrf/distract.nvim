@@ -10,6 +10,84 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Three new built-in pets** — `gudong`, `iris` and `minty` — original characters
+  from the [`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex-pet)
+  gallery under licences that permit redistribution (CC BY 4.0 and MIT), credited
+  per artist in [`ATTRIBUTION.md`](ATTRIBUTION.md). Nine states and 74 frames
+  each, imported through the existing pipeline. The rule is the licence, not the
+  source: everything else in that gallery, and everything under
+  `assets/codex_pets/`, is franchise fan art or states no licence, and none of it
+  is bundled.
+- **A second source for the pet import tooling.**
+  `tools/codex_pets/scrape_pets.py --source awesome` reads the gallery over the
+  GitHub contents API. Its `pet.json` carries no atlas metadata, so
+  `awesome_source.py` derives the grid from the sheet's own WebP header against
+  the fixed 192×208 cell and identifies the sprite version by row count; a sheet
+  that is not a whole grid is skipped with the reason rather than imported against
+  a guessed row mapping. Each pet's declared licence is copied into the catalogue
+  so it travels with the material. `pet_layout.py`, `import_pets.py` and
+  `verify_layout.py` are unchanged, which the import of a real gallery pet
+  verifies.
+- **`tests/builtin_assets_spec.lua`** — one suite over every shipped asset,
+  discovered from the plugin rather than listed, so a new built-in is covered the
+  moment it is added: its manifest resolves, its art loads at a footprint that
+  fits a terminal, every state points at frames that exist, its own capability
+  gate accepts it, and it spawns, animates and draws.
+- **A "bring your own pet" guide** in `docs/importing-assets.md`: the exact
+  `import_sprite` invocation for a codex-pets or awesome-codex-pet download, and
+  what to check before redistributing anything.
+- **A plugin hook pipeline** (`register_plugin`). Seven lifecycle hooks —
+  `on_init`, `on_tick`, `on_state_change`, `on_collision`, `on_editor_event`,
+  `on_draw`, `on_teardown` — dispatched in registration order. The entity a hook
+  receives is a read-only proxy and every mutation goes through a world command
+  (`request_state`, `apply_impulse`, `despawn`, `mark_dirty`) applied at the top
+  of the next step, because the in-terminal backends simulate in Lua while the
+  overlay simulates in its own process: a hook that assigned `entity.vx` would
+  have moved the sprite on two backends out of three. The overlay reports state
+  changes and collisions back over IPC from a bounded journal, and subscribes to
+  world snapshots only while a plugin is actually listening. A hook that raises is
+  reported once and its plugin is disabled for the session. See
+  `:help distract-plugins`.
+- **A spatial obstacle provider** (`register_obstacle_provider`). Rectangles in
+  terminal cells, typed `solid_platform` or `hazard`, collected in Neovim on a
+  debounced cadence and pushed to whichever engine is running — the same rule the
+  floor follows, because only the editor can read a buffer. A platform is a
+  one-way floor a falling entity lands on and a grounded entity walks along; a
+  hazard turns an entity around. Bounded at 128 rectangles, with a malformed one
+  refused rather than reaching the physics. Four new physics-parity fixtures pin
+  the rules on both engines. See `:help distract-obstacles`.
+- **Buffer-scoped positioning** (`positioning.scope`). `"editor"` (the default,
+  unchanged behaviour), `"window"`, `"buffer"` — the window's text area with the
+  gutter taken off — or `"absolute"`. Wrapping, bouncing and clamping all measure
+  against the resolved rectangle on both backends; the overlay is told about it
+  with a new `UpdateViewportScope` command and clips its render pass to it. Three
+  new parity fixtures pin a scoped origin. `positioning.exclude_floating` and
+  `exclude_filetypes` hide a sprite that would cover a floating window or a listed
+  filetype, and `positioning.z_index_offset` (default 40) puts sprite surfaces
+  below LSP hovers rather than over them.
+- **Instance visibility scoping** (`restrict_to_instance`, on by default).
+  Sprites are hidden while the owning Neovim instance does not have focus and
+  shown again when it regains it; the simulation keeps stepping, so an entity
+  halfway through a wrap is not stranded. Set it `false` to keep the old
+  full-screen behaviour, which is what a standalone desktop animation wants.
+- **Seamless toroidal wrap.** A wrapping entity is now drawn at both edges at
+  once instead of appearing to stop at the edge and then pop: the in-terminal
+  renderer places one float per slice, scrolled to that slice's own corner of the
+  frame buffer, and the overlay emits complementary quads in the same instanced
+  draw with the pass scissored to the bounds. A sprite leaving a corner is drawn
+  four times, which is the case the tests cover first.
+- **`examples/plugins/`** — two working reference plugins, one per extension
+  surface, that exercise every hook and turn function headers and closed folds
+  into platforms a pet walks along.
+- **A tick-cost benchmark**, `engine/tests/tick_budget.rs` and
+  `tools/bench_tick.lua`, which is what `future.md` §5.5 gated ambient weather
+  on. Measured: 200 entities cost 0.074 ms per tick in the overlay (0.4% of a
+  60 FPS frame, debug build) and 4.0 ms per frame stepped-and-drawn in the
+  terminal (12% of a 30 FPS frame), both linear in the entity count. Weather can
+  be a plugin; it does not need a batched particle path in the core.
+- **`tools/preview_sprite.lua`** — dumps an asset's frames as text, so a
+  silhouette can be judged from a headless run.
+
 - **A sprite import pipeline** (`import_sprite`, a new binary in the engine
   crate). Turns a GIF, a folder of PNG frames, or a pre-packed atlas
   (`--spritesheet` with `--cell` and `--row-counts`) into three artifacts from one
@@ -38,6 +116,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [`docs/codex-pets-sprite-layout.md`](docs/codex-pets-sprite-layout.md).
 
 ### Changed
+- **Silhouette-first art, every built-in asset.** The analytical shading model
+  produced gradients that did not survive 24x16: at that size a sprite is 24
+  columns by eight half-block rows, and the cat read as a fox. All three assets
+  are now flat fills inside a one-pixel contour with two or three tone bands. The
+  cat gained upright ears with a real gap between them, a fore/hind leg
+  distinction and a tail thick enough to read as its motion cue; the crab gained
+  pincers with daylight between the prongs; the sun gained rays two pixels across
+  and an eclipse that is distinguishable from the shining pose. New `blob`,
+  `limb` and `rect` primitives in both sprite generators are the flat vocabulary.
+  Measured: **118** live highlight groups for all 79 built-in frames, against
+  1,894 before — 3% of `max_highlight_groups` where it was 46%. Cross-engine
+  drift more than halved, to 97 pixels in 27,136, with **zero** unexplained
+  pixels on every asset, so the two previously-unexplainable sun pixels are gone.
+  Two things had to be got right for any of it to read on screen, neither of them
+  visible in a character grid: a contour has to be stamped as the shape's actual
+  rim rather than as a filled disc with a smaller disc inset (the radii quantise,
+  so a head-sized shape came out solid outline), and the rim has to be a darker
+  tone *of the fill* rather than near-black, because a near-black outline
+  disappears into a dark editor background and takes the silhouette's edge with
+  it. `tests/screenshots/` is regenerated and is how this was judged.
+- `draw_tail`'s sixth segment is removed on both engines. It drew nothing: its
+  centre landed off the canvas with a radius under a pixel, and any sliver was
+  already covered by the fifth.
+- **A malformed engine argument now exits non-zero** after reporting
+  `INVALID_ARGUMENT`. `jobstart`'s `on_exit` treats 0 as a clean shutdown, so an
+  engine that refused its own arguments looked exactly like one the user had
+  stopped.
+- **`engine.lua`'s per-entity frame moved to `lua/distract/entity_step.lua`**,
+  taking that module from 1,012 lines to 780 and turning a 200-line `M.step` into a
+  64-line one that coordinates. Structural only: the physics-parity goldens did not
+  move, which is what the harness is for. `renderer.lua` (635), `external.lua` (448),
+  `sprite_gen.lua` (445) and `ecs.rs` (2,168) are still over the 400-line cap, each
+  around one function whose locals every branch shares; `HANDOFF.md` records which
+  and why.
+- The engine binary's command handling moved out of `main.rs` into
+  `commands.rs`, `response.rs`, `subscription.rs`, `bounds.rs`, `journal.rs`,
+  `obstacles.rs` and `wrap.rs`; the Lua side gained `kinematics.lua`,
+  `placement.lua`, `viewport.lua`, `visibility.lua`, `plugins.lua`,
+  `obstacles.lua`, `engine_binary.lua`, `overlay_grid.lua`, `overlay_report.lua`
+  and `overlay_plugins.lua`. `external.lua` came down from 537 lines to 368; the
+  new modules are all inside the size caps.
+
 - **`assets/cat_walking/`** was regenerated through the new pipeline. Its
   spritesheet keeps its 128x72 / 8x4 geometry but no longer carries an opaque
   background, and it now ships a `.rgba` sidecar alongside it.
@@ -202,6 +322,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stale `float` backend references in `:DistractBackend` help and config
   comments; `is_overlay()` tested a value `normalize_backend` can never return.
 - CI ran the Lua suite twice over the same directory.
+
+---
+
+### Removed
+- `engine/tests/parity_dump.rs`, superseded by `engine/tests/sprite_parity.rs`.
+  It was an `#[ignore]`d development aid that dumped geometry rather than pixels.
 
 ---
 

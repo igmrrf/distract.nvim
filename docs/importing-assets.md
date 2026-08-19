@@ -188,6 +188,61 @@ returns `nil, err`, `sprite_sources` warns once per asset, and the asset falls
 back to whatever art it would have had without a `native_path`. A bad asset file
 never takes down the render loop.
 
+## Bring your own pet
+
+Three pets ship with the plugin (`gudong`, `iris`, `minty` — see
+[`ATTRIBUTION.md`](../ATTRIBUTION.md)). Any other spritesheet you have the right
+to use can be added locally without waiting for anyone to bundle it.
+
+**A codex-pets.net or awesome-codex-pet download.** Both publish the same grid: a
+192×208 cell, eight columns, and a row count that identifies the sprite version
+(nine rows is v1, eleven is v2). `tools/codex_pets/pet_layout.py` holds the
+row→action mapping, so the import is a single command:
+
+```bash
+cargo run --manifest-path engine/Cargo.toml --bin import_sprite -- \
+  --spritesheet ~/Downloads/spritesheet.webp \
+  --cell 192x208 \
+  --row-counts 7,8,8,4,5,8,6,6,6,8,8 \
+  --states idle,running-right,running-left,waving,jumping,failed,waiting,running,review,look-right-side,look-left-side \
+  --name my_pet \
+  --out assets/my_pet \
+  --manifest-out /tmp/my_pet.lua
+```
+
+Those `--row-counts` and `--states` are the v2 layout; for a nine-row v1 sheet
+drop the first count to `6` and the two `look-*` rows. `python3
+tools/codex_pets/pet_layout.py` prints either set, and
+`tools/codex_pets/verify_layout.py` checks the claim against the real pixels
+before you trust it.
+
+**An original spritesheet.** Any regular grid works — pass its own `--cell`,
+`--row-counts` and `--states`. A GIF or a folder of PNG frames needs no grid at
+all; see [Running it](#running-it).
+
+**Then register it.** The scaffold's `physics` and `transitions` are placeholders,
+so copy it somewhere of your own, tune it, and register it:
+
+```lua
+require("distract").register_asset("my_pet", {
+  manifest = require("my_pet.manifest"),
+})
+vim.cmd("DistractSpawn my_pet")
+```
+
+Two things to keep in mind. `frame_width`/`frame_height` describe the **source**
+cell, because the packed sheet is sliced by them — the drawn footprint is fitted
+separately, to at most 32 sprite pixels wide for the half-block renderer, while
+`kitty` and `overlay` use the full-resolution sidecar. And the importer never
+resamples: feed it 1920×1080 stills and you get a 265 MB sidecar, so downscale
+first.
+
+**Check the licence before you redistribute anything.** Most gallery pets are fan
+art of an existing character or state no licence at all. That is fine for your own
+editor and not fine in a published plugin or asset pack;
+`tools/codex_pets/scrape_pets.py --source awesome` records each pet's declared
+licence in its catalogue so the answer is in front of you.
+
 ## Verifying an import
 
 ```bash

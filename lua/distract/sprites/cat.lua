@@ -2,159 +2,133 @@ local g = require("distract.sprite_gen")
 
 local W, H = 24, 16
 
-local FUR = { 238, 142, 54 }
-local FUR_DARK = { 164, 76, 24 }
-local FUR_LIGHT = { 255, 186, 92 }
-local FUR_SPEC = { 255, 214, 140 }
-local CONTOUR = { 54, 28, 22 }
-local BELLY = { 254, 246, 238 }
-local BELLY_DARK = { 218, 202, 190 }
-local BELLY_SHADOW = { 184, 168, 156 }
-local PAW = { 255, 255, 255 }
-local PAW_SHADOW = { 204, 196, 192 }
-local NOSE = { 255, 140, 160 }
-local EAR_INNER = { 255, 172, 188 }
-local EAR_SHADOW = { 216, 128, 144 }
-local EAR_LIGHT = { 255, 204, 216 }
-local EYE = { 28, 24, 36 }
-local EYE_LIT = { 64, 224, 172 }
-local WHITE = { 255, 255, 255 }
-local MOUTH = { 188, 54, 72 }
-local MOUTH_DARK = { 132, 28, 44 }
-local ZZZ = { 176, 212, 255 }
-local ZZZ_FADE = { 140, 180, 235 }
+-- Flat, banded palette. At 24x16 a sprite is 24 columns by eight half-block rows,
+-- and the five lighting terms this asset used to spend across a twelve-pixel body
+-- read as noise rather than as form: the cat read as a fox. One fill, one shadow
+-- band, one light band, a one-pixel contour and the few accents that carry
+-- identity is what reads at this size -- and six colours per frame rather than
+-- sixteen is what keeps the half-block renderer inside its highlight-group cap.
+local CONTOUR = { 40, 26, 30 }
+local FUR = { 236, 146, 60 }
+local FUR_DARK = { 174, 96, 34 }
+local BELLY = { 252, 240, 226 }
+local EAR_INNER = { 240, 150, 168 }
+local NOSE = { 236, 118, 142 }
+local EYE = { 32, 28, 40 }
+local ZZZ = { 168, 206, 250 }
 
-local sin, pi, max, floor = math.sin, math.pi, math.max, math.floor
+-- The rim is a darker fur tone rather than the near-black contour. A near-black
+-- outline is the right choice on a light page and the wrong one here: the editor
+-- background is dark, so a dark rim merges into it and the silhouette loses its
+-- edge -- the rendered cat looked like it had bites taken out of it. CONTOUR is
+-- kept for the accents that must read as holes: eyes and an open mouth.
+local RIM = FUR_DARK
 
+local sin, pi, max, floor, abs = math.sin, math.pi, math.max, math.floor, math.abs
+
+--- The tail: the cat's primary motion cue, so it is drawn thick enough to read.
+---
+--- Five segments, not six. The sixth drew nothing at all -- at `i = 6` its centre
+--- landed off the canvas's left edge with a radius under a pixel, and any sliver
+--- was already covered by the fifth.
+---
+--- Contours first, then fills, so one segment's outline cannot be painted over
+--- the next segment's body and leave a dark seam down the tail.
 local function draw_tail(c, body_cx, body_cy, body_rx, curl, tail)
-  local tail_base_x = body_cx - body_rx + 0.8
-  for i = 1, 6 do
-    local t = i / 6
-    local curve = (0.55 + tail * 0.45) * t * t
-    local tx = tail_base_x - t * (4.2 - curl * 1.6)
-    local ty = body_cy - curve * (4.4 - curl * 2.6) + curl * 0.8
-    local radius = 1.45 - t * 0.6
-    g.cel_orb(c, tx, ty, radius, radius, FUR_DARK, {
-      shadow = CONTOUR,
-      highlight = FUR,
-      outline = CONTOUR,
-      outline_threshold = 0.82,
-    })
+  local base_x = body_cx - body_rx + 1.4
+  local base_y = body_cy - 0.8
+  local segments = {}
+  for index = 1, 5 do
+    local t = index / 5
+    local rise = (0.5 + tail * 0.5) * t
+    segments[index] = {
+      x = base_x - t * (4.2 - curl * 3.0),
+      y = base_y - rise * (4.6 - curl * 4.2) + curl * 2.0,
+      r = 1.7 - t * 0.2,
+    }
+  end
+  for _, segment in ipairs(segments) do
+    g.ellipse(c, segment.x, segment.y, segment.r, segment.r, RIM)
+  end
+  for _, segment in ipairs(segments) do
+    -- One pixel inside the contour, which at this radius is a plus rather than a
+    -- square: a solid fill would leave the tail all outline and no fur.
+    g.ellipse(c, segment.x, segment.y, segment.r - 1.0, segment.r - 1.0, FUR)
   end
 end
 
+--- Four legs in two distinguishable pairs.
+---
+--- The hind pair is short and thick under the haunch, the fore pair thinner and
+--- longer under the chest, and they swing half a cycle apart. Four identical
+--- capsules was the other half of why the silhouette read as a fox.
 local function draw_legs(c, body_cx, body_cy, body_ry, base_y, lift, stretch, curl, leg)
   if curl >= 0.6 then
     return
   end
-  local function leg_at(hip_x, phase)
-    local swing = sin((leg + phase) * 2 * pi)
-    local knee_x = hip_x + swing * (1.6 + stretch * 1.4)
-    local foot_y = base_y + 2.4 - lift * 1.2 - curl * 2.2
-    local lifted = max(0, sin((leg + phase) * 2 * pi + pi / 2)) * (0.9 + stretch * 0.8)
-    g.cel_limb(c, hip_x, body_cy + body_ry * 0.6, knee_x, foot_y - lifted, 1.35, FUR, {
-      shadow = FUR_DARK,
-      highlight = FUR_LIGHT,
-      outline = CONTOUR,
-    })
-    g.cel_orb(c, knee_x, foot_y - lifted, 1.5, 1.1, PAW, {
-      shadow = PAW_SHADOW,
-      highlight = WHITE,
-      outline = CONTOUR,
-    })
+
+  local reach = 1.8 + stretch * 1.6
+  -- The hip sits at the body's lower edge and the foot on the floor, so the legs
+  -- are drawn *below* the barrel rather than inside it. They were inside it, which
+  -- is why a rendered cat had no legs at all.
+  local hip_y = body_cy + body_ry - 0.4
+
+  local function leg_at(hip_x, width, phase)
+    local cycle = (leg + phase) * 2 * pi
+    local raise = max(0, sin(cycle + pi * 0.5)) * (0.7 + lift * 1.8)
+    local foot_x = hip_x + sin(cycle) * reach
+    local foot_y = base_y - raise
+    local span = max(1, floor(foot_y - hip_y))
+
+    for step = 0, span do
+      local along = step / span
+      g.rect(c, floor(hip_x + (foot_x - hip_x) * along), floor(hip_y + step), width, 1, FUR_DARK)
+    end
+    g.rect(c, floor(foot_x), floor(foot_y), width + 1, 1, BELLY)
   end
-  leg_at(body_cx - 3.2, 0.5)
-  leg_at(body_cx + 3.0, 0.0)
-  leg_at(body_cx - 1.6, 0.0)
-  leg_at(body_cx + 4.4, 0.5)
+
+  leg_at(body_cx - 3.0, 2, 0.0)
+  leg_at(body_cx - 1.4, 2, 0.5)
+  leg_at(body_cx + 2.0, 2, 0.5)
+  leg_at(body_cx + 3.4, 2, 0.0)
 end
 
-local function draw_ears(c, head_cx, head_cy, head_r, stretch, mouth)
-  local lean = -stretch * 0.3 + mouth * 0.2
-  local ear_positions = { { head_cx - 1.8, -1.0 }, { head_cx + 1.6, 1.0 } }
-  for _, pos in ipairs(ear_positions) do
-    local ex, side = pos[1], pos[2]
-    local top_x = ex + side * 0.6 + lean * 1.2
-    local top_y = head_cy - head_r - 2.2
-    g.triangle(
-      c,
-      ex - 1.2,
-      head_cy - head_r + 0.4,
-      ex + 1.2,
-      head_cy - head_r + 0.4,
-      top_x,
-      top_y,
-      CONTOUR
-    )
-    g.triangle(
-      c,
-      ex - 0.8,
-      head_cy - head_r + 0.2,
-      ex + 0.8,
-      head_cy - head_r + 0.2,
-      top_x,
-      top_y + 0.4,
-      FUR
-    )
-    g.triangle(
-      c,
-      ex - 0.4,
-      head_cy - head_r,
-      ex + 0.4,
-      head_cy - head_r,
-      top_x,
-      top_y + 0.8,
-      EAR_INNER
-    )
-    g.set(c, ex, head_cy - head_r + 0.3, EAR_SHADOW)
-    g.set(c, ex + side * 0.3, top_y + 0.6, EAR_LIGHT)
+--- Two upright ears with a gap between them.
+---
+--- Three pixels wide and three tall, contoured, with one pink pixel inside. The
+--- old pair were 2.4-pixel triangles that read as a single fuzzy line.
+local function draw_ears(c, head_cx, head_cy, head_r, curl)
+  local tuck = curl * 1.4
+  for _, ex in ipairs({ head_cx - 2.2, head_cx + 1.8 }) do
+    local base = head_cy - head_r * 0.8 + tuck
+    local tip = base - 2.9 + tuck
+    g.triangle(c, ex - 1.4, base, ex + 1.4, base, ex, tip, RIM)
+    g.triangle(c, ex - 0.9, base - 0.7, ex + 0.9, base - 0.7, ex, tip + 1.1, FUR)
+    g.set(c, ex, base - 1.5, EAR_INNER)
   end
 end
 
 local function draw_eyes(c, head_cx, head_cy, eye)
-  local eye_x_positions = { head_cx - 1.1, head_cx + 1.7 }
-  for _, ex in ipairs(eye_x_positions) do
+  for _, ex in ipairs({ head_cx - 0.8, head_cx + 1.4 }) do
     if eye > 0.3 then
-      g.set(c, ex, head_cy - 0.5, EYE)
-      g.set(c, ex, head_cy - 1.5, EYE_LIT)
-      g.set(c, ex + 0.5, head_cy - 1.5, WHITE)
+      g.set(c, ex, head_cy - 0.4, EYE)
     else
-      g.line(c, ex - 1, head_cy - 0.8, ex + 1, head_cy - 0.8, CONTOUR)
+      g.set(c, ex, head_cy - 0.4, CONTOUR)
+      g.set(c, ex + 1, head_cy - 0.4, CONTOUR)
     end
   end
 end
 
-local function draw_head(c, head_cx, head_cy, head_r, stretch, mouth, eye, curl)
-  draw_ears(c, head_cx, head_cy, head_r, stretch, mouth)
-  g.cel_orb(c, head_cx, head_cy, head_r, head_r * 0.94, FUR, {
-    shadow = FUR_DARK,
-    highlight = FUR_LIGHT,
-    outline = CONTOUR,
-    rim = 0.2,
-    rim_color = FUR_SPEC,
-  })
-  g.cel_orb(c, head_cx + 1.1, head_cy + 1.3, 1.7, 1.1, BELLY, {
-    shadow = BELLY_DARK,
-    highlight = WHITE,
-    outline = CONTOUR,
-  })
-  g.set(c, head_cx + 0.8, head_cy + 1.6, BELLY_SHADOW)
+local function draw_head(c, head_cx, head_cy, head_r, mouth, eye, curl)
+  draw_ears(c, head_cx, head_cy, head_r, curl)
+  g.blob(c, head_cx, head_cy, head_r, head_r * 0.92, FUR, RIM)
+  -- Muzzle: one light band, not a modelled snout. It is what tells the head
+  -- which way it faces.
+  g.ellipse(c, head_cx + 1.1, head_cy + 1.2, 1.2, 0.6, BELLY)
+  g.set(c, head_cx + 2.0, head_cy + 0.9, NOSE)
   draw_eyes(c, head_cx, head_cy, eye)
-  g.set(c, head_cx + 1.1, head_cy + 0.7, NOSE)
-  if curl < 0.6 then
-    g.line(c, head_cx + 2.2, head_cy + 0.9, head_cx + 4.6, head_cy + 0.4, BELLY_DARK)
-    g.line(c, head_cx + 2.2, head_cy + 1.5, head_cx + 4.6, head_cy + 2.0, BELLY_DARK)
-  end
   if mouth > 0.04 then
-    g.ellipse(
-      c,
-      head_cx + 1.2,
-      head_cy + 1.7 + mouth * 0.5,
-      0.8 + mouth * 0.8,
-      0.5 + mouth * 1.0,
-      MOUTH
-    )
-    g.set(c, head_cx + 1.2, head_cy + 1.8 + mouth * 0.5, MOUTH_DARK)
+    g.ellipse(c, head_cx + 1.4, head_cy + 1.9, 0.6 + mouth * 0.7, 0.5 + mouth * 0.9, CONTOUR)
   end
 end
 
@@ -162,15 +136,14 @@ local function draw_sleep(c, head_cx, head_cy, zzz)
   if zzz <= 0.05 then
     return
   end
-  local rise = floor(zzz * 4)
-  for i = 0, 1 do
-    local size = 2 - i
-    local zy = head_cy - 3 - i * 2 + rise
-    local zx = head_cx + 3 + i + rise * 0.5
-    local tone = i == 0 and ZZZ or ZZZ_FADE
-    g.line(c, zx, zy, zx + size, zy, tone)
-    g.line(c, zx + size, zy, zx, zy + size, tone)
-    g.line(c, zx, zy + size, zx + size, zy + size, tone)
+  local rise = floor(zzz * 3)
+  for index = 0, 1 do
+    local size = 2 - index
+    local zy = head_cy - 4 - index * 2 + rise
+    local zx = head_cx + 3 + index + rise
+    g.line(c, zx, zy, zx + size, zy, ZZZ)
+    g.line(c, zx + size, zy, zx, zy + size, ZZZ)
+    g.line(c, zx, zy + size, zx + size, zy + size, ZZZ)
   end
 end
 
@@ -186,36 +159,31 @@ local function draw(pose)
   local tail = pose.tail or 0
   local zzz = pose.zzz or 0
 
-  local base_y = 12 - lift * 3 + curl * 1.5
-  local body_cx = 10 + stretch * 0.8
-  local body_cy = base_y - 2.6 + curl * 1.2
-  local body_rx = 6.0 + stretch * 1.4 + curl * 1.0
-  local body_ry = 3.4 - stretch * 0.5 - curl * 0.7
+  -- Laid out so the whole canvas is used: ear tips on row 0, head above the
+  -- shoulder, body across the middle, paws on the floor row. An asset's cell
+  -- footprint is its whole canvas, so empty rows at the bottom would float the
+  -- cat above the floor it is anchored to.
+  local base_y = 15 - lift * 2.6 + curl * 1.2
+  local body_cx = 9.0 + stretch * 0.6
+  local body_cy = base_y - 5.4 + curl * 1.6
+  local body_rx = 4.9 + stretch * 1.1 + curl * 0.9
+  local body_ry = 2.3 - stretch * 0.25 - curl * 0.3
 
   draw_tail(c, body_cx, body_cy, body_rx, curl, tail)
   draw_legs(c, body_cx, body_cy, body_ry, base_y, lift, stretch, curl, leg)
 
-  g.cel_orb(c, body_cx, body_cy, body_rx, body_ry, FUR, {
-    shadow = FUR_DARK,
-    highlight = FUR_LIGHT,
-    outline = CONTOUR,
-    rim = 0.25,
-    rim_color = FUR_SPEC,
-  })
-  g.cel_orb(c, body_cx + 0.4, body_cy + body_ry * 0.45, body_rx * 0.68, body_ry * 0.44, BELLY, {
-    shadow = BELLY_DARK,
-    highlight = WHITE,
-    outline = CONTOUR,
-  })
-  g.set(c, body_cx + 0.2, body_cy + body_ry * 0.8, BELLY_SHADOW)
-  g.set(c, body_cx - 1.0, body_cy - body_ry + 0.8, FUR_SPEC)
-  g.set(c, body_cx, body_cy - body_ry + 0.6, WHITE)
+  -- Haunch first, so the barrel's contour closes over where the two meet: a cat's
+  -- rear is its most recognisable line after the ears and the tail.
+  g.blob(c, body_cx - body_rx * 0.6, body_cy + 0.2, 2.5, 2.5, FUR, RIM)
+  g.blob(c, body_cx, body_cy, body_rx, body_ry, FUR, RIM)
+  -- One band, one row tall. A thicker one read as a cream stripe down a sausage
+  -- rather than as a belly.
+  g.ellipse(c, body_cx + 0.4, body_cy + body_ry - 1.2, body_rx * 0.5, 0.6, BELLY)
 
-  local head_cx = body_cx + body_rx * 0.92 + stretch * 1.0
-  local head_cy = body_cy - 3.4 + head_dip * 1.6 + curl * 2.0
-  local head_r = 2.9
+  local head_cx = body_cx + body_rx * 0.92 + stretch * 0.9
+  local head_cy = body_cy - 4.6 + head_dip * 1.6 + curl * 3.2
+  draw_head(c, head_cx, head_cy, 2.3, mouth, eye, curl)
 
-  draw_head(c, head_cx, head_cy, head_r, stretch, mouth, eye, curl)
   if curl >= 0.6 then
     draw_sleep(c, head_cx, head_cy, zzz)
   end

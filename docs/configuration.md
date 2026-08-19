@@ -49,7 +49,9 @@ already resolved — to get the automatic choice back, set
 | `cell_height` | `nil` | Overlay only. Terminal cell height in physical pixels. |
 | `max_sprite_colours` | `128` | Halfblock only. Imported art is quantised to this many colours, because every distinct colour pair becomes a Neovim highlight group. |
 | `max_highlight_groups` | `4096` | Ceiling on live highlight groups. At the limit the least recently drawn asset's groups are cleared; the asset being drawn is never the victim. |
+| `restrict_to_instance` | `true` | Hide sprites while this Neovim instance does not have focus. The simulation keeps running. `false` keeps drawing regardless, which is what a standalone desktop animation wants. |
 | `position` | see below | Where entities sit and what they stand on. |
+| `positioning` | see below | Which rectangle entities may move in, what they must not cover, and float stacking. |
 | `assets` | built-ins | Asset name → manifest. Built-ins resolve lazily on first access. |
 
 ### `position`
@@ -61,6 +63,23 @@ already resolved — to get the automatic choice back, set
 | `parallax.per_unit` | `0.0` | Scale change per unit of `z`. `0.0` disables parallax, making every factor exactly `1`. |
 | `parallax.min` | `0.4` | Lower clamp on the parallax factor. |
 | `parallax.max` | `1.6` | Upper clamp. |
+
+### `positioning`
+
+| Key | Default | Meaning |
+|---|---|---|
+| `scope` | `"editor"` | `"editor"` (the whole grid), `"window"` (the current window), `"buffer"` (its text area, gutter excluded) or `"absolute"` (the grid with no exclusions at all). |
+| `exclude_floating` | `true` | Hide a sprite for as long as its footprint would cover a floating window. |
+| `exclude_filetypes` | `{ "toggleterm", "lazy", "TelescopePrompt", "fzf", "help" }` | Windows a sprite must never cover, floating or not. Setting this **replaces** the list rather than adding to it. |
+| `z_index_offset` | `40` | Neovim float stacking for sprite surfaces. LSP hovers and completion menus sit at 50 and above, so the default draws sprites underneath them. |
+
+`scope` is what wrapping, bouncing and clamping measure against, on both
+backends: the overlay is told the rectangle over IPC, because only the editor can
+see where a window's text area is. It is also where a spawn with no explicit
+position lands.
+
+`z_index_offset` is not `position.z`. That one is depth and parallax; this one is
+what draws over what. Two different numbers, deliberately not shared.
 
 Parallax needs sprite scaling, so it has no meaning on `halfblock`: a half-block
 cell is a fixed size. Configuring it there reports the degradation once and
@@ -153,6 +172,44 @@ custom asset becomes drawable in the terminal without shipping a file into the
 plugin.
 
 ---
+
+## Extending it
+
+Three registration surfaces, all documented in full at `:help distract-extending`
+with working examples in [`examples/plugins/`](../examples/plugins/).
+
+```lua
+local distract = require("distract")
+
+-- Custom art, a custom manifest, or both.
+distract.register_asset("my-pet", { manifest = ..., sprites = ... })
+
+-- Lifecycle hooks. The entity a hook receives is read-only; changes go through
+-- the `world` handle its `on_init` is given, so one plugin behaves the same way
+-- on all three backends.
+distract.register_plugin("my-plugin", {
+  on_init = function(world) end,
+  on_tick = function(entity, dt) end,
+  on_state_change = function(entity, from_state, to_state) end,
+  on_collision = function(entity, collision) end,
+  on_editor_event = function(event_name, context) end,
+  on_draw = function(layers) end,
+  on_teardown = function() end,
+})
+
+-- Solid ground and hazards, in terminal cells, collected on a debounced cadence.
+distract.register_obstacle_provider(function(win_id, buf_id)
+  return {
+    { x = 10, y = 15, width = 40, height = 1, type = "solid_platform" },
+    { x = 0,  y = 25, width = 80, height = 1, type = "hazard" },
+  }
+end)
+```
+
+| Surface | Bound by | Failure policy |
+|---|---|---|
+| `register_plugin` | nothing; hooks are dispatched in registration order | a hook that raises is reported once at `WARN` and its plugin is disabled for the session |
+| `register_obstacle_provider` | 128 rectangles, reported once past that | a malformed rectangle is refused with a message; a provider that raises is skipped, the others still contribute |
 
 ## Manifest schema
 

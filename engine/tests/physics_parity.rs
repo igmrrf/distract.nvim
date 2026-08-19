@@ -45,6 +45,7 @@
 
 use distract_engine::ecs::World;
 use distract_engine::manifest::{AssetManifest, PhysicsConfig, StateDefinition, TransitionConfig};
+use distract_engine::obstacles::{Obstacle, ObstacleKind};
 use distract_engine::spawn::SpawnOptions;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -102,16 +103,48 @@ struct FixtureSpritesheet {
     frame_height: u32,
 }
 
+/// One obstacle a fixture registers, in terminal cells.
+///
+/// Converted to pixels by this runner and read as cells by the Lua one, exactly
+/// as `external.lua` and `engine.lua` treat a provider's rectangles. Absent on
+/// every fixture whose subject is not obstacle physics.
+#[derive(Deserialize)]
+struct FixtureObstacle {
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    #[serde(rename = "type")]
+    kind: ObstacleKind,
+}
+
 #[derive(Deserialize)]
 struct Cell {
     w: f32,
     h: f32,
 }
 
+/// The rectangle the fixture's entity may move in, in terminal cells.
+///
+/// `col` and `row` are absent on almost every fixture, which means "the whole
+/// editor grid" and is what boundary handling measured against before a viewport
+/// could be scoped. Present, they describe a rectangle inside a larger window —
+/// what `positioning.scope = "buffer"` produces — and the window is sized to
+/// contain it on both sides so the two engines clamp against the same edges.
 #[derive(Deserialize)]
 struct Bounds {
     columns: f32,
     lines: f32,
+    #[serde(default)]
+    col: f32,
+    #[serde(default)]
+    row: f32,
+}
+
+impl Bounds {
+    fn is_scoped(&self) -> bool {
+        self.col > 0.0 || self.row > 0.0
+    }
 }
 
 #[derive(Deserialize)]
@@ -138,6 +171,8 @@ struct Fixture {
     /// sides and therefore worth pinning.
     #[serde(default)]
     ground_row: Option<f32>,
+    #[serde(default)]
+    obstacles: Vec<FixtureObstacle>,
     #[serde(default)]
     animation: Option<FixtureAnimation>,
     #[serde(default)]
@@ -253,9 +288,19 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
         .collect();
 
     let mut world = World::new(
-        fixture.bounds.columns * fixture.cell.w,
-        fixture.bounds.lines * fixture.cell.h,
+        (fixture.bounds.col + fixture.bounds.columns) * fixture.cell.w,
+        (fixture.bounds.row + fixture.bounds.lines) * fixture.cell.h,
     );
+    if fixture.bounds.is_scoped() {
+        world
+            .set_scope(Some(distract_engine::bounds::Bounds {
+                left: fixture.bounds.col * fixture.cell.w,
+                top: fixture.bounds.row * fixture.cell.h,
+                width: fixture.bounds.columns * fixture.cell.w,
+                height: fixture.bounds.lines * fixture.cell.h,
+            }))
+            .expect("the fixture's scope fits the window it sized");
+    }
     world.sprite_scale_x = fixture.cell.w;
     world.sprite_scale_y = fixture.cell.h / 2.0;
     world.cell_w = fixture.cell.w;
@@ -263,6 +308,24 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
 
     if let Some(ground_row) = fixture.ground_row {
         world.set_ground_y(ground_row * fixture.cell.h);
+    }
+
+    if !fixture.obstacles.is_empty() {
+        world
+            .set_obstacles(
+                fixture
+                    .obstacles
+                    .iter()
+                    .map(|obstacle| Obstacle {
+                        x: obstacle.x * fixture.cell.w,
+                        y: obstacle.y * fixture.cell.h,
+                        width: obstacle.width * fixture.cell.w,
+                        height: obstacle.height * fixture.cell.h,
+                        kind: obstacle.kind,
+                    })
+                    .collect(),
+            )
+            .expect("a fixture registers fewer obstacles than the cap");
     }
 
     world

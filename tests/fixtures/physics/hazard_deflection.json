@@ -1,0 +1,36 @@
+{
+  "description": "A grounded entity walking right meets a hazard, is returned to its left edge and reverses heading, then bounces off the screen's left edge and comes back. The hazard sits inside the bounds, so the turn away from it can only be the hazard and the turn at x=0 can only be the edge. Its left edge is 61.3 rather than 60 on purpose: the entity advances 2 cells per step and is 24 wide, so an edge on an even cell would put its right edge exactly on the hazard's, where f32 and f64 fall either side of the span test.",
+  "physics": {
+    "target_vx": 2.5,
+    "target_vy": 0.0,
+    "gravity": 0.0,
+    "friction": 0.2,
+    "wrap_mode": "bounce",
+    "locomotion": "grounded"
+  },
+  "spawn": {
+    "x": 6,
+    "y": 26,
+    "flip_x": false
+  },
+  "cell": {
+    "w": 10,
+    "h": 20
+  },
+  "bounds": {
+    "columns": 120,
+    "lines": 40
+  },
+  "ground_row": 34,
+  "obstacles": [
+    {
+      "x": 61.3,
+      "y": 20,
+      "width": 4,
+      "height": 14,
+      "type": "hazard"
+    }
+  ],
+  "dt": 0.016666667,
+  "steps": 320
+}

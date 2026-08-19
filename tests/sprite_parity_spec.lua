@@ -42,17 +42,25 @@ local CHANNEL_TOLERANCE = 24
 -- explainable. `unexplained` caps the pixels no rule accounts for, and is the
 -- number that matters.
 --
--- sun's two unexplained pixels are both (7, 13), in `rising` frame 16 and
--- `setting` frame 21. `draw_horizon` cuts a gap at every `(x + row) % 7 == 0`
--- on its top row, identically on both sides; inside that one-pixel window the
--- overlay's f32 places the sun disc's lower edge and Lua's f64 does not. Every
--- adjacent pixel is covered by the opaque band, so the gold shade has nowhere
--- neighbouring to appear and the rule cannot see it. A third such pixel is a
--- real divergence and must fail.
+-- Re-measured after the silhouette-first redo, which cut the drift roughly in
+-- half and took `unexplained` to zero on every asset. Flat fills are why: a
+-- gradient put a different colour on every radius, so a coordinate landing either
+-- side of a pixel boundary changed the colour as well as the position, and the
+-- sun's two previously-unexplained horizon pixels were exactly that. With one
+-- fill and one band per part, a boundary difference now moves a pixel between two
+-- colours that are already neighbours.
+--
+--   asset  pixels  drifted        unexplained
+--   cat    11,136  14  (0.13%)    0
+--   crab    9,600   4  (0.04%)    0
+--   sun     6,400  79  (1.23%)    0
+--
+-- The eight pixels of headroom are for the JSON decimal round-trip, not for
+-- accommodating a change: read the reported pixel before raising one of these.
 local BUDGET = {
-  cat = { drifted = 39, unexplained = 0 },
-  crab = { drifted = 166, unexplained = 0 },
-  sun = { drifted = 110, unexplained = 2 },
+  cat = { drifted = 22, unexplained = 0 },
+  crab = { drifted = 12, unexplained = 0 },
+  sun = { drifted = 87, unexplained = 0 },
 }
 
 local function read_json(path)

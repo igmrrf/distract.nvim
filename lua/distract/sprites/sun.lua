@@ -2,15 +2,25 @@ local g = require("distract.sprite_gen")
 
 local W, H = 16, 16
 
+-- Flat, banded palette: a disc twelve pixels across cannot carry a gradient, and
+-- the old per-pixel shading of the corona and the rays spent a distinct colour on
+-- every radius.
 local CORE = { 255, 246, 196 }
 local SURFACE = { 255, 206, 62 }
-local LIMB = { 255, 146, 26 }
+local LIMB = { 236, 132, 22 }
 local CORONA = { 255, 224, 132 }
+local WHITE_HOT = { 255, 255, 240 }
 local MOON = { 34, 32, 46 }
-local HORIZON = { 92, 74, 124 }
+local HORIZON = { 96, 78, 128 }
+local HORIZON_DEEP = { 66, 52, 94 }
 
 local sin, cos, pi, floor, max, sqrt = math.sin, math.cos, math.pi, math.floor, math.max, math.sqrt
 
+--- The corona: one band, not a gradient.
+---
+--- `g.shade` per pixel produced a distinct colour per radius, which is what made
+--- three assets consume 46% of the highlight-group cap between them. One tone at
+--- a wobbling edge reads the same at eight rows and costs one group.
 local function draw_corona(c, cx, cy, radius, corona, spin)
   if corona <= 0.02 then
     return
@@ -25,75 +35,76 @@ local function draw_corona(c, cx, cy, radius, corona, spin)
         local ang = math.atan2(dy, dx)
         local edge = outer * (1 + 0.10 * sin(ang * 6 + spin * 2 * pi))
         if d <= edge then
-          local falloff = 1 - (d - inner) / max(0.001, edge - inner)
-          g.set(c, x, y, g.shade(CORONA, -0.62 + falloff * 0.5 * corona))
+          g.set(c, x, y, CORONA)
         end
       end
     end
   end
 end
 
+--- Eight rays, two tones, thick enough to survive eight half-block rows.
+---
+--- A one-pixel ray drawn in a per-step gradient disappeared entirely at sprite
+--- size. Each is two pixels across for its inner half, one for its tip.
 local function draw_rays(c, cx, cy, radius, rays, spin)
   if rays <= 0.05 then
     return
   end
-  local inner = radius + 0.7
-  local outer = inner + rays * 3.4
-  for i = 0, 7 do
-    local ang = (i / 8 + spin) * 2 * pi
+  local inner = radius + 0.6
+  local outer = inner + rays * 3.2
+  for index = 0, 7 do
+    local ang = (index / 8 + spin) * 2 * pi
     local ca, sa = cos(ang), sin(ang)
     local steps = max(1, floor((outer - inner) * 2))
     for step = 0, steps do
       local t = step / steps
       local rr = inner + (outer - inner) * t
-      g.set(c, cx + ca * rr, cy + sa * rr, g.shade(g.mix(SURFACE, CORONA, t), 0.10 - t * 0.30))
+      local tone = t < 0.55 and SURFACE or CORONA
+      g.set(c, cx + ca * rr, cy + sa * rr, tone)
+      if t < 0.5 then
+        -- Thickened across the ray, not along it, so a ray reads as a spike
+        -- rather than as a dotted line.
+        g.set(c, cx + ca * rr - sa * 0.9, cy + sa * rr + ca * 0.9, tone)
+      end
     end
   end
 end
 
+--- A clean disc: flat surface, a rim in the deeper tone, one bright core band.
 local function draw_disc(c, cx, cy, radius, flare)
-  g.orb(c, cx, cy, radius, radius, SURFACE, {
-    light = { 0, 0, 1 },
-    ambient = 0.30 + flare * 0.35,
-    rim = 0.55,
-    rim_color = LIMB,
-    specular = 0.0,
-    dither = 0.06,
-  })
-  g.orb(c, cx, cy, radius * 0.55, radius * 0.55, g.shade(CORE, flare * 0.35), {
-    light = { 0, 0, 1 },
-    ambient = 0.62,
-    rim = 0.20,
-    rim_color = CORE,
-    specular = 0.0,
-  })
+  g.blob(c, cx, cy, radius, radius, SURFACE, LIMB)
+  g.ellipse(c, cx - radius * 0.18, cy - radius * 0.22, radius * 0.5, radius * 0.5, CORE)
+  if flare > 0.35 then
+    g.ellipse(c, cx, cy, radius * 0.22, radius * 0.22, WHITE_HOT)
+  end
 end
 
+--- The eclipse silhouette, kept distinguishable from the shining pose.
+---
+--- The moon is flat and dark inside a bright rim, which is the one thing that
+--- separates the two poses when both are a disc at eight rows.
 local function draw_eclipse(c, cx, cy, radius, occlude)
   if occlude <= 0.02 then
     return
   end
   local mx = cx - radius * 2.2 + occlude * radius * 2.2
-  g.orb(c, mx, cy, radius * 1.02, radius * 1.02, MOON, {
-    light = { -0.4, -0.4, 0.7 },
-    ambient = 0.5,
-    rim = 0.42,
-    rim_color = CORONA,
-    specular = 0.0,
-  })
+  g.blob(c, mx, cy, radius * 1.08, radius * 1.08, MOON, CORONA)
   if occlude > 0.82 then
-    g.spark(c, cx + radius * 0.75, cy - radius * 0.75, 2, { 255, 255, 240 })
+    g.spark(c, cx + radius * 0.75, cy - radius * 0.75, 2, WHITE_HOT)
   end
 end
 
+--- The horizon band, two flat tones rather than a shaded ramp.
 local function draw_horizon(c, horizon)
   if horizon <= 0.02 then
     return
   end
   local band_y = 13
   for row = 0, 2 do
-    local tone = g.shade(HORIZON, -0.12 * row + (1 - horizon) * 0.4)
+    local tone = row == 0 and HORIZON or HORIZON_DEEP
     for x = 1, W do
+      -- The gap in the top row is what makes the band read as a horizon rather
+      -- than as a bar. Two of the three sprite-parity drift pixels live in it.
       if row > 0 or ((x + row) % 7) ~= 0 then
         g.set(c, x, band_y + row, tone)
       end

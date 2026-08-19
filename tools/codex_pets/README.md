@@ -1,11 +1,29 @@
 # codex-pets import tooling
 
 Development-only scripts for exercising the `import_sprite` CLI against real
-third-party spritesheets from [codex-pets.net](https://codex-pets.net). Nothing
-here ships to plugin users and nothing here is imported by the plugin or the
-engine — it is a test harness.
+third-party spritesheets, from [codex-pets.net](https://codex-pets.net) or from
+the [`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex-pet)
+gallery. Nothing here ships to plugin users and nothing here is imported by the
+plugin or the engine — it is a test harness.
+
+**None of the artwork is redistributable.** The site states no licence at all,
+and every gallery pet checked is fan art of an existing character under a
+non-commercial licence — the gallery records one per pet in `submission.json`, and
+the scraper copies it into the catalogue so it travels with the material. This is
+why no codex-pets asset ships as a built-in: the import pipeline is the feature,
+the artwork is not.
 
 Python 3 with the standard library only. No dependencies.
+
+The two sources differ in one way that matters. The site publishes each pet's
+atlas geometry in its API response, so the recorded grid is read. The gallery's
+`pet.json` carries no atlas metadata at all — an id, a display name and the
+spritesheet's filename — so the grid is derived from the sheet's own WebP header
+against the fixed 192x208 cell, and the row count is what identifies the sprite
+version. A sheet that is not a whole grid, or whose row count matches no version,
+is skipped with the reason rather than imported against a guessed row mapping.
+Everything downstream (`pet_layout.py`, `verify_layout.py`, `import_pets.py`) is
+unchanged and does not know which source a sheet came from.
 
 For what the layout means, read
 [`../../docs/codex-pets-sprite-layout.md`](../../docs/codex-pets-sprite-layout.md).
@@ -20,6 +38,11 @@ Run from the repository root.
 # 1. download sheets (default search terms, or pass your own)
 python3 tools/codex_pets/scrape_pets.py
 python3 tools/codex_pets/scrape_pets.py goku naruto cat dog
+
+# 1b. or from the community gallery, which needs no search API. Terms are
+#     substring filters on the pet's slug; --limit caps the download.
+python3 tools/codex_pets/scrape_pets.py --source awesome --limit 6
+python3 tools/codex_pets/scrape_pets.py --source awesome --limit 3 cat
 
 # 2. check the published layout against the real pixels
 python3 tools/codex_pets/verify_layout.py

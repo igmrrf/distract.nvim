@@ -352,6 +352,50 @@ require("distract").setup({
 
 ---
 
+## 🔌 Writing a plugin
+
+Three registration surfaces, and everything a companion knows about your editor
+arrives through one of them. Working examples are in
+[`examples/plugins/`](examples/plugins/); the full contract is
+`:help distract-extending`.
+
+```lua
+local distract = require("distract")
+
+distract.register_plugin("my-plugin", {
+  on_init = function(world) end,           -- the handle everything is asked for
+  on_tick = function(entity, dt) end,      -- per entity, per simulated frame
+  on_state_change = function(entity, from_state, to_state) end,
+  on_collision = function(entity, collision) end,  -- edges and obstacles alike
+  on_editor_event = function(event_name, context) end,
+  on_draw = function(layers) end,          -- where each sprite was drawn, in cells
+  on_teardown = function() end,
+})
+
+distract.register_obstacle_provider(function(win_id, buf_id)
+  return {
+    { x = 10, y = 15, width = 40, height = 1, type = "solid_platform" },
+    { x = 0,  y = 25, width = 80, height = 1, type = "hazard" },
+  }
+end)
+```
+
+The entity a hook receives is **read-only** — assigning to it raises. Changes go
+through the `world` handle instead (`request_state`, `apply_impulse`, `despawn`,
+`mark_dirty`), which queues a command applied at the top of the next step. That
+is not ceremony: the in-terminal backends simulate in Lua while `overlay`
+simulates in its own process, so a hook that wrote `entity.vx` would move the
+sprite on two backends out of three. Queued commands are forwarded over IPC, so
+one plugin produces one behaviour everywhere.
+
+A `solid_platform` is a one-way floor — it catches an entity falling onto it and
+is what a grounded pet walks along, while a jump passes up through it. A `hazard`
+turns an entity around. Providers are called on a debounced cadence, never per
+tick per entity, because a Tree-sitter query per frame is a performance trap.
+
+A hook that raises is reported once and its plugin is disabled for the session.
+One broken plugin cannot silence the others.
+
 ## 🧪 Testing
 
 Run the Rust engine tests — unit tests, headless GPU tests that exercise the
@@ -363,6 +407,26 @@ cargo test --manifest-path engine/Cargo.toml
 Run the Neovim Lua test suite (exits non-zero on failure):
 ```bash
 nvim --headless --noplugin -u tests/minimal_init.lua -l tests/run_tests.lua
+```
+
+Both suites also carry cross-engine parity harnesses: `physics_parity` pins one
+manifest to one trajectory on both engines, and `sprite_parity` pins the
+generated art pixel for pixel. Regenerate their goldens only for an intentional
+change, and re-measure the drift budgets when you do:
+```bash
+UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test physics_parity
+UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test sprite_parity
+```
+
+Look at an asset's frames as text, which is how the art is judged headless:
+```bash
+nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua cat
+```
+
+What one tick costs, at the scale a particle system would want:
+```bash
+cargo test --manifest-path engine/Cargo.toml --test tick_budget -- --nocapture
+nvim --headless --noplugin -u tests/minimal_init.lua -l tools/bench_tick.lua 200
 ```
 
 Lint and format gates, all enforced in CI:

@@ -190,6 +190,77 @@ impl Canvas {
         }
     }
 
+    /// Axis-aligned filled rectangle with its top-left at (x, y).
+    pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgb) {
+        for dy in 0..(h.floor() as i32) {
+            for dx in 0..(w.floor() as i32) {
+                self.set(x + dx as f32, y + dy as f32, color);
+            }
+        }
+    }
+
+    /// Flat-filled ellipse with a genuine one-pixel contour around it.
+    ///
+    /// The silhouette primitive. At 24x16 a sprite is 24 columns by eight
+    /// half-block rows, and a five-term lighting model spends every one of them
+    /// on gradient nobody can see; a flat fill inside a dark outline is what
+    /// actually reads, and it collapses the number of distinct colours -- and so
+    /// of Neovim highlight groups -- an asset needs.
+    ///
+    /// The contour is the *rim*: a pixel inside the ellipse whose
+    /// four-neighbourhood leaves it. Drawing it as two ellipses instead -- a
+    /// contour disc with a smaller fill disc inset -- looks equivalent and is
+    /// not, because the radii quantise to whole pixels: at a head-sized
+    /// `rx = 2.4` the inset fill collapses to a single plus and the head renders
+    /// as a dark blob with a fur pixel in it.
+    pub fn blob(&mut self, cx: f32, cy: f32, rx: f32, ry: f32, fill: Rgb, contour: Rgb) {
+        let (rx, ry) = (rx.max(0.5), ry.max(0.5));
+        let inside = |dx: i32, dy: i32| {
+            let (nx, ny) = (dx as f32 / rx, dy as f32 / ry);
+            nx * nx + ny * ny <= 1.0
+        };
+
+        let (rxi, ryi) = (rx.floor() as i32, ry.floor() as i32);
+        for dy in -ryi..=ryi {
+            for dx in -rxi..=rxi {
+                if !inside(dx, dy) {
+                    continue;
+                }
+                let on_rim = !inside(dx - 1, dy)
+                    || !inside(dx + 1, dy)
+                    || !inside(dx, dy - 1)
+                    || !inside(dx, dy + 1);
+                let color = if on_rim { contour } else { fill };
+                self.set(cx + dx as f32, cy + dy as f32, color);
+            }
+        }
+    }
+
+    /// Flat capsule from (x0, y0) to (x1, y1) with a one-pixel contour.
+    ///
+    /// Two passes, so one step's contour cannot be painted over the previous
+    /// step's fill and leave a dark seam down the middle of a leg.
+    pub fn limb(&mut self, from: [f32; 2], to: [f32; 2], radius: f32, fill: Rgb, contour: Rgb) {
+        let steps = (((to[0] - from[0]).powi(2) + (to[1] - from[1]).powi(2)).sqrt() * 2.0)
+            .floor()
+            .max(1.0) as i32;
+        for pass in 0..2 {
+            let color = if pass == 0 { contour } else { fill };
+            let inset = if pass == 0 { 0.0 } else { 1.0 };
+            for index in 0..=steps {
+                let t = index as f32 / steps as f32;
+                let r = radius * (1.0 - 0.25 * t) - inset;
+                self.ellipse(
+                    from[0] + (to[0] - from[0]) * t,
+                    from[1] + (to[1] - from[1]) * t,
+                    r,
+                    r,
+                    color,
+                );
+            }
+        }
+    }
+
     /// Bresenham line between two points, inclusive of both endpoints.
     pub fn line(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: Rgb) {
         let (mut x0i, mut y0i) = (x0.floor() as i32, y0.floor() as i32);

@@ -1,0 +1,9 @@
+{
+  "description": "Wrap inside a scoped viewport: the seam is the rectangle's edge, not the screen's. target_vx = 1.3 avoids a knife edge where f32 and f64 fall either side of a wrap boundary.",
+  "physics": { "target_vx": 1.3, "target_vy": 0.0, "gravity": 0.0, "friction": 0.08, "wrap_mode": "wrap" },
+  "spawn": { "x": 60, "y": 14, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 60, "lines": 20, "col": 20, "row": 6 },
+  "dt": 0.016666667,
+  "steps": 300
+}

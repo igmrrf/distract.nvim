@@ -16,11 +16,18 @@ local uv = vim.uv or vim.loop
 local renderer = require("distract.renderer")
 local sprites = require("distract.terminal_sprites")
 
+local entity_step = require("distract.entity_step")
+local kinematics = require("distract.kinematics")
+local obstacles = require("distract.obstacles")
+local plugins = require("distract.plugins")
+local viewport = require("distract.viewport")
+local visibility = require("distract.visibility")
+
 --- Sprite pixels per terminal cell.
-local CELLS_PER_SPRITE_PX_X = 1.0
-local CELLS_PER_SPRITE_PX_Y = 0.5
+local CELLS_PER_SPRITE_PX_X = kinematics.CELLS_PER_SPRITE_PX_X
+local CELLS_PER_SPRITE_PX_Y = kinematics.CELLS_PER_SPRITE_PX_Y
 --- Reference frame rate the manifest velocities are expressed against.
-local REFERENCE_FPS = 60
+local REFERENCE_FPS = kinematics.REFERENCE_FPS
 
 local timer = nil
 local entities = {}
@@ -61,104 +68,6 @@ local position = require("distract.position")
 M.effective_locomotion = locomotion.effective_locomotion
 M.validate_capabilities = locomotion.validate
 
---- Path parameters with the legacy aliases and the defaults filled in.
----
---- Mirrors `PhysicsConfig::resolved_path` in `manifest.rs`. `path_amplitude`
---- and `path_frequency` predate `path_params` and are exactly `amp_y` and
---- `freq_y` under older names -- the sun's manifest still uses them.
-local function resolved_path(phys)
-  local p = phys.path_params or {}
-  local amp_y = p.amp_y or phys.path_amplitude or 4.0
-  local freq_y = p.freq_y or phys.path_frequency or 2.0
-  return {
-    freq = p.freq or 1.0,
-    -- Defaulting the x axis to the y axis makes an `orbital` path with no
-    -- parameters a circle rather than a flat line.
-    freq_x = p.freq_x or freq_y,
-    freq_y = freq_y,
-    amp_x = p.amp_x or amp_y,
-    amp_y = amp_y,
-    phase_delta = p.phase_delta or 0.0,
-  }
-end
-
---- A cubic Bezier evaluated at `t`, in sprite pixels relative to the anchor.
-local function cubic_bezier(points, t)
-  local u = 1 - t
-  local a, b, c, d = u * u * u, 3 * u * u * t, 3 * u * t * t, t * t * t
-  return a * points[1][1] + b * points[2][1] + c * points[3][1] + d * points[4][1],
-    a * points[1][2] + b * points[2][2] + c * points[3][2] + d * points[4][2]
-end
-
---- Applies a path primitive's positional override in place.
----
---- Mirrors `apply_path` in `ecs.rs`. The phase advances at a base rate and
---- per-axis frequency multiplies *inside* the trigonometric term; folding
---- frequency into the advance instead would double-apply it on `lissajous`,
---- where the two axes must run at different rates against one shared phase.
---- With `freq` defaulting to 1 and the `path_frequency` alias, `sine` evaluates
---- exactly what it always did.
-local function apply_path(entity, phys, dt)
-  local path_type = phys.path_type
-  -- `linear` is pure velocity integration, which already happened.
-  if not path_type or path_type == "linear" then
-    return
-  end
-
-  local p = resolved_path(phys)
-  entity.path_phase = entity.path_phase + (dt * p.freq)
-  local phase = entity.path_phase
-
-  if path_type == "sine" then
-    entity.y = entity.base_y + math.sin(p.freq_y * phase) * p.amp_y * CELLS_PER_SPRITE_PX_Y
-  elseif path_type == "orbital" then
-    entity.x = entity.base_x + math.cos(p.freq_x * phase) * p.amp_x * CELLS_PER_SPRITE_PX_X
-    entity.y = entity.base_y + math.sin(p.freq_y * phase) * p.amp_y * CELLS_PER_SPRITE_PX_Y
-  elseif path_type == "lissajous" then
-    entity.x = entity.base_x
-      + math.sin(p.freq_x * phase + p.phase_delta) * p.amp_x * CELLS_PER_SPRITE_PX_X
-    entity.y = entity.base_y + math.sin(p.freq_y * phase) * p.amp_y * CELLS_PER_SPRITE_PX_Y
-  elseif path_type == "bezier" then
-    local points = phys.path_params and phys.path_params.points
-    if not points or #points < 4 then
-      return
-    end
-    -- Wrapped rather than clamped, so the curve loops instead of running off
-    -- its last control point and staying there.
-    local ox, oy = cubic_bezier(points, phase % 1.0)
-    entity.x = entity.base_x + ox * CELLS_PER_SPRITE_PX_X
-    entity.y = entity.base_y + oy * CELLS_PER_SPRITE_PX_Y
-  end
-  -- An unrecognised path is velocity integration, same as `linear`.
-end
-
---- What one animation frame is shown for when nothing declares a rate.
-local FALLBACK_FRAME_SECONDS = 0.1
-
-local MS_PER_SECOND = 1000
-
---- How long the entity's current animation frame is shown for, in seconds.
----
---- A manifest `fps` wins. Imported art whose state declares none is timed by
---- the delays stored in the file, which is the only rate an animation authored
---- elsewhere carries; `engine/src/ecs.rs` applies the same precedence, so a GIF
---- asset runs at one speed on both backends.
-local function frame_duration_seconds(entity, anim)
-  if anim.fps and anim.fps > 0 then
-    return 1 / anim.fps
-  end
-
-  local sheet_index = anim.frames and anim.frames[entity.frame_idx]
-  if sheet_index then
-    local delay_ms = sprites.frame_delay_ms(entity.asset_name, sheet_index + 1)
-    if delay_ms and delay_ms > 0 then
-      return delay_ms / MS_PER_SECOND
-    end
-  end
-
-  return FALLBACK_FRAME_SECONDS
-end
-
 function M.setup(opts)
   if opts then
     config = vim.tbl_deep_extend("force", config, opts)
@@ -177,6 +86,7 @@ function M.start()
   is_running = true
   last_tick_time = uv.hrtime()
   consecutive_render_failures = 0
+  plugins.bind_world({ backend = config.backend, entities = M.get_entities })
 
   local tick_rate = math.floor(1000 / (config.fps or 30))
   timer = uv.new_timer()
@@ -196,6 +106,8 @@ function M.stop()
     timer = nil
   end
   is_running = false
+  plugins.dispatch_teardown()
+  plugins.unbind_world()
   renderer.clear_all()
   entities = {}
   quiescent_drawn = false
@@ -238,7 +150,7 @@ local function resolve_placement(asset_name, manifest, initial_def, opts)
     declared_anchor = position.manifest_anchor(manifest),
     floor_row = spawn_floor_row,
     sprite_h = sprite_h,
-    bounds = { columns = vim.o.columns, lines = vim.o.lines },
+    bounds = viewport.bounds(),
     opts = opts,
   })
 end
@@ -387,6 +299,33 @@ end
 --- entity already resting is carried down with the floor rather than left
 --- hanging in the air until gravity notices.
 ---@param row number|nil the new floor in terminal cells, or nil for none
+--- Replaces the obstacles entities interact with.
+---
+--- Held in `distract.obstacles`, which both this engine and the collection side
+--- read, so there is one list rather than a copy per backend. Repainting is
+--- forced because a platform that moved changes where a resting entity stands,
+--- and a resting entity is exactly what quiescence suppresses.
+---@param rects table[] rectangles in terminal cells
+function M.set_obstacles(rects)
+  obstacles.set_rects(rects)
+  quiescent_drawn = false
+end
+
+--- Shows or hides what is already on screen.
+---
+--- Hiding closes the surfaces rather than leaving them in place, because an
+--- in-terminal float is drawn by the terminal emulator and stays visible over
+--- whatever the user switched to. Showing forces the next tick to repaint, since
+--- the resting pose it had already painted is now gone.
+---@param is_visible boolean
+function M.set_visible(is_visible)
+  if is_visible then
+    quiescent_drawn = false
+    return
+  end
+  renderer.clear_all()
+end
+
 function M.set_ground_row(row)
   if row ~= nil and type(row) ~= "number" then
     return
@@ -420,6 +359,7 @@ end
 
 function M.set_entity_state(entity, new_state)
   if entity.current_state ~= new_state then
+    local previous_state = entity.current_state
     -- A new state brings new art even when the entity does not move, so the
     -- settled pose that was painted no longer reflects the world.
     quiescent_drawn = false
@@ -436,6 +376,8 @@ function M.set_entity_state(entity, new_state)
     if state_def then
       entity.is_locked = state_def.is_locked or false
     end
+
+    plugins.dispatch_state_change(entity, previous_state, new_state)
   end
 end
 
@@ -569,212 +511,87 @@ end
 ---
 ---@param dt number seconds elapsed since the previous step
 ---@param bounds table `{ columns = number, lines = number }`, in terminal cells
+--- The entity with this id, or nil.
+local function find_entity(id)
+  for _, candidate in ipairs(entities) do
+    if candidate.id == id then
+      return candidate
+    end
+  end
+  return nil
+end
+
+--- Applies what plugin hooks asked for since the previous step.
+---
+--- Requests are applied here rather than where they were made so a hook cannot
+--- observe an entity halfway through its own frame, and so the overlay backend
+--- can forward the identical queue over IPC and reach the same result.
+---@return boolean whether an entity was deactivated and needs collecting
+local function apply_plugin_commands()
+  local deactivated = false
+  for _, command in ipairs(plugins.drain_commands()) do
+    local entity = find_entity(command.id)
+    if entity then
+      if command.kind == "state" then
+        M.set_entity_state(entity, command.state)
+      elseif command.kind == "impulse" then
+        entity.vx = entity.vx + command.vx
+        entity.vy = entity.vy + command.vy
+      elseif command.kind == "despawn" then
+        entity.is_active = false
+        deactivated = true
+      end
+    end
+  end
+  return deactivated
+end
+
 function M.step(dt, bounds)
   if #entities == 0 then
     return
   end
 
-  local max_columns = bounds.columns
-  local max_lines = bounds.lines
+  local requested_despawn = apply_plugin_commands()
+
+  -- The bounds carry an origin, because a scoped viewport is a rectangle
+  -- somewhere inside the editor grid rather than the grid itself. Absent, they
+  -- describe the whole screen and every existing trajectory is unchanged.
+  local min_col = bounds.col or 0
+  local min_row = bounds.row or 0
+  local max_columns = min_col + bounds.columns
+  local max_lines = min_row + bounds.lines
   local step = dt * REFERENCE_FPS
 
-  local despawned = false
+  local despawned = requested_despawn
+  local collisions = {}
+  -- Read once for the step rather than per entity: the list is replaced
+  -- wholesale by the provider cadence, never mutated mid-step.
+  local obstacle_rects = obstacles.rects()
 
   for _, entity in ipairs(entities) do
-    entity.state_time = entity.state_time + dt
-
-    -- 1. Action duration timer
-    if entity.action_timer and entity.action_duration then
-      entity.action_timer = entity.action_timer + dt
-      if entity.action_timer >= entity.action_duration then
-        entity.action_timer = nil
-        entity.action_duration = nil
-        entity.is_locked = false
-        local next_state = entity.return_state or "idle"
-        entity.return_state = nil
-        M.set_entity_state(entity, next_state)
-      end
+    if
+      entity_step.advance(entity, {
+        dt = dt,
+        step = step,
+        min_col = min_col,
+        min_row = min_row,
+        max_columns = max_columns,
+        max_lines = max_lines,
+        obstacle_rects = obstacle_rects,
+        collisions = collisions,
+        set_state = M.set_entity_state,
+        sprite_cell_size = sprite_cell_size,
+      })
+    then
+      despawned = true
     end
+  end
 
-    local state_def = entity.manifest.states and entity.manifest.states[entity.current_state]
-    if state_def then
-      -- 2. State Timeout
-      if
-        state_def.transitions
-        and state_def.transitions.timeout_ms
-        and state_def.transitions.on_timeout
-      then
-        if entity.state_time * 1000 >= state_def.transitions.timeout_ms then
-          M.set_entity_state(entity, state_def.transitions.on_timeout)
-        end
-      end
-
-      -- 3. Animation frames
-      local anim = state_def.animation or { frames = { 0 }, fps = 6, loop_anim = true }
-      local frame_count = #(anim.frames or { 0 })
-      if frame_count > 0 then
-        local frame_duration = frame_duration_seconds(entity, anim)
-        entity.frame_timer = entity.frame_timer + dt
-
-        if entity.frame_timer >= frame_duration then
-          entity.frame_timer = entity.frame_timer - frame_duration
-          if entity.frame_idx < frame_count then
-            entity.frame_idx = entity.frame_idx + 1
-          elseif anim.loop_anim ~= false then
-            entity.frame_idx = 1
-          else
-            entity.animation_finished = true
-            if state_def.transitions and state_def.transitions.on_finish then
-              M.set_entity_state(entity, state_def.transitions.on_finish)
-            end
-          end
-        end
-      end
-
-      -- 4. Physics, in the shared manifest unit (sprite pixels per 60 FPS frame)
-      --
-      -- Parallax damps the displacement rather than the velocity itself:
-      -- damping the stored velocity every frame would decay it to zero instead
-      -- of moving a distant thing slower at a steady speed.
-      local parallax = entity.parallax or 1.0
-      local cells_x = step * CELLS_PER_SPRITE_PX_X * parallax
-      local cells_y = step * CELLS_PER_SPRITE_PX_Y * parallax
-      local phys = state_def.physics or {}
-      local speed_x = math.abs(phys.target_vx or 0)
-      entity.target_vx = speed_x * entity.heading_x
-      entity.target_vy = phys.target_vy or 0
-      entity.flip_x = (entity.heading_x < 0)
-
-      local friction = phys.friction or 0.05
-      local lerp_factor = math.min(1.0, math.max(0.01, 1.0 - math.exp(-friction * step)))
-      entity.vx = entity.vx + (entity.target_vx - entity.vx) * lerp_factor
-      -- Constant acceleration, on top of the pull toward `target_vx`. `gravity`
-      -- is the same thing on the y axis under a name that also brings a floor
-      -- with it; `accel_y` is the floorless version.
-      entity.vx = entity.vx + ((phys.accel_x or 0) * step)
-
-      if (phys.gravity or 0) > 0 then
-        -- Read before the integration: an entity already resting on the floor
-        -- is re-accelerated by gravity and caught by the clamp on every single
-        -- tick, so "the clamp ran" is not a landing. Crossing the floor from
-        -- above is.
-        local was_airborne = entity.y < entity.ground_y
-        entity.vy = entity.vy + (phys.gravity * step)
-        entity.y = entity.y + (entity.vy * cells_y)
-
-        if entity.y >= entity.ground_y then
-          entity.y = entity.ground_y
-          local landed = was_airborne and entity.vy > 0
-          entity.vy = 0
-          if landed and M.effective_locomotion(phys) == BALLISTIC then
-            local on_land = state_def.transitions and state_def.transitions.on_land
-            if on_land then
-              -- Landing ends the action that launched the entity. Leaving its
-              -- timer running would drag the entity out of the state it just
-              -- reached as soon as the clock caught up, so a jump that lands
-              -- early would still be locked until its declared duration.
-              entity.action_timer = nil
-              entity.action_duration = nil
-              entity.return_state = nil
-              entity.is_locked = false
-              M.set_entity_state(entity, on_land)
-            end
-          end
-        end
-      else
-        entity.vy = entity.vy + (entity.target_vy - entity.vy) * lerp_factor
-        entity.vy = entity.vy + ((phys.accel_y or 0) * step)
-        entity.y = entity.y + (entity.vy * cells_y)
-      end
-
-      entity.x = entity.x + (entity.vx * cells_x)
-
-      -- A path is a positional *override*, applied after integration so it
-      -- replaces the velocity result on the axes it owns and leaves the others
-      -- alone. Gravity is excluded: a path that writes y fights the floor,
-      -- which is what the locomotion classes exist to keep apart.
-      if (phys.gravity or 0) <= 0 then
-        apply_path(entity, phys, dt)
-      end
-
-      -- 5. Screen boundary modes. Sizes come from the asset rather than a
-      -- constant: the built-in sprites are 24 cells wide (cat, crab) and 16
-      -- (sun), so a hardcoded 16 wrapped and bounced them in the wrong place.
-      -- Parallax shrinks the drawn art, so the footprint the boundary modes
-      -- measure against shrinks with it.
-      local sprite_w, sprite_h = sprite_cell_size(entity.asset_name)
-      sprite_w, sprite_h = sprite_w * parallax, sprite_h * parallax
-      local wrap_mode = phys.wrap_mode or "wrap"
-
-      local edges = state_def.transitions or {}
-
-      if wrap_mode == "wrap" then
-        -- Gated on position, not on velocity: `vx` lerps toward its target, so
-        -- a state whose target is zero decays it through zero and an entity
-        -- that had already left the screen would never wrap back.
-        if entity.x > max_columns then
-          entity.x = -sprite_w
-        elseif entity.x < -sprite_w then
-          entity.x = max_columns
-        end
-        -- Vertical wrap too. The overlay has always wrapped both axes, so a
-        -- manifest with vertical motion described one behaviour there and a
-        -- different one here.
-        if entity.y > max_lines then
-          entity.y = -sprite_h
-        elseif entity.y < -sprite_h then
-          entity.y = max_lines
-        end
-      elseif wrap_mode == "bounce" then
-        if entity.x <= 0 then
-          entity.x = 0
-          entity.heading_x = 1
-          entity.vx = math.max(0.5, math.abs(entity.vx))
-          entity.flip_x = false
-          if edges.on_edge_left then
-            M.set_entity_state(entity, edges.on_edge_left)
-          end
-        elseif entity.x + sprite_w >= max_columns then
-          entity.x = math.max(0, max_columns - sprite_w)
-          entity.heading_x = -1
-          entity.vx = -math.max(0.5, math.abs(entity.vx))
-          entity.flip_x = true
-          if edges.on_edge_right then
-            M.set_entity_state(entity, edges.on_edge_right)
-          end
-        end
-
-        if entity.vy ~= 0 then
-          if entity.y <= 0 then
-            entity.y = 0
-            entity.vy = math.abs(entity.vy)
-          elseif entity.y + sprite_h >= max_lines then
-            entity.y = math.max(0, max_lines - sprite_h)
-            entity.vy = -math.abs(entity.vy)
-          end
-        end
-      elseif wrap_mode == "clamp" then
-        entity.x = math.max(0, math.min(entity.x, max_columns - sprite_w))
-        -- No `- 1` on the ceiling: the overlay clamps at `viewport_h - frame_h`
-        -- and `bounce` above clamps at `max_lines - sprite_h`, so the stray row
-        -- made `clamp` disagree with both the other engine and its own
-        -- neighbouring branch. Reserving space for the statusline is the floor
-        -- system's job, where it is computed from `cmdheight` and `laststatus`
-        -- rather than guessed at as a constant.
-        entity.y = math.max(0, math.min(entity.y, max_lines - sprite_h))
-      elseif wrap_mode == "despawn" then
-        if
-          entity.x < -sprite_w
-          or entity.x > max_columns
-          or entity.y < -sprite_h
-          or entity.y > max_lines
-        then
-          entity.is_active = false
-          despawned = true
-        end
-      end
-      -- "none" deliberately applies no boundary handling.
-    end
+  for _, entity in ipairs(entities) do
+    plugins.dispatch_tick(entity, dt)
+  end
+  for _, collision in ipairs(collisions) do
+    plugins.dispatch_collision(collision.entity, { edge = collision.edge, target = nil })
   end
 
   if despawned then
@@ -810,7 +627,12 @@ function M.tick()
     return
   end
 
-  M.step(dt, { columns = vim.o.columns, lines = vim.o.lines })
+  M.step(dt, viewport.bounds())
+
+  -- Stepped, deliberately, before this returns: hiding is a drawing decision.
+  if not visibility.is_visible() then
+    return
+  end
 
   -- Quiescence gates the *redraw*, never the step, matching how `ecs.rs` uses
   -- it: `World::update` always runs there. Stepping is arithmetic; drawing is
@@ -824,6 +646,7 @@ function M.tick()
   local ok, err = pcall(renderer.draw, entities, config.backend)
   if ok then
     consecutive_render_failures = 0
+    plugins.dispatch_draw(renderer.placements())
     -- A failed draw must not count as having painted the resting pose.
     quiescent_drawn = settled
   else
@@ -908,6 +731,12 @@ end
 --- Without this, `tick` returned early only when no entity existed at all, so
 --- a screen of sleeping cats woke the editor loop 30 times a second forever.
 function M.is_quiescent()
+  -- A plugin that drew a layer, or asked for a change, has produced a picture
+  -- the simulation alone would not have: quiescence must not suppress it.
+  if plugins.consume_dirty() then
+    return false
+  end
+
   for _, e in ipairs(entities) do
     if not e.is_active then
       return false

@@ -131,17 +131,36 @@ describe("generated sprite geometry", function()
 end)
 
 describe("generated sprite shading", function()
-  it("shades every frame rather than filling flat colour", function()
+  -- This suite used to assert the opposite -- at least twelve colours a frame, on
+  -- the grounds that volumetric shading should produce a gradient. At 24x16 a
+  -- sprite is 24 columns by eight half-block rows and that gradient read as noise:
+  -- the cat read as a fox. The art is now silhouette-first, so the contract this
+  -- pins is a *bounded* palette per frame, which is also what keeps the three
+  -- built-ins from consuming half of `max_highlight_groups` between them.
+  local MAX_COLOURS_PER_FRAME = 10
+  local MIN_COLOURS_PER_FRAME = 3
+
+  it("fills every frame flat, from a palette small enough to read", function()
     for name, _ in pairs(ASSETS) do
-      for i, matrix in ipairs(sprites.get_pixel_frames(name)) do
-        local n = distinct_colors(matrix)
+      for index, matrix in ipairs(sprites.get_pixel_frames(name)) do
+        local colours = distinct_colors(matrix)
         assert(
-          n >= 12,
+          colours <= MAX_COLOURS_PER_FRAME,
           string.format(
-            "%s frame %d uses only %d colours; volumetric shading should give a gradient",
+            "%s frame %d uses %d colours; flat art should stay at or under %d",
             name,
-            i,
-            n
+            index,
+            colours,
+            MAX_COLOURS_PER_FRAME
+          )
+        )
+        assert(
+          colours >= MIN_COLOURS_PER_FRAME,
+          string.format(
+            "%s frame %d uses only %d colours; a fill, a band and a contour is the floor",
+            name,
+            index,
+            colours
           )
         )
       end

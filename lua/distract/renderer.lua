@@ -25,7 +25,9 @@
 local M = {}
 local api = vim.api
 local sprites = require("distract.terminal_sprites")
+local placement = require("distract.placement")
 local screen_map = require("distract.screen_map")
+local viewport = require("distract.viewport")
 
 --- This renderer is the half-block backend, whose smallest addressable unit is
 --- half a character cell, so it always asks for the cell-grid art rather than a
@@ -151,6 +153,59 @@ function M.supports(backend)
   return BACKEND_SURFACE[backend] ~= nil
 end
 
+--- Whether this entity's current state wraps at the edge.
+---
+--- Only a wrapping entity is sliced: every other boundary mode keeps the sprite
+--- inside the bounds, so there is never a departing half to draw.
+local function wraps_at_the_edge(entity)
+  local states = entity.manifest and entity.manifest.states
+  local state_def = states and states[entity.current_state]
+  local physics = state_def and state_def.physics
+  -- `wrap` is the default when a state declares no mode, matching `engine.lua`.
+  return physics == nil or (physics.wrap_mode or "wrap") == "wrap"
+end
+
+--- The floats this renderer owns, so they are not mistaken for someone else's.
+local function own_windows()
+  local ignored = {}
+  for _, entry in pairs(active_windows) do
+    for _, slice in ipairs(entry.slices or {}) do
+      if slice.win then
+        ignored[slice.win] = true
+      end
+    end
+  end
+  return ignored
+end
+
+--- Whether drawing this entity would cover something the user is working in.
+---
+--- A sprite over an LSP hover, a completion menu or a terminal split is worse
+--- than no sprite, so the frame is skipped for that entity rather than drawn
+--- underneath where it would still repaint over the text.
+---@return boolean
+function M.is_occluding(entity, surface, bounds, blocked)
+  if #blocked == 0 then
+    return false
+  end
+  local geom = placement.resolve({
+    x = entity.x,
+    y = entity.y,
+    width = surface.width,
+    height = surface.height,
+    bounds = bounds,
+    wrap = wraps_at_the_edge(entity),
+  })
+  for _, slice in ipairs(geom.slices) do
+    for _, rect in ipairs(blocked) do
+      if viewport.overlaps(slice, rect) then
+        return true
+      end
+    end
+  end
+  return false
+end
+
 --- Draws all entities in terminal mode using the selected backend
 function M.draw(entities, backend)
   local build_surface = BACKEND_SURFACE[backend or "halfblock"]
@@ -158,17 +213,21 @@ function M.draw(entities, backend)
     error(string.format("distract: no renderer for backend '%s'", tostring(backend)))
   end
 
-  local bounds = { columns = vim.o.columns, lines = vim.o.lines }
+  local bounds = viewport.bounds()
 
   -- Where the editor's text is, so sprite rows can be drawn onto it instead of
   -- over it. Rebuilt only when the layout moved.
   screen_map.sync()
 
+  -- What a sprite must not cover, measured once for the frame. The sprites' own
+  -- floats are excluded, or every sprite would block itself.
+  local blocked = viewport.blocking_rects(own_windows())
+
   local live_ids = {}
   for _, entity in ipairs(entities) do
     live_ids[entity.id] = true
     local surface = build_surface(entity)
-    if surface then
+    if surface and not M.is_occluding(entity, surface, bounds, blocked) then
       M.place_surface(entity, surface, bounds)
     else
       -- Nothing renderable for this frame; drop anything we still hold rather
@@ -229,6 +288,29 @@ function M.resolve_flip(entity)
 end
 
 --- Removes an entity's overlay extmarks.
+local function slice_signature(geom)
+  local parts = { geom.overlay_limit }
+  for _, slice in ipairs(geom.slices) do
+    table.insert(
+      parts,
+      table.concat(
+        { slice.row, slice.col, slice.width, slice.height, slice.src_row, slice.src_col },
+        ","
+      )
+    )
+  end
+  return table.concat(parts, "|")
+end
+
+local function windows_are_valid(entry)
+  for _, slice in ipairs(entry.slices or {}) do
+    if slice.win and not api.nvim_win_is_valid(slice.win) then
+      return false
+    end
+  end
+  return true
+end
+
 local function clear_overlay(entry)
   if not entry or not entry.marks then
     return
@@ -239,23 +321,6 @@ local function clear_overlay(entry)
     end
   end
   entry.marks = nil
-end
-
---- The first sprite row that cannot be drawn onto buffer text.
----
---- Everything from there down goes to the float. It is a tail rather than a set
---- of individual rows because the rows that fail are almost always the ones
---- below the end of the file, which are contiguous and at the bottom; treating
---- an isolated failure in the middle as the start of the tail costs a few rows
---- of occluded text, which is what every row cost before.
-local function first_unmappable_row(row, col, width, height)
-  for r = 0, height - 1 do
-    local slot = screen_map.slot(row + r)
-    if not slot or col < slot.text_left or col + width - 1 > slot.text_right then
-      return r
-    end
-  end
-  return height
 end
 
 --- Draws sprite rows 0..`limit`-1 as overlay virtual text on the buffer lines
@@ -284,59 +349,72 @@ local function draw_overlay_rows(rows, row, col, limit)
   return marks
 end
 
---- Places the float that covers sprite rows `from`..`height`-1.
+--- Places one float showing one slice of a surface.
 ---
---- The float shows the whole frame buffer, scrolled so `from` is its top line.
---- That is what lets every entity keep sharing one buffer per frame instead of
---- needing one per (frame, split point).
-local function place_float(entity, entry, surface_buf, geom)
-  local win = entry and entry.win
+--- The float shows the whole frame buffer, scrolled so the slice's first row and
+--- column are its top-left. That is what lets every entity keep sharing one
+--- buffer per frame instead of needing one per (frame, split point) — and it is
+--- what makes a wrapped sprite's departing half free: it is the same buffer at a
+--- different scroll offset.
+---@param slice DistractSlice
+local function place_float(entity, previous, surface_buf, slice)
+  local win = previous and previous.win
   if not win or not api.nvim_win_is_valid(win) then
     win = api.nvim_open_win(surface_buf, false, {
       relative = "editor",
-      width = geom.width,
-      height = geom.float_height,
-      row = geom.float_row,
-      col = geom.col,
+      width = slice.width,
+      height = slice.height,
+      row = slice.row,
+      col = slice.col,
       style = "minimal",
       border = "none",
       focusable = false,
       noautocmd = true,
-      zindex = (entity.z_index or 0) + 100,
+      zindex = (entity.z_index or 0) + viewport.z_index_offset(),
     })
     api.nvim_set_option_value("winblend", 0, { win = win })
+    api.nvim_set_option_value("wrap", false, { win = win })
     api.nvim_set_option_value(
       "winhighlight",
       "Normal:" .. M.background_group() .. ",NormalNC:" .. M.background_group(),
       { win = win }
     )
   elseif
-    entry.float_row ~= geom.float_row
-    or entry.col ~= geom.col
-    or entry.width ~= geom.width
-    or entry.float_height ~= geom.float_height
+    previous.row ~= slice.row
+    or previous.col ~= slice.col
+    or previous.width ~= slice.width
+    or previous.height ~= slice.height
   then
     -- Only reposition when something actually moved. This call forces a full
     -- redraw, so making it unconditionally cost a redraw per entity per tick.
     api.nvim_win_set_config(win, {
       relative = "editor",
-      row = geom.float_row,
-      col = geom.col,
-      width = geom.width,
-      height = geom.float_height,
+      row = slice.row,
+      col = slice.col,
+      width = slice.width,
+      height = slice.height,
     })
   end
 
   -- Show a different picture by showing a different buffer.
-  if not entry or entry.buf ~= surface_buf then
+  if not previous or previous.buf ~= surface_buf then
     api.nvim_win_set_buf(win, surface_buf)
   end
 
-  -- Scroll to the first row the float is responsible for.
-  if not entry or entry.buf ~= surface_buf or entry.overlay_limit ~= geom.overlay_limit then
-    pcall(api.nvim_win_set_cursor, win, { geom.overlay_limit + 1, 0 })
+  -- Scroll to the slice's own corner of the surface.
+  if
+    not previous
+    or previous.buf ~= surface_buf
+    or previous.src_row ~= slice.src_row
+    or previous.src_col ~= slice.src_col
+  then
+    pcall(api.nvim_win_set_cursor, win, { slice.src_row + 1, 0 })
     pcall(api.nvim_win_call, win, function()
-      vim.fn.winrestview({ topline = geom.overlay_limit + 1, lnum = geom.overlay_limit + 1 })
+      vim.fn.winrestview({
+        topline = slice.src_row + 1,
+        lnum = slice.src_row + 1,
+        leftcol = slice.src_col,
+      })
     end)
   end
 
@@ -352,45 +430,29 @@ end
 ---@param surface DistractFrameSurface
 ---@param bounds { columns: integer, lines: integer }
 function M.place_surface(entity, surface, bounds)
-  local max_columns = bounds.columns
-  local max_lines = bounds.lines
+  -- Rows over buffer text are drawn onto it; the tail that is not goes to a
+  -- float. Clamping, the wrap slicing and that split are geometry, and live in
+  -- `placement.lua`.
+  local geom = placement.resolve({
+    x = entity.x,
+    y = entity.y,
+    width = surface.width,
+    height = surface.height,
+    bounds = bounds,
+    wrap = wraps_at_the_edge(entity),
+  })
 
-  -- A sprite larger than the viewport still has to produce a legal window size.
-  local width = math.min(surface.width, math.max(1, max_columns))
-  local height = math.min(surface.height, math.max(1, max_lines - 1))
-
-  local x = math.floor(entity.x)
-  local y = math.floor(entity.y)
-  local col = math.max(0, math.min(x, max_columns - width))
-  local row = math.max(0, math.min(y, max_lines - height - 1))
-
-  -- Rows over buffer text are drawn onto it; the tail that is not goes to the
-  -- float.
-  local overlay_limit = first_unmappable_row(row, col, width, height)
-  local geom = {
-    row = row,
-    col = col,
-    width = width,
-    height = height,
-    overlay_limit = overlay_limit,
-    float_row = row + overlay_limit,
-    float_height = height - overlay_limit,
-  }
+  if #geom.slices == 0 then
+    M.close_window(entity.id)
+    return
+  end
 
   -- Nothing below is worth redoing unless the picture, the placement, or the
   -- editor layout under it has changed. An idle pet costs no API calls.
-  local sig = table.concat({
-    surface.key,
-    row,
-    col,
-    width,
-    height,
-    overlay_limit,
-    screen_map.version(),
-  }, ":")
+  local sig = table.concat({ surface.key, slice_signature(geom), screen_map.version() }, ":")
 
   local entry = active_windows[entity.id]
-  if entry and entry.sig == sig and (not entry.win or api.nvim_win_is_valid(entry.win)) then
+  if entry and entry.sig == sig and windows_are_valid(entry) then
     return
   end
 
@@ -400,30 +462,54 @@ function M.place_surface(entity, surface, bounds)
   end
 
   local marks = nil
-  if overlay_limit > 0 then
-    local rows = surface.runs()
-    marks = draw_overlay_rows(rows or {}, row, col, overlay_limit)
+  if geom.overlay_limit > 0 then
+    marks = draw_overlay_rows(surface.runs() or {}, geom.row, geom.col, geom.overlay_limit)
   end
 
-  local win = nil
+  -- The primary slice's float covers whatever the buffer overlay could not, and
+  -- every other slice is a whole float of its own.
+  local float_slices = {}
   if geom.float_height > 0 then
-    win = place_float(entity, previous, surface.buf, geom)
-  elseif previous and previous.win and api.nvim_win_is_valid(previous.win) then
-    -- Every row landed on buffer text, so there is nothing left for a float to
-    -- do and nothing of the editor stays covered.
-    api.nvim_win_close(previous.win, true)
+    table.insert(float_slices, {
+      row = geom.float_row,
+      col = geom.col,
+      width = geom.width,
+      height = geom.float_height,
+      src_row = geom.overlay_limit,
+      src_col = geom.slices[1].src_col,
+    })
+  end
+  for index = 2, #geom.slices do
+    table.insert(float_slices, geom.slices[index])
+  end
+
+  local previous_wins = (previous and previous.slices) or {}
+  local placed = {}
+  for index, slice in ipairs(float_slices) do
+    local win = place_float(entity, previous_wins[index], surface.buf, slice)
+    placed[index] = vim.tbl_extend("force", slice, { win = win, buf = surface.buf })
+  end
+
+  -- A sprite that has stopped wrapping needs fewer floats than it had.
+  for index = #float_slices + 1, #previous_wins do
+    local stale = previous_wins[index].win
+    if stale and api.nvim_win_is_valid(stale) then
+      api.nvim_win_close(stale, true)
+    end
   end
 
   active_windows[entity.id] = {
+    asset_name = entity.asset_name,
     buf = surface.buf,
-    win = win,
-    row = row,
-    col = col,
-    width = width,
-    height = height,
+    win = placed[1] and placed[1].win or nil,
+    slices = placed,
+    row = geom.row,
+    col = geom.col,
+    width = geom.width,
+    height = geom.height,
     float_row = geom.float_row,
     float_height = geom.float_height,
-    overlay_limit = overlay_limit,
+    overlay_limit = geom.overlay_limit,
     sig = sig,
     marks = marks,
   }
@@ -468,8 +554,10 @@ function M.close_window(entity_id)
   local w = active_windows[entity_id]
   if w then
     clear_overlay(w)
-    if w.win and api.nvim_win_is_valid(w.win) then
-      api.nvim_win_close(w.win, true)
+    for _, slice in ipairs(w.slices or {}) do
+      if slice.win and api.nvim_win_is_valid(slice.win) then
+        api.nvim_win_close(slice.win, true)
+      end
     end
     -- The buffer is not deleted: frame buffers are shared between every entity
     -- showing that frame and outlive any one window. `terminal_sprites.reset_cache`
@@ -486,11 +574,49 @@ function M.clear_all()
 end
 
 --- Placement currently held for an entity, for tests and diagnostics.
+--- Where every drawn entity currently sits, in terminal cells.
+---
+--- The one geometry a plugin drawing its own layer -- a speech bubble, a
+--- highlight -- needs, reported in cells on every backend so a plugin does not
+--- have to know which renderer produced it.
+---@return table[] `{ id, asset_name, row, col, width, height }`
+function M.placements()
+  local layers = {}
+  for id, entry in pairs(active_windows) do
+    table.insert(layers, {
+      id = id,
+      asset_name = entry.asset_name,
+      row = entry.row,
+      col = entry.col,
+      width = entry.width,
+      height = entry.height,
+    })
+  end
+  -- `pairs` has no defined order, and a plugin that draws per layer would place
+  -- its own art in a different order on every frame.
+  table.sort(layers, function(left, right)
+    return left.id < right.id
+  end)
+  return layers
+end
+
 function M.window_state(entity_id)
   local w = active_windows[entity_id]
   if not w then
     return nil
   end
+  local slices = {}
+  for index, slice in ipairs(w.slices or {}) do
+    slices[index] = {
+      row = slice.row,
+      col = slice.col,
+      width = slice.width,
+      height = slice.height,
+      src_row = slice.src_row,
+      src_col = slice.src_col,
+    }
+  end
+
   return {
     row = w.row,
     col = w.col,
@@ -498,6 +624,7 @@ function M.window_state(entity_id)
     height = w.height,
     buf = w.buf,
     win = w.win,
+    slices = slices,
     float_row = w.float_row,
     float_height = w.float_height,
     overlay_limit = w.overlay_limit,

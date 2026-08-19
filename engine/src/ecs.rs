@@ -1,7 +1,10 @@
 use crate::asset::AssetManager;
+use crate::bounds::Bounds;
 use crate::ipc::EntitySummary;
+use crate::journal::{self, Journal, WorldEvent};
 use crate::manifest;
 use crate::manifest::{AssetManifest, PhysicsConfig, WrapMode};
+use crate::obstacles::{self, Footprint, Obstacle, PushDirection};
 use crate::spawn::{Anchor, EntitySeed, SpawnOptions};
 
 /// Default terminal cell size in physical pixels.
@@ -256,10 +259,10 @@ fn frame_duration_seconds(
     }
 }
 
-fn anchored_y(anchor: Option<Anchor>, floor_y: Option<f32>) -> Option<f32> {
+fn anchored_y(anchor: Option<Anchor>, floor_y: Option<f32>, bounds: Bounds) -> Option<f32> {
     match anchor {
         Some(Anchor::Bottom) => floor_y,
-        Some(Anchor::Top) => Some(0.0),
+        Some(Anchor::Top) => Some(bounds.top),
         Some(Anchor::Free) | None => None,
     }
 }
@@ -292,6 +295,14 @@ impl EventContext {
 
 pub struct World {
     pub entities: Vec<Entity>,
+    /// What the world did, for the Lua plugin pipeline. Idle until subscribed.
+    pub journal: Journal,
+    /// The rectangle entities may move in, when Neovim scoped it to less than
+    /// the whole window. `None` is the whole window.
+    pub scope: Option<Bounds>,
+    /// Solid ground and hazards a Neovim plugin registered, in overlay pixels.
+    /// Empty for every session with no obstacle provider, which is the default.
+    pub obstacles: Vec<Obstacle>,
     pub asset_manager: AssetManager,
     pub next_id: usize,
     pub viewport_w: f32,
@@ -331,6 +342,9 @@ impl World {
     pub fn new(viewport_w: f32, viewport_h: f32) -> Self {
         Self {
             entities: Vec::new(),
+            journal: Journal::default(),
+            scope: None,
+            obstacles: Vec::new(),
             asset_manager: AssetManager::new(),
             next_id: 1,
             viewport_w,
@@ -383,6 +397,51 @@ impl World {
     /// are their own, and a screen that changed shape has nothing to say about
     /// either. An entity already resting is carried down with the floor rather
     /// than left hanging until gravity notices.
+    /// Where entities may be, in overlay pixels.
+    pub fn bounds(&self) -> Bounds {
+        match self.scope {
+            Some(scope) => scope,
+            None => Bounds::window(self.viewport_w, self.viewport_h),
+        }
+    }
+
+    /// Replaces the registered obstacles.
+    ///
+    /// # Errors
+    /// When more than `obstacles::MAX_OBSTACLES` arrive: the physics pass is per
+    /// entity per obstacle per frame, so an unbounded list from a Tree-sitter
+    /// query over a large file is a frame-budget hazard, not a feature.
+    pub fn set_obstacles(&mut self, obstacles: Vec<Obstacle>) -> Result<(), String> {
+        if obstacles.len() > obstacles::MAX_OBSTACLES {
+            return Err(format!(
+                "at most {} obstacles may be registered, got {}",
+                obstacles::MAX_OBSTACLES,
+                obstacles.len()
+            ));
+        }
+        self.obstacles = obstacles;
+        Ok(())
+    }
+
+    /// Restricts entities to a rectangle Neovim measured, or clears it.
+    ///
+    /// # Errors
+    /// When the rectangle has no positive size, or does not intersect the
+    /// window: either would leave every entity permanently out of bounds.
+    pub fn set_scope(&mut self, scope: Option<Bounds>) -> Result<(), String> {
+        match scope {
+            None => {
+                self.scope = None;
+                Ok(())
+            }
+            Some(request) => {
+                let resolved = Bounds::scoped(request, self.viewport_w, self.viewport_h)?;
+                self.scope = Some(resolved);
+                Ok(())
+            }
+        }
+    }
+
     pub fn set_ground_y(&mut self, ground_y: f32) {
         let previous = self.ground_y.replace(ground_y);
         let Some(previous) = previous else {
@@ -438,6 +497,10 @@ impl World {
             .ok_or_else(|| format!("Unknown asset '{}'", asset_name))?;
 
         let initial_state = asset.manifest.initial_state.clone();
+        let bounds = match self.scope {
+            Some(scope) => scope,
+            None => Bounds::window(self.viewport_w, self.viewport_h),
+        };
         let id = self.next_id;
         self.next_id += 1;
 
@@ -449,11 +512,11 @@ impl World {
 
         let seed = EntitySeed {
             initial_state: initial_state.clone(),
-            x: options.x.unwrap_or(self.viewport_w / 2.0),
+            x: options.x.unwrap_or(bounds.left + bounds.width / 2.0),
             y: options
                 .y
-                .or(anchored_y(options.anchor, floor_y))
-                .unwrap_or(self.viewport_h / 2.0),
+                .or(anchored_y(options.anchor, floor_y, bounds))
+                .unwrap_or(bounds.top + bounds.height / 2.0),
             flip_x: options.flip_x.unwrap_or(false),
             // A spawned `z` is the draw order as well as the depth, so it wins
             // over whatever the manifest declared.
@@ -503,6 +566,43 @@ impl World {
 
         self.entities.push(entity);
         Ok(id)
+    }
+
+    /// Puts an entity into a state a plugin asked for.
+    ///
+    /// The mirror of `engine.lua`'s `set_entity_state` reached through a world
+    /// command, so a hook that requests a state gets the same result on the
+    /// overlay as it does in the terminal. A state the manifest does not
+    /// declare is refused rather than left to animate nothing.
+    pub fn set_entity_state(&mut self, id: usize, state: &str) -> Result<(), String> {
+        let asset_name = match self.entities.iter().find(|e| e.id == id) {
+            Some(entity) => entity.asset_name.clone(),
+            None => return Err(format!("Entity #{} not found", id)),
+        };
+        let declares_state = self
+            .asset_manager
+            .get(&asset_name)
+            .map(|asset| asset.manifest.states.contains_key(state))
+            .unwrap_or(false);
+        if !declares_state {
+            return Err(format!("'{}' declares no state '{}'", asset_name, state));
+        }
+        if let Some(entity) = self.entities.iter_mut().find(|e| e.id == id) {
+            entity.set_state(state.to_string());
+        }
+        Ok(())
+    }
+
+    /// Adds to an entity's velocity, in sprite pixels per frame at 60 FPS.
+    pub fn apply_impulse(&mut self, id: usize, vx: f32, vy: f32) -> Result<(), String> {
+        match self.entities.iter_mut().find(|e| e.id == id) {
+            Some(entity) => {
+                entity.vx += vx;
+                entity.vy += vy;
+                Ok(())
+            }
+            None => Err(format!("Entity #{} not found", id)),
+        }
     }
 
     pub fn despawn(&mut self, id: usize) -> bool {
@@ -613,10 +713,15 @@ impl World {
     /// used to drop entities silently, so Neovim's idea of what was alive
     /// diverged from the engine's and `:DistractStatus` disagreed with reality.
     pub fn update(&mut self, dt: f32) -> Vec<usize> {
-        let viewport_w = self.viewport_w;
-        let viewport_h = self.viewport_h;
+        let bounds = self.bounds();
         let scale_x = self.sprite_scale_x;
         let scale_y = self.sprite_scale_y;
+        let is_recording = self.journal.is_enabled();
+        let mut collisions: Vec<WorldEvent> = Vec::new();
+        // Taken out of `self` for the duration of the loop, which holds
+        // `entities` mutably. Empty in every session without a provider, so the
+        // move costs nothing there.
+        let obstacles = std::mem::take(&mut self.obstacles);
 
         for entity in &mut self.entities {
             if !entity.is_active {
@@ -725,15 +830,35 @@ impl World {
                     // the floor is re-accelerated by gravity and caught by the
                     // clamp on every single tick, so "the clamp ran" is not a
                     // landing. Crossing the floor from above is.
-                    let was_airborne = entity.y < entity.ground_y;
+                    let feet_before = entity.y + frame_h;
                     entity.vy += phys.gravity * step;
                     entity.y += entity.vy * py;
 
-                    // Ground collision clamping
-                    if entity.y >= entity.ground_y {
-                        entity.y = entity.ground_y;
+                    // A registered platform is a floor the entity reaches
+                    // earlier, so the surface for this frame is whichever is
+                    // higher. With no obstacles this is the floor exactly, and
+                    // the arithmetic is the ground clamp it replaces.
+                    let floor_feet = entity.ground_y + frame_h;
+                    let surface = obstacles::crossed_platform(
+                        &obstacles,
+                        Footprint {
+                            left: entity.x,
+                            top: entity.y,
+                            width: frame_w,
+                            height: frame_h,
+                        },
+                        feet_before,
+                    )
+                    .map_or(floor_feet, |platform_top| platform_top.min(floor_feet));
+                    let was_airborne = feet_before < surface;
+
+                    if entity.y + frame_h >= surface {
+                        entity.y = surface - frame_h;
                         let landed = was_airborne && entity.vy > 0.0;
                         entity.vy = 0.0;
+                        if landed && is_recording {
+                            collisions.push(WorldEvent::collision(entity.id, journal::EDGE_BOTTOM));
+                        }
                         if landed && phys.effective_locomotion() == manifest::BALLISTIC {
                             if let Some(ref land_state) = state_def.transitions.on_land {
                                 // Landing ends the action that launched the
@@ -769,6 +894,48 @@ impl World {
                     }
                 }
 
+                // A grounded state has no gravity to fall under, so which
+                // surface it stands on is resolved rather than integrated. Only
+                // reached while obstacles exist: without them the answer is the
+                // floor the entity was already seated on.
+                if !obstacles.is_empty()
+                    && phys.gravity <= 0.0
+                    && asset.manifest.locomotion_for(state_def) == manifest::GROUNDED
+                {
+                    entity.y = obstacles::standing_surface(
+                        &obstacles,
+                        Footprint {
+                            left: entity.x,
+                            top: entity.y,
+                            width: frame_w,
+                            height: frame_h,
+                        },
+                        entity.ground_y + frame_h,
+                    ) - frame_h;
+                }
+
+                if let Some(deflection) = obstacles::deflection(
+                    &obstacles,
+                    Footprint {
+                        left: entity.x,
+                        top: entity.y,
+                        width: frame_w,
+                        height: frame_h,
+                    },
+                    entity.heading_x,
+                ) {
+                    entity.x = deflection.x;
+                    entity.heading_x = match deflection.direction {
+                        PushDirection::Left => -1.0,
+                        PushDirection::Right => 1.0,
+                    };
+                    entity.vx = entity.vx.abs() * entity.heading_x;
+                    entity.flip_x = entity.heading_x < 0.0;
+                    if is_recording {
+                        collisions.push(WorldEvent::collision(entity.id, journal::EDGE_OBSTACLE));
+                    }
+                }
+
                 // 5. Boundary checking
                 match phys.wrap_mode {
                     WrapMode::Wrap => {
@@ -777,55 +944,77 @@ impl World {
                         // whose target is zero decays it through zero and an
                         // entity that had already left the viewport would never
                         // wrap back — it just sat off-screen forever.
-                        if entity.x > viewport_w {
-                            entity.x = -frame_w;
-                        } else if entity.x < -frame_w {
-                            entity.x = viewport_w;
+                        if entity.x > bounds.right() {
+                            entity.x = bounds.left - frame_w;
+                        } else if entity.x < bounds.left - frame_w {
+                            entity.x = bounds.right();
                         }
-                        if entity.y > viewport_h {
-                            entity.y = -frame_h;
-                        } else if entity.y < -frame_h {
-                            entity.y = viewport_h;
+                        if entity.y > bounds.bottom() {
+                            entity.y = bounds.top - frame_h;
+                        } else if entity.y < bounds.top - frame_h {
+                            entity.y = bounds.bottom();
                         }
                     }
                     WrapMode::Bounce => {
-                        if entity.x <= 0.0 {
-                            entity.x = 0.0;
+                        if entity.x <= bounds.left {
+                            entity.x = bounds.left;
                             entity.heading_x = 1.0;
                             entity.vx = entity.vx.abs().max(0.5);
                             entity.flip_x = false;
+                            if is_recording {
+                                collisions
+                                    .push(WorldEvent::collision(entity.id, journal::EDGE_LEFT));
+                            }
                             if let Some(ref edge_state) = state_def.transitions.on_edge_left {
                                 entity.set_state(edge_state.clone());
                             }
-                        } else if entity.x + frame_w >= viewport_w {
-                            entity.x = (viewport_w - frame_w).max(0.0);
+                        } else if entity.x + frame_w >= bounds.right() {
+                            entity.x = (bounds.right() - frame_w).max(bounds.left);
                             entity.heading_x = -1.0;
                             entity.vx = -entity.vx.abs().max(0.5);
                             entity.flip_x = true;
+                            if is_recording {
+                                collisions
+                                    .push(WorldEvent::collision(entity.id, journal::EDGE_RIGHT));
+                            }
                             if let Some(ref edge_state) = state_def.transitions.on_edge_right {
                                 entity.set_state(edge_state.clone());
                             }
                         }
 
                         if entity.vy != 0.0 {
-                            if entity.y <= 0.0 {
-                                entity.y = 0.0;
+                            if entity.y <= bounds.top {
+                                entity.y = bounds.top;
                                 entity.vy = entity.vy.abs();
-                            } else if entity.y + frame_h >= viewport_h {
-                                entity.y = (viewport_h - frame_h).max(0.0);
+                                if is_recording {
+                                    collisions
+                                        .push(WorldEvent::collision(entity.id, journal::EDGE_TOP));
+                                }
+                            } else if entity.y + frame_h >= bounds.bottom() {
+                                entity.y = (bounds.bottom() - frame_h).max(bounds.top);
                                 entity.vy = -entity.vy.abs();
+                                if is_recording {
+                                    collisions.push(WorldEvent::collision(
+                                        entity.id,
+                                        journal::EDGE_BOTTOM,
+                                    ));
+                                }
                             }
                         }
                     }
                     WrapMode::Clamp => {
-                        entity.x = entity.x.clamp(0.0, (viewport_w - frame_w).max(0.0));
-                        entity.y = entity.y.clamp(0.0, (viewport_h - frame_h).max(0.0));
+                        entity.x = entity
+                            .x
+                            .clamp(bounds.left, (bounds.right() - frame_w).max(bounds.left));
+                        entity.y = entity
+                            .y
+                            .clamp(bounds.top, (bounds.bottom() - frame_h).max(bounds.top));
                     }
                     WrapMode::Despawn => {
-                        if entity.x < -frame_w
-                            || entity.x > viewport_w
-                            || entity.y < -frame_h
-                            || entity.y > viewport_h
+                        if entity.x < bounds.left - frame_w
+                            || entity.x > bounds.right()
+                            || entity.y < bounds.top - frame_h
+                            || entity.y > bounds.bottom()
                         {
                             entity.is_active = false;
                         }
@@ -833,6 +1022,19 @@ impl World {
                     WrapMode::None => {}
                 }
             }
+        }
+
+        self.obstacles = obstacles;
+        self.journal.record_all(collisions);
+        if is_recording {
+            let states: Vec<(usize, String)> = self
+                .entities
+                .iter()
+                .filter(|e| e.is_active)
+                .map(|e| (e.id, e.current_state.clone()))
+                .collect();
+            self.journal
+                .sync_states(states.iter().map(|(id, state)| (*id, state.as_str())));
         }
 
         // Clean up inactive entities, reporting what went.
