@@ -181,7 +181,7 @@ fn assert_pixels(name: &str, expected: &AssetDump, actual: &AssetDump) {
 ///
 /// Every golden comes from Rust, so Rust cannot be wrong as far as the goldens
 /// are concerned. These numbers are the asset specifications from
-/// `future.md` §3 and the manifest integrity sweep, not a reading of either
+/// `docs/superpowers/specs/` and the manifest integrity sweep, not a reading of either
 /// generator.
 #[test]
 fn goldens_describe_the_dimensions_the_manifests_index() {

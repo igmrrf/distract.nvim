@@ -7,8 +7,9 @@ This file holds **only** open work and the traps that cost time. It is
 deliberately not a record of what shipped:
 
 - **What was built and why** — [`CHANGELOG.md`](CHANGELOG.md).
-- **What is not built yet** — [`future.md`](future.md), which is now entirely
-  separate repositories: every core surface they need exists.
+- **What downstream repositories could be built on this** —
+  [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). None of it is a
+  missing feature of this plugin; every core surface it needs exists.
 - **The decisions the feature pass took** —
   [`docs/superpowers/plans/2026-08-19-full-feature-completion.md`](docs/superpowers/plans/2026-08-19-full-feature-completion.md).
   Its decision 1 ("2D is the contract, 3D is not built") is **superseded** by
@@ -37,8 +38,9 @@ deliberately not a record of what shipped:
 | The first draw of a 3D pose hitches | 2 ms for a built-in, ~17 ms for a dense imported model; same shape of problem, same fix, see below |
 | Nothing else | every roadmap section is now out-of-repo work |
 
-Everything in [`future.md`](future.md) is unbuilt by definition, and all of it is
-now out-of-repo work.
+The one in-repo item the roadmap names is §2.7's request that the sprite-parity
+comparator move into `engine/src/sprite_parity.rs`, so a tool can call it without
+re-deriving the tolerance rules.
 
 ---
 

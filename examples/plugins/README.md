@@ -4,7 +4,7 @@ Working plugins that exercise every extension point the core exposes. They are
 examples, not features: nothing here is loaded by `distract.nvim` itself, and
 each is small enough to read in one sitting and copy into your own config.
 
-The ecosystem plugins sketched in [`future.md`](../../future.md) §5 —
+The ecosystem plugins sketched in [`docs/ecosystem-roadmap.md`](../../docs/ecosystem-roadmap.md) §2 —
 `distract-talk`, `distract-memory`, `distract-lsp`, `distract-physics`,
 `distract-weather`, `distract-ai`, `distract-wpm` — are separate repositories
 built on exactly these three surfaces. If one of them cannot be written against

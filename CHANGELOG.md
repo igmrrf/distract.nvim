@@ -142,7 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surface, that exercise every hook and turn function headers and closed folds
   into platforms a pet walks along.
 - **A tick-cost benchmark**, `engine/tests/tick_budget.rs` and
-  `tools/bench_tick.lua`, which is what `future.md` §5.5 gated ambient weather
+  `tools/bench_tick.lua`, which is what the ecosystem roadmap §2.5 gated ambient weather
   on. Measured: 200 entities cost 0.074 ms per tick in the overlay (0.4% of a
   60 FPS frame, debug build) and 4.0 ms per frame stepped-and-drawn in the
   terminal (12% of a 30 FPS frame), both linear in the entity count. Weather can

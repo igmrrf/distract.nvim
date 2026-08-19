@@ -1,32 +1,24 @@
-# `distract.nvim` — Unbuilt Features
+# `distract.nvim` — Ecosystem Roadmap
 
-Everything in this document is **not yet implemented**. Shipped work lives in
-[`CHANGELOG.md`](CHANGELOG.md); the design of what shipped lives in
-[`docs/superpowers/specs/`](docs/superpowers/specs/) and
-[`docs/superpowers/plans/`](docs/superpowers/plans/).
+**Nothing here is a missing feature of this plugin.** Every core surface these
+designs need is built, tested and documented; each section below is a *separate
+repository* built on top of them. Nothing here adds a file under `lua/distract/`.
 
-A section leaves this file when it is implemented on both backends, tested,
-documented in `doc/distract.txt`, and listed in the changelog.
+- **What this plugin does** — [`README.md`](../README.md) and `:help distract`.
+- **What was built and why** — [`CHANGELOG.md`](../CHANGELOG.md).
+- **The design of what shipped** — [`superpowers/specs/`](superpowers/specs/)
+  and [`superpowers/plans/`](superpowers/plans/).
+- **Open in-repo work** — [`HANDOFF.md`](../HANDOFF.md).
 
-**Already built, deliberately absent below:** the 3D render mode (voxel models
-extruded from every asset's own frames, on every backend — see
-`:help distract-render`), the asset provider API
-(`register_asset`), the plugin hook pipeline (`register_plugin`), the spatial
-obstacle provider (`register_obstacle_provider`), buffer-scoped viewport
-positioning, instance visibility scoping, seamless toroidal edge-splitting, the
-silhouette-first art redo, the analytical shading model, multi-point lighting,
-4×4 Bayer dithering, the `spark`/`arc`/`limb`/`orb`/`blob` primitives, parametric
-kinematics (locomotion classes, `sine`/`orbital`/`lissajous`/`bezier` paths,
-ballistic arcs, capability gating), the placement vocabulary (anchors, floors,
-`z`, parallax), the kitty graphics backend, GIF assets on every backend, and the
-sprite import pipeline.
+Working reference plugins for both extension surfaces are in
+[`examples/plugins/`](../examples/plugins/). If a section below cannot be written
+against what they demonstrate, that is a gap in the core and belongs in
+`HANDOFF.md` rather than here.
 
-The three core extension points now all exist, so **everything left in this file
-is a separate repository** built on top of them. Nothing below adds a file under
-`lua/distract/`. Working reference plugins for both new surfaces are in
-[`examples/plugins/`](examples/plugins/); if a section below cannot be written
-against what they demonstrate, that is a gap in the core and belongs in the
-roadmap rather than here.
+The one exception, and the only in-repo work this file names: §2.7's
+`validate_sprite_parity` wants the comparator extracted into
+`engine/src/sprite_parity.rs` so an MCP server can call it without reimplementing
+the tolerance rules.
 
 ---
 
@@ -184,7 +176,7 @@ The surfaces every section below is built on:
 - Each becomes a `solid_platform` rectangle through `register_obstacle_provider`.
 - The cat or crab walks across function definitions and falls between indented gaps.
 - Fold state and buffer edits invalidate the cache. A missing parser is a no-op.
-- **Start from** [`examples/plugins/headers_as_platforms.lua`](examples/plugins/headers_as_platforms.lua),
+- **Start from** [`examples/plugins/headers_as_platforms.lua`](../examples/plugins/headers_as_platforms.lua),
   which is this with a Lua pattern where the query should be. The core caps the
   list at 128 rectangles, so a query over a large file needs narrowing rather
   than trusting.
@@ -257,7 +249,7 @@ without Neovim.
   emitted vertex list. Worth exposing separately because a generated sprite is also
   a generated *model*, and an asset that reads well flat can still mesh badly.
 - `preview_sprite_terminal` — half-block ANSI frames into the agent console.
-  [`tools/preview_sprite.lua`](tools/preview_sprite.lua) is the text-only version
+  [`tools/preview_sprite.lua`](../tools/preview_sprite.lua) is the text-only version
   of this and is what the art redo was judged with.
 
 ---

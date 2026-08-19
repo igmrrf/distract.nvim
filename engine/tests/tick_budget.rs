@@ -1,6 +1,6 @@
 //! What one tick costs at the scale a particle system would want.
 //!
-//! `future.md` §5.5 makes this the gate on ambient weather: the ECS was built for
+//! `docs/ecosystem-roadmap.md` §2.5 makes this the gate on ambient weather: the ECS was built for
 //! three entities and rain wants hundreds, and if a per-entity tick misses the
 //! frame budget then weather starts as a batched particle path in the *core*
 //! rather than as a plugin. Answering that needs a measurement, not an opinion.
