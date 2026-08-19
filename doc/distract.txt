@@ -27,6 +27,7 @@ CONTENTS                                                    *distract-contents*
     8. Events ............................... |distract-events|
     9. Extending it ......................... |distract-extending|
        9.1 Plugin hooks ..................... |distract-plugins|
+       9.1a What you may depend on .......... |distract-api-stability|
        9.2 Obstacle providers ............... |distract-obstacles|
    10. Troubleshooting ...................... |distract-troubleshooting|
    11. Lua API .............................. |distract-api|
@@ -956,6 +957,30 @@ Nothing is put on the wire for `overlay` unless a registered plugin actually
 subscribes: no plugins means no per-frame traffic at all.
 
 Working examples live in `examples/plugins/` in the repository.
+
+------------------------------------------------------------------------------
+9.1a WHAT YOU MAY DEPEND ON                             *distract-api-stability*
+
+`require("distract")` is the entire public API. Every `distract.*` submodule is
+internal and moves, splits or disappears between any two versions, including
+patch releases — Lua cannot enforce that, so it is stated instead.
+
+This project follows Semantic Versioning. Removing a public function, renaming
+a hook, or changing the manifest schema in a way that invalidates manifests
+already written is a major; adding one is a minor. Nothing public is removed
+without a deprecation that names its replacement and survives at least one
+minor release.
+
+A manifest is part of the contract, not an internal format: manifests are
+written by users, so a field that changes meaning breaks every manifest already
+written against it.
+
+`docs/plugin-api.md` in the repository is the full contract, and
+`tests/public_api_spec.lua` pins the surface so a break fails CI rather than a
+downstream author's users.
+
+If you need something only reachable through an internal module, that is a gap
+in the contract — please open an issue rather than routing around it.
 
 ------------------------------------------------------------------------------
 9.2 OBSTACLE PROVIDERS                                     *distract-obstacles*

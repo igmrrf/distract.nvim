@@ -40,6 +40,7 @@ local SPECS = {
   "tests.warmup_spec",
   "tests.engine_download_spec",
   "tests.health_spec",
+  "tests.public_api_spec",
 }
 
 print("==================================================")

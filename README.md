@@ -575,6 +575,7 @@ plugins registered in your session.
 | [`doc/distract.txt`](doc/distract.txt) | The full reference: config, commands, backends, manifests, events, the Lua API |
 | [`docs/configuration.md`](docs/configuration.md) | Every configuration key, with defaults |
 | [`docs/importing-assets.md`](docs/importing-assets.md) | Turning a spritesheet or a folder of stills into an asset |
+| [`docs/plugin-api.md`](docs/plugin-api.md) | The Plugin API stability contract: what you may depend on, and what a version bump means |
 | [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md) | What downstream plugins can be built on the Plugin API |
 | [`ATTRIBUTION.md`](ATTRIBUTION.md) | Artists and licences for the bundled pets |
 | [`CHANGELOG.md`](CHANGELOG.md) | What shipped, and why |

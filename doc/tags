@@ -11,6 +11,7 @@
 :DistractToggle	distract.txt	/*:DistractToggle*
 distract	distract.txt	/*distract*
 distract-api	distract.txt	/*distract-api*
+distract-api-stability	distract.txt	/*distract-api-stability*
 distract-asset-capabilities	distract.txt	/*distract-asset-capabilities*
 distract-backends	distract.txt	/*distract-backends*
 distract-bundled-assets	distract.txt	/*distract-bundled-assets*
