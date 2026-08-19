@@ -12,11 +12,13 @@
 
 use crate::asset::AssetManager;
 use crate::bounds::Bounds;
-use crate::ecs::{Entity, apply_path, frame_duration_seconds};
+use crate::entity::Entity;
+use crate::frame_timing::frame_duration_seconds;
 use crate::journal::{self, WorldEvent};
 use crate::manifest;
 use crate::manifest::WrapMode;
 use crate::obstacles::{self, Footprint, Obstacle, PushDirection};
+use crate::path::apply_path;
 
 /// Everything one entity's step reads that is not the entity.
 ///

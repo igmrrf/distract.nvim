@@ -8,7 +8,8 @@
 use bytemuck::{Pod, Zeroable};
 
 use crate::camera::Camera;
-use crate::ecs::{Entity, World};
+use crate::ecs::World;
+use crate::entity::Entity;
 use crate::manifest::WrapMode;
 use crate::meshbook::MeshBook;
 use crate::render::{RenderMode, RenderSettings};

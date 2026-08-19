@@ -18,7 +18,7 @@ use crate::wrap;
 /// Kept free of any wgpu type so the mapping from entity state to draw call can
 /// be tested without a GPU.
 pub fn build_instances(world: &World, atlas: &Atlas) -> Vec<SpriteInstance> {
-    let mut sorted: Vec<&crate::ecs::Entity> =
+    let mut sorted: Vec<&crate::entity::Entity> =
         world.entities.iter().filter(|e| e.is_active).collect();
     sorted.sort_by_key(|e| e.z_index);
 
