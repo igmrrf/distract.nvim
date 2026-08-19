@@ -44,7 +44,7 @@ Any speculative extensions, domain-specific companion behaviors, or game mechani
 |---|---|---|
 | Core Engine & Plugin | **Feature Locked** | All documented capabilities implemented, verified, and locked. |
 | Memory & Lifecycle | Clean | Kitty ID allocation, obstacle provider indexing, and backend teardown resolved. |
-| Test Suite | 100% Green | 543 Lua tests, 282 Rust tests passing. |
+| Test Suite | 100% Green | 557 Lua tests, 282 Rust tests passing. |
 | Downstream ecosystem plugins | External | External companion plugins and integrations described in [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). |
 
 ---
@@ -60,11 +60,21 @@ stylua --check lua plugin tests
 cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
 ```
 
-Expected: **537 Lua tests**, **282 Rust tests** (206 lib + 31 import_sprite + 11
-voxel mesh + 10 IPC contract + 7 headless voxel GPU + 6 headless GPU + 3 voxel
+Expected: **557 Lua tests**, **298 Rust tests** (124 lib + 31 import_sprite +
+17 asset_loading + 16 gpu_setup + 15 ecs_world + 14 manifest_schema + 12
+ecs_motion + 12 ecs_placement + 11 voxel mesh + 10 IPC contract + 7 headless
+voxel GPU + 7 sprite_canvas + 6 headless GPU + 5 ecs_locomotion + 3 voxel
 parity + 2 physics parity + 2 sprite parity + 2 tick budget + 1 argv exit + 1
 screenshot). The Rust count does not move with a new physics, sprite or voxel
 fixture — one test function iterates the whole directory.
+
+The previous note here said 282 and folded eight suites into its "lib" figure.
+Count them rather than trusting a remembered total:
+
+```bash
+cargo test --manifest-path engine/Cargo.toml 2>&1 \
+  | grep -oE "^test result: ok\. [0-9]+ passed" | grep -oE "[0-9]+" | paste -sd+ - | bc
+```
 
 `cargo fmt --manifest-path engine/Cargo.toml -- --check` is a fifth gate worth
 running; CI enforces it.
@@ -92,6 +102,19 @@ extractions, four aliases in `sprites/crab.lua` and one in `sprites/cat.lua` tha
 nothing read, a `position`/`highlights`/`spans` shadow apiece, one over-long line,
 and five specs that re-`require`d a module their own file scope already held. None
 of it changed behaviour; all 530 tests and every golden are unchanged.
+
+**It went red again after that, and the same class of thing did it.** Four more
+leftovers accumulated from later extractions — `FLOOR_MATCH_EPSILON_CELLS` in
+`engine.lua` after the live copy moved to `engine_world.lua`, `wraps_at_the_edge`
+in `renderer.lua` after the live copy moved to `renderer_surface.lua`, and
+`overlay_spawn` required twice in `external.lua`. All four are deleted. Because
+CI's step is a plain `luacheck lua plugin tests` with no ratchet, *one* unused
+local is a red build, and the local gate is the only place anyone will see it
+before CI does. Run it on every change:
+
+```bash
+sh /tmp/lr/bin/luacheck lua plugin tests   # 0 warnings / 0 errors in 106 files
+```
 
 `stylua --check` is still the formatting gate and is separate.
 
@@ -486,7 +509,47 @@ probe already reports. The regeneration command is in the harness header.
     shrink twice. `mesh_draw.rs` takes the unscaled footprint on purpose and says
     so.
 
-35. **The headless GPU suites skip when there is no adapter.** `gpu3d_headless`
+35. **`:DistractDownload` verifies a checksum and there is no way off that
+    path.** `engine_download.lua` fetches the `.sha256` the release publishes
+    beside each archive, hashes the archive with `vim.fn.sha256` over a libuv
+    read, and refuses to unpack — let alone `chmod +x` — anything that does not
+    match. If you add a platform, add it to the release matrix in
+    `.github/workflows/ci.yml` *and* to `PUBLISHED_ARTIFACTS` in
+    `tests/engine_download_spec.lua`, which is the only thing comparing the two
+    lists. A name that drifts from the workflow is a 404 the user reads as "no
+    release for my platform".
+
+36. **No `v*` tag has ever been pushed, so there is no release to download
+    yet.** The release job is gated on `refs/tags/v`, and every artifact URL is
+    currently a 404. `curl` is invoked with `-f` for exactly this reason:
+    without it curl writes GitHub's 404 HTML page into the archive and the
+    failure surfaces as a confusing `tar` error instead of a download error.
+
+37. **`vim.uv` is 0.10, and `doc/distract.txt` promises 0.9.** Use
+    `local uv = vim.uv or vim.loop`, as `engine.lua`, `events.lua`, `warmup.lua`
+    and `engine_download.lua` all do. The same applies to `vim.health.start`,
+    which is 0.10 and is spelled `report_start` on 0.9; `health.lua` resolves
+    all four reporters once at require time and is the only module allowed to
+    touch `vim.health`.
+
+38. **A warm-up is queued when the cache is cold, not when the source
+    changed.** `distract.stop()` calls `warmup.reset()`, which drops the queue
+    without running it, so a GIF decode can be cancelled with
+    `gif_sources[asset]` already recorded. Gating `warm_gif_asset` on the source
+    alone left that asset with no queued decode and no way to get one, and the
+    first draw after a restart paid for the whole GIF synchronously — a frame
+    hitch with no error anywhere. `warmup.request` deduplicates by key, so
+    asking again while one is queued costs nothing. The voxel path was never
+    affected: `warm_voxel_asset` re-requests unconditionally.
+
+39. **The kitty id range restarts at `reset()`, and nothing recycles ids
+    individually.** `M.reset()` deletes every transmitted image and then sets
+    `next_offset = 0`, which is the whole of the fix; placements are only ever
+    cleared in bulk, so a free-list would never have anything to hold. A
+    free-list was added here once and was dead on arrival — nothing inserted
+    into it — while reading as though exhaustion had been solved.
+
+40. **The headless GPU suites skip when there is no adapter.** `gpu3d_headless`
     and `gpu_headless` both return early rather than failing, so green on a runner
     without a GPU says nothing about whether `shader3d.wgsl` even compiles. Run
     them locally before trusting a shader change.

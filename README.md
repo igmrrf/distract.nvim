@@ -247,6 +247,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 | `:DistractStatus` | Print active entities, states, and coordinates | |
 | `:DistractRender [args]` | View or change how entities are drawn | `2d`, `3d`, or `yaw=`, `fov=`, `depth=`, `slab=`, `ambient=` |
 | `:DistractBuild` | Build the overlay engine binary in the background | |
+| `:DistractDownload` | Install a checksum-verified prebuilt engine from the latest release | |
 
 ---
 
@@ -289,11 +290,11 @@ what the running backend can do.
 
 ## 🖥️ Overlay backend
 
-The overlay runs a separate Rust process. Build it once:
+The overlay runs a separate Rust process. Install it once:
 
 ```vim
 :DistractBackend overlay
-:DistractBuild
+:DistractDownload   " or :DistractBuild to compile it yourself
 ```
 
 or from a shell:

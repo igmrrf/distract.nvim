@@ -2,6 +2,7 @@
 :DistractBackend	distract.txt	/*:DistractBackend*
 :DistractBuild	distract.txt	/*:DistractBuild*
 :DistractClear	distract.txt	/*:DistractClear*
+:DistractDownload	distract.txt	/*:DistractDownload*
 :DistractRender	distract.txt	/*:DistractRender*
 :DistractSpawn	distract.txt	/*:DistractSpawn*
 :DistractStart	distract.txt	/*:DistractStart*

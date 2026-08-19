@@ -463,6 +463,23 @@ source colour, which is the cheapest and flattest a model gets.
 :DistractBuild          Build the overlay engine binary in the background. Only
                         needed for the |distract-overlay| backend.
 
+                                                             *:DistractDownload*
+:DistractDownload       Download a prebuilt overlay engine binary from the
+                        latest GitHub release and install it into
+                        `engine/bin/`. Requires `curl` or `wget`, and `tar`.
+
+                        The archive is checked against the `.sha256` the
+                        release publishes beside it before anything is
+                        unpacked or made executable. There is no way to skip
+                        that check: an archive whose checksum cannot be
+                        fetched or does not match is deleted and nothing is
+                        installed.
+
+                        Prebuilt binaries exist for macOS (x86_64 and
+                        aarch64), Linux (x86_64) and Windows (x86_64). On any
+                        other platform this reports that none is published and
+                        directs you to |:DistractBuild|.
+
 ==============================================================================
 6. BACKENDS                                                 *distract-backends*
 
@@ -518,7 +535,11 @@ the environment is a shortcut rather than the test.
 Runs a separate Rust process that opens a transparent, always-on-top,
 click-through window over your whole screen and draws sprites on the GPU.
 
-Build it first: >
+Install it first, either from a release: >
+    :DistractBackend overlay
+    :DistractDownload
+<
+or by compiling it: >
     :DistractBackend overlay
     :DistractBuild
 <
@@ -934,7 +955,8 @@ Overlay entities do not line up with the editor~
     Set `cell_width` and `cell_height`. See |distract-cell-size|.
 
 The overlay refuses to start~
-    Either the engine is not built (`:DistractBuild`), or you are on X11, where
+    Either the engine is not installed (`:DistractDownload` or
+    `:DistractBuild`), or you are on X11, where
     click-through is unavailable. See |distract-x11|.
 
 `:DistractStatus` says nothing is alive but I can see something~
