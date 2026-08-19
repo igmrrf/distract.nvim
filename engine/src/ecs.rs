@@ -1,10 +1,11 @@
 use crate::asset::AssetManager;
 use crate::bounds::Bounds;
+use crate::entity_step::{self, StepContext};
 use crate::ipc::EntitySummary;
-use crate::journal::{self, Journal, WorldEvent};
+use crate::journal::{Journal, WorldEvent};
 use crate::manifest;
-use crate::manifest::{AssetManifest, PhysicsConfig, WrapMode};
-use crate::obstacles::{self, Footprint, Obstacle, PushDirection};
+use crate::manifest::{AssetManifest, PhysicsConfig};
+use crate::obstacles::{self, Obstacle};
 use crate::render::RenderSettings;
 use crate::spawn::{Anchor, EntitySeed, SpawnOptions};
 
@@ -175,7 +176,7 @@ fn cubic_bezier(points: &[[f32; 2]], t: f32) -> (f32, f32) {
 /// rates against one shared phase. With `freq` defaulting to 1 and the
 /// `path_frequency -> freq_y` alias, `sine` evaluates exactly what it always
 /// did.
-fn apply_path(
+pub(crate) fn apply_path(
     entity: &mut Entity,
     path_type: &str,
     phys: &PhysicsConfig,
@@ -237,7 +238,7 @@ const MS_PER_SECOND: f32 = 1000.0;
 /// the delays stored in the file, which is the only rate an animation authored
 /// elsewhere carries; `lua/distract/engine.lua` applies the same precedence, so
 /// a GIF asset runs at one speed on both backends.
-fn frame_duration_seconds(
+pub(crate) fn frame_duration_seconds(
     anim: &manifest::AnimationConfig,
     frame_idx: usize,
     asset: &crate::asset::LoadedAsset,
@@ -730,304 +731,19 @@ impl World {
         let obstacles = std::mem::take(&mut self.obstacles);
 
         for entity in &mut self.entities {
-            if !entity.is_active {
-                continue;
-            }
-
-            entity.state_time += dt;
-
-            // 1. Advance action timer and handle return state
-            if let (Some(ref mut timer), Some(duration)) =
-                (&mut entity.action_timer, entity.action_duration)
-            {
-                *timer += dt;
-                if *timer >= duration {
-                    entity.action_timer = None;
-                    entity.action_duration = None;
-                    entity.is_locked = false;
-                    let next_state = entity
-                        .return_state
-                        .take()
-                        .unwrap_or_else(|| "idle".to_string());
-                    entity.set_state(next_state);
-                }
-            }
-
-            let asset = match self.asset_manager.get(&entity.asset_name) {
-                Some(a) => a,
-                None => continue,
-            };
-
-            // Parallax shrinks the drawn art, so the footprint the boundary
-            // modes measure against shrinks with it.
-            let frame_w = asset.frame_w as f32 * scale_x * entity.parallax;
-            let frame_h = asset.frame_h as f32 * scale_y * entity.parallax;
-
-            let state_def = asset.manifest.states.get(&entity.current_state);
-
-            if let Some(state_def) = state_def {
-                // 2. Check timeout transitions
-                if let (Some(timeout_ms), Some(ref next_state)) = (
-                    state_def.transitions.timeout_ms,
-                    &state_def.transitions.on_timeout,
-                ) {
-                    if entity.state_time * 1000.0 >= timeout_ms as f32 {
-                        entity.set_state(next_state.clone());
-                    }
-                }
-
-                // 3. Advance animation frames
-                let anim = &state_def.animation;
-                let frame_count = anim.frames.len();
-                if frame_count > 0 {
-                    let frame_duration = frame_duration_seconds(anim, entity.frame_idx, asset);
-                    entity.frame_timer += dt;
-
-                    if entity.frame_timer >= frame_duration {
-                        entity.frame_timer -= frame_duration;
-                        if entity.frame_idx + 1 < frame_count {
-                            entity.frame_idx += 1;
-                        } else if anim.loop_anim {
-                            entity.frame_idx = 0;
-                        } else {
-                            entity.animation_finished = true;
-                            if let Some(ref next_state) = state_def.transitions.on_finish {
-                                entity.set_state(next_state.clone());
-                            }
-                        }
-                    }
-                }
-
-                // 4. Physics, in the shared manifest unit.
-                //
-                // Manifest positions and velocities are in *sprite pixels* per
-                // frame at 60 FPS, and one sprite pixel is one terminal cell
-                // wide. Converting on integration is what makes one manifest
-                // describe one behaviour on both backends; the two used to
-                // apply unrelated ad-hoc factors and moved at different speeds.
-                //
-                // Parallax damps the displacement rather than the stored
-                // velocity: damping the velocity every frame would decay it to
-                // zero instead of moving a distant thing slower at a steady
-                // speed.
-                let step = dt * 60.0;
-                let px = step * scale_x * entity.parallax;
-                let py = step * scale_y * entity.parallax;
-                let phys = &state_def.physics;
-                let speed_x = phys.target_vx.abs();
-                entity.target_vx = speed_x * entity.heading_x;
-                entity.target_vy = phys.target_vy;
-
-                // Sync flip with heading direction
-                entity.flip_x = entity.heading_x < 0.0;
-
-                // Smooth exponential velocity lerping
-                let lerp_factor = (1.0 - (-phys.friction * step).exp()).clamp(0.01, 1.0);
-                entity.vx += (entity.target_vx - entity.vx) * lerp_factor;
-                // Constant acceleration, on top of the pull toward `target_vx`.
-                // These were declared in the manifest schema and read by
-                // nothing, so a manifest could set them and watch them do
-                // nothing. `gravity` is `accel_y` under a name that also brings
-                // a floor with it.
-                entity.vx += phys.accel_x * step;
-
-                if phys.gravity > 0.0 {
-                    // Read before the integration: an entity already resting on
-                    // the floor is re-accelerated by gravity and caught by the
-                    // clamp on every single tick, so "the clamp ran" is not a
-                    // landing. Crossing the floor from above is.
-                    let feet_before = entity.y + frame_h;
-                    entity.vy += phys.gravity * step;
-                    entity.y += entity.vy * py;
-
-                    // A registered platform is a floor the entity reaches
-                    // earlier, so the surface for this frame is whichever is
-                    // higher. With no obstacles this is the floor exactly, and
-                    // the arithmetic is the ground clamp it replaces.
-                    let floor_feet = entity.ground_y + frame_h;
-                    let surface = obstacles::crossed_platform(
-                        &obstacles,
-                        Footprint {
-                            left: entity.x,
-                            top: entity.y,
-                            width: frame_w,
-                            height: frame_h,
-                        },
-                        feet_before,
-                    )
-                    .map_or(floor_feet, |platform_top| platform_top.min(floor_feet));
-                    let was_airborne = feet_before < surface;
-
-                    if entity.y + frame_h >= surface {
-                        entity.y = surface - frame_h;
-                        let landed = was_airborne && entity.vy > 0.0;
-                        entity.vy = 0.0;
-                        if landed && is_recording {
-                            collisions.push(WorldEvent::collision(entity.id, journal::EDGE_BOTTOM));
-                        }
-                        if landed && phys.effective_locomotion() == manifest::BALLISTIC {
-                            if let Some(ref land_state) = state_def.transitions.on_land {
-                                // Landing ends the action that launched the
-                                // entity. Leaving its timer running would drag
-                                // the entity out of the state it just reached
-                                // as soon as the clock caught up, so a jump
-                                // that lands early would still be locked until
-                                // its declared duration.
-                                entity.action_timer = None;
-                                entity.action_duration = None;
-                                entity.return_state = None;
-                                entity.is_locked = false;
-                                entity.set_state(land_state.clone());
-                            }
-                        }
-                    }
-                } else {
-                    entity.vy += (entity.target_vy - entity.vy) * lerp_factor;
-                    entity.vy += phys.accel_y * step;
-                    entity.y += entity.vy * py;
-                }
-
-                entity.x += entity.vx * px;
-
-                // A path is a positional *override*, applied after integration
-                // so it replaces the velocity result on the axes it owns and
-                // leaves the others alone. Gravity is excluded: a path that
-                // writes y fights the floor, which is what the locomotion
-                // classes exist to keep apart.
-                if phys.gravity <= 0.0 {
-                    if let Some(ref path_type) = phys.path_type {
-                        apply_path(entity, path_type, phys, dt, scale_x, scale_y);
-                    }
-                }
-
-                // A grounded state has no gravity to fall under, so which
-                // surface it stands on is resolved rather than integrated. Only
-                // reached while obstacles exist: without them the answer is the
-                // floor the entity was already seated on.
-                if !obstacles.is_empty()
-                    && phys.gravity <= 0.0
-                    && asset.manifest.locomotion_for(state_def) == manifest::GROUNDED
-                {
-                    entity.y = obstacles::standing_surface(
-                        &obstacles,
-                        Footprint {
-                            left: entity.x,
-                            top: entity.y,
-                            width: frame_w,
-                            height: frame_h,
-                        },
-                        entity.ground_y + frame_h,
-                    ) - frame_h;
-                }
-
-                if let Some(deflection) = obstacles::deflection(
-                    &obstacles,
-                    Footprint {
-                        left: entity.x,
-                        top: entity.y,
-                        width: frame_w,
-                        height: frame_h,
-                    },
-                    entity.heading_x,
-                ) {
-                    entity.x = deflection.x;
-                    entity.heading_x = match deflection.direction {
-                        PushDirection::Left => -1.0,
-                        PushDirection::Right => 1.0,
-                    };
-                    entity.vx = entity.vx.abs() * entity.heading_x;
-                    entity.flip_x = entity.heading_x < 0.0;
-                    if is_recording {
-                        collisions.push(WorldEvent::collision(entity.id, journal::EDGE_OBSTACLE));
-                    }
-                }
-
-                // 5. Boundary checking
-                match phys.wrap_mode {
-                    WrapMode::Wrap => {
-                        // Gated on position and heading, not on instantaneous
-                        // velocity: `vx` lerps toward its target, so a state
-                        // whose target is zero decays it through zero and an
-                        // entity that had already left the viewport would never
-                        // wrap back — it just sat off-screen forever.
-                        if entity.x > bounds.right() {
-                            entity.x = bounds.left - frame_w;
-                        } else if entity.x < bounds.left - frame_w {
-                            entity.x = bounds.right();
-                        }
-                        if entity.y > bounds.bottom() {
-                            entity.y = bounds.top - frame_h;
-                        } else if entity.y < bounds.top - frame_h {
-                            entity.y = bounds.bottom();
-                        }
-                    }
-                    WrapMode::Bounce => {
-                        if entity.x <= bounds.left {
-                            entity.x = bounds.left;
-                            entity.heading_x = 1.0;
-                            entity.vx = entity.vx.abs().max(0.5);
-                            entity.flip_x = false;
-                            if is_recording {
-                                collisions
-                                    .push(WorldEvent::collision(entity.id, journal::EDGE_LEFT));
-                            }
-                            if let Some(ref edge_state) = state_def.transitions.on_edge_left {
-                                entity.set_state(edge_state.clone());
-                            }
-                        } else if entity.x + frame_w >= bounds.right() {
-                            entity.x = (bounds.right() - frame_w).max(bounds.left);
-                            entity.heading_x = -1.0;
-                            entity.vx = -entity.vx.abs().max(0.5);
-                            entity.flip_x = true;
-                            if is_recording {
-                                collisions
-                                    .push(WorldEvent::collision(entity.id, journal::EDGE_RIGHT));
-                            }
-                            if let Some(ref edge_state) = state_def.transitions.on_edge_right {
-                                entity.set_state(edge_state.clone());
-                            }
-                        }
-
-                        if entity.vy != 0.0 {
-                            if entity.y <= bounds.top {
-                                entity.y = bounds.top;
-                                entity.vy = entity.vy.abs();
-                                if is_recording {
-                                    collisions
-                                        .push(WorldEvent::collision(entity.id, journal::EDGE_TOP));
-                                }
-                            } else if entity.y + frame_h >= bounds.bottom() {
-                                entity.y = (bounds.bottom() - frame_h).max(bounds.top);
-                                entity.vy = -entity.vy.abs();
-                                if is_recording {
-                                    collisions.push(WorldEvent::collision(
-                                        entity.id,
-                                        journal::EDGE_BOTTOM,
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                    WrapMode::Clamp => {
-                        entity.x = entity
-                            .x
-                            .clamp(bounds.left, (bounds.right() - frame_w).max(bounds.left));
-                        entity.y = entity
-                            .y
-                            .clamp(bounds.top, (bounds.bottom() - frame_h).max(bounds.top));
-                    }
-                    WrapMode::Despawn => {
-                        if entity.x < bounds.left - frame_w
-                            || entity.x > bounds.right()
-                            || entity.y < bounds.top - frame_h
-                            || entity.y > bounds.bottom()
-                        {
-                            entity.is_active = false;
-                        }
-                    }
-                    WrapMode::None => {}
-                }
-            }
+            entity_step::advance(
+                entity,
+                &StepContext {
+                    dt,
+                    bounds,
+                    scale_x,
+                    scale_y,
+                    assets: &self.asset_manager,
+                    obstacles: &obstacles,
+                    is_recording,
+                },
+                &mut collisions,
+            );
         }
 
         self.obstacles = obstacles;
@@ -1118,7 +834,7 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::{PathParams, PhysicsConfig, StateDefinition, TransitionConfig};
+    use crate::manifest::{PathParams, PhysicsConfig, StateDefinition, TransitionConfig, WrapMode};
 
     fn plain(event: &str) -> EventContext {
         let _ = event;

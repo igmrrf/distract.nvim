@@ -7,6 +7,7 @@ pub mod camera;
 pub mod commands;
 pub mod compositor;
 pub mod ecs;
+pub mod entity_step;
 pub mod gpu;
 pub mod gpu3d;
 pub mod gpu_bindings;
