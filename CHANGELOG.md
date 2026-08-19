@@ -10,6 +10,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A 3D render mode, on every backend.** `render.mode = "3d"` (or
+  `:DistractRender 3d`) draws every entity as a voxel model instead of a flat
+  sprite. There is no second set of 3D assets and no mesh format: every asset
+  already resolves to RGBA frames, so a frame's opaque pixels are extruded into a
+  slab of cubes — a real model of that frame, built from the art the asset already
+  has. The built-ins, imported spritesheets, GIFs and anything registered through
+  `register_asset` all work in 3D with nothing authored twice. A face is only
+  emitted where the neighbour that would hide it is transparent, so a solid frame
+  costs two quads a pixel plus its silhouette.
+
+  This supersedes the "2D is the contract, 3D is not built" decision in
+  `docs/superpowers/plans/2026-08-19-full-feature-completion.md`. The reasoning
+  that decision gave — that 3D must not fork a backend off the manifest contract,
+  and must not mean authoring every asset twice —  is what the design is built to
+  satisfy rather than to ignore, and
+  `docs/superpowers/plans/2026-08-19-voxel-3d-rendering.md` records how.
+
+  - **Nothing about the simulation changes.** Placement, floors, obstacles,
+    wrapping and an asset's cell footprint are identical in both modes: a model is
+    fitted into the sprite's own canvas rather than given one of its own, because
+    the footprint is what the physics measures against. A model drawn face-on
+    covers *exactly* the pixels its sprite does — asserted, not assumed — so
+    turning 3D on never moves or reshapes a pet.
+  - **`z` becomes real depth.** The perspective projection performs the shrink
+    `parallax` fakes in 2D, so `parallax` keeps damping motion and stops
+    multiplying size; two mechanisms scaling one sprite would compound. The camera
+    sits at `(height / 2) / tan(fov / 2)`, which is what makes the `z = 0` plane
+    map 1:1 to pixels.
+  - **`overlay`** draws models on the GPU: a second render pass with a real
+    `Depth32Float` buffer, one instanced draw per (asset, frame) group, and one
+    directional light plus an ambient floor shaded per face. Its own pass, because
+    a pass's depth attachment applies to every pipeline in it and depth-tested
+    models cannot share one with painter-ordered sprites. It runs first and the
+    sprite pass loads rather than clears, so a flat sprite draws over the models.
+  - **`halfblock` and `kitty`** rasterise the same models in Lua into the sprite
+    canvas, z-buffered, under an *orthographic* projection — a model spans about
+    thirty sprite pixels, so a perspective divide across it moves nothing by a
+    whole pixel, and an orthographic one lets a rasterised frame be cached and
+    reused wherever the pet is on screen. In the steady state a 3D pet costs a
+    table lookup per draw exactly as a 2D one does: 200 walking cats step and draw
+    in 4.8 ms a frame against 4.1 ms in 2D. A backend that could not do 3D would
+    fork the manifest contract, which is what the superseded decision was right to
+    refuse.
+  - **A manifest may pin its own mode** with `render = "2d"` or `"3d"`, which wins
+    over the configuration in both directions. Flat overlay furniture — a speech
+    bubble, a badge — stays flat in a 3D session, and the two passes composite
+    together.
+  - **`voxel_parity`** pins the two meshers to each other vertex for vertex,
+    exactly, with no tolerance: nothing in a mesh goes through a float computation
+    whose width matters. Each of the six fixtures declares its own source grid
+    rather than meshing an asset, because sprite art is only equal across the
+    engines within a measured drift — with a declared grid the meshing is the only
+    variable. Verified to bite: reversing the order two faces are emitted in fails
+    four fixtures.
+  - **`gpu3d_headless`** drives the real pipeline and the real shader into an
+    offscreen target and reads the pixels back, so "3D renders" is a measurement.
+    It also writes four PNGs into `tests/screenshots/`, because `HANDOFF.md`
+    records what judging art without looking at it costs.
+  - Configuration, `:DistractRender`, `distract.set_render` and
+    `distract.get_render` are documented at `:help distract-render` and in
+    `docs/configuration.md`. `tools/bench_render3d.lua` is where the cost numbers
+    come from and `tools/preview_sprite.lua --3d` shows a model as text.
 - **Three new built-in pets** — `gudong`, `iris` and `minty` — original characters
   from the [`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex-pet)
   gallery under licences that permit redistribution (CC BY 4.0 and MIT), credited
@@ -116,6 +178,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [`docs/codex-pets-sprite-layout.md`](docs/codex-pets-sprite-layout.md).
 
 ### Changed
+- **Entity construction moved out of `engine.lua`** into `entity_spawn.lua`, and
+  frame sourcing out of `terminal_sprites.lua` into `frame_source.lua`. Both are
+  structural, and both landed behind tests written first:
+  `spawn_characterisation_spec.lua` pins what a spawn produces field by field,
+  because the physics fixtures cover the step and barely touch the spawn.
+- **`GpuRenderer::sync_atlas` is now `sync_assets`**, because it uploads the voxel
+  meshes as well as the sprite atlas. Neither half does any work when what it
+  depends on has not changed, and the mesh half does none at all in a session that
+  draws no models.
 - **Silhouette-first art, every built-in asset.** The analytical shading model
   produced gradients that did not survive 24x16: at that size a sprite is 24
   columns by eight half-block rows, and the cat read as a fox. All three assets
@@ -163,6 +234,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   background, and it now ships a `.rgba` sidecar alongside it.
 
 ### Fixed
+- **`register_asset` now re-pushes the configuration**, so a manifest registered
+  after `setup()` reaches the backend. A backend keeps the snapshot of `config` it
+  was set up with, so the spawn used to fall through to
+  `require("distract.manifests." .. name)`, fail, and draw the cat under the
+  asked-for name — the exact failure `register_asset` exists to prevent. Only the
+  art half held, because `terminal_sprites` is a live registry.
+- **A duplicate `*distract-capabilities*` help tag** made `helptags` fail outright
+  and `:help distract-capabilities` ambiguous. The asset-declaration one is now
+  `*distract-asset-capabilities*`.
 - The manifest scaffold emitted state names as bare Lua table keys, so any name
   that is not a plain identifier — anything hyphenated, like `running-right` —
   produced a file that would not parse. Such names are now bracketed.

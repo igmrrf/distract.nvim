@@ -478,9 +478,11 @@ UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test sprite_parit
 UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test voxel_parity
 ```
 
-Look at an asset's frames as text, which is how the art is judged headless:
+Look at an asset's frames as text, which is how the art is judged headless — and
+at its voxel model the same way:
 ```bash
 nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua cat
+nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua cat --3d=70
 ```
 
 What one tick costs, at the scale a particle system would want:
