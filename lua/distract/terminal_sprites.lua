@@ -1,10 +1,9 @@
 local M = {}
 
 local frame_buffers = require("distract.frame_buffers")
+local frame_source = require("distract.frame_source")
 local highlights = require("distract.highlights")
-local quantise = require("distract.quantise")
 local raster3d = require("distract.raster3d")
-local render = require("distract.render")
 local sources = require("distract.sprite_sources")
 
 --- How many colours imported art is reduced to before it is drawn in
@@ -36,59 +35,6 @@ function M.reset_highlights()
   highlights.reset()
 end
 
---- How the renderer draws, and which assets pinned themselves to a mode.
----
---- Held here rather than read from `distract.config` per draw because this module
---- is the only thing that turns an asset name into pixels, and because a mode
---- change invalidates every cached frame.
-local render_settings = render.DEFAULTS
-local declared_modes = {}
-
---- Notified when the render settings change.
----
---- The kitty renderer describes frames into a cache of its own and cannot be
---- reached from here without a circular require, so it subscribes rather than
---- being called. Every mode, yaw or light change repaints every frame.
-local render_listeners = {}
-
----@param callback fun()
-function M.on_render_change(callback)
-  table.insert(render_listeners, callback)
-end
-
---- Applies the render settings frames are drawn under.
----@param settings table validated `render` settings
-function M.configure_render(settings)
-  render_settings = settings or render.DEFAULTS
-  raster3d.configure(render_settings)
-  M.reset_cache()
-  for _, listener in ipairs(render_listeners) do
-    listener()
-  end
-end
-
---- Whether this asset is drawn as a voxel model.
----@param asset_name string
----@return boolean
-function M.is_voxel(asset_name)
-  return render.is_voxel(render_settings, {
-    name = asset_name,
-    render = declared_modes[asset_name],
-  })
-end
-
---- Records an asset's declared art, and the render mode its manifest pins.
----@param asset_name string
----@param manifest table|nil
-function M.bind_manifest(asset_name, manifest)
-  local declared = manifest and manifest.render or nil
-  if declared ~= declared_modes[asset_name] then
-    declared_modes[asset_name] = declared
-    M.reset_cache(asset_name)
-  end
-  sources.bind_manifest(asset_name, manifest)
-end
-
 --- Applies the plugin's configuration to the drawing caches.
 ---@param opts table `{ max_sprite_colours = n, max_highlight_groups = n }`
 function M.configure(opts)
@@ -102,15 +48,22 @@ function M.configure(opts)
   highlights.configure({ max_groups = opts.max_highlight_groups })
 end
 
---- This module renders into half-block cells, so its own frame lookups ask for
---- the cell-grid art rather than a manifest's native-resolution sidecar.
---- Hoisted rather than built per call: this runs once per cache miss per frame.
----@type table
-local HALFBLOCK_CAPABILITY = { native_resolution = false }
-
---- Which art an asset has is `distract.sprite_sources`' answer; this module
---- re-exports it so a caller asking for a frame and a caller asking what to
+--- Which art an asset has, and which pixels a frame is drawn from, are
+--- `distract.sprite_sources`' and `distract.frame_source`'s answers; this module
+--- re-exports both so a caller asking for a frame and a caller asking what to
 --- draw it from talk to one place.
+M.pixel_matrix = function(asset_name, frame_idx, flip_x)
+  return frame_source.matrix(asset_name, frame_idx, {
+    flip_x = flip_x,
+    max_colours = max_sprite_colours,
+  })
+end
+M.mirror_matrix = frame_source.mirror_matrix
+M.is_voxel = frame_source.is_voxel
+M.bind_manifest = frame_source.bind_manifest
+M.configure_render = frame_source.configure
+M.on_render_change = frame_source.on_change
+
 M.has_sprite = sources.has_sprite
 M.unbind_manifest = sources.unbind_manifest
 M.register = sources.register
@@ -125,19 +78,6 @@ M.frame_delay_ms = sources.frame_delay_ms
 local UPPER_HALF = "\u{2580}"
 local LOWER_HALF = "\u{2584}"
 
---- Widest row in the matrix. Rows are expected to be uniform, but a custom
---- matrix may be ragged; padding to the maximum keeps every rendered line
---- rectangular so the float window width stays correct.
-local function matrix_width(pixel_rows)
-  local width = 0
-  for _, row in ipairs(pixel_rows) do
-    if #row > width then
-      width = #row
-    end
-  end
-  return width
-end
-
 --- Converts a pixel matrix into half-block strings plus extmark highlight spans.
 ---
 --- `owner` is the asset the colours belong to, which is what bounds the
@@ -149,7 +89,7 @@ end
 function M.render_halfblock_frame(pixel_rows, owner)
   local lines = {}
   local highlights = {}
-  local width = matrix_width(pixel_rows)
+  local width = frame_source.matrix_width(pixel_rows)
 
   for r = 1, #pixel_rows, 2 do
     local top_row = pixel_rows[r] or {}
@@ -191,25 +131,6 @@ function M.render_halfblock_frame(pixel_rows, owner)
   return lines, highlights, width, #lines
 end
 
---- Mirrors a pixel matrix horizontally.
----
---- Rows are padded to the matrix width first. A ragged row reversed in place
---- would shift its pixels left by however many columns it was short, which
---- moves a mirrored sprite's art relative to its own bounding box.
-function M.mirror_matrix(pixel_rows)
-  local width = matrix_width(pixel_rows)
-  local out = {}
-  for r = 1, #pixel_rows do
-    local row = pixel_rows[r]
-    local flipped = {}
-    for c = 1, width do
-      flipped[c] = row[width - c + 1] or false
-    end
-    out[r] = flipped
-  end
-  return out
-end
-
 -- Rendering a frame depends only on `(asset, frame index, facing)`, and the
 -- result is immutable, so it is built once instead of on every draw. At 30 FPS
 -- per entity that is the difference between rebuilding every sprite string ~30
@@ -224,41 +145,6 @@ local render_cache = {}
 --- pixel matrix once and rendering that is both simpler and free after the
 --- first call.
 ---
---- The pixels one frame of an asset is drawn from.
----
---- A voxel-mode asset is rasterised from its model rather than read from its
---- sheet, and takes its facing as a yaw rather than a mirror -- mirroring a model
---- would swap which side the light falls on. Quantising is unconditional there:
---- shading multiplies every source colour by one factor per face orientation, so
---- the highlight-group count would otherwise grow by the same multiple, and
---- `terminal_sprites` is that cap's only gate.
----@param asset_name string
----@param frame_idx integer 1-based
----@param flip_x boolean
----@return table[]|nil
-function M.pixel_matrix(asset_name, frame_idx, flip_x)
-  if M.is_voxel(asset_name) then
-    local model = raster3d.matrix(asset_name, frame_idx, flip_x)
-    if not model then
-      return nil
-    end
-    return quantise.reduce(model, max_sprite_colours)
-  end
-
-  local frames = M.get_pixel_frames(asset_name, HALFBLOCK_CAPABILITY)
-  local matrix = frames and (frames[frame_idx] or frames[1])
-  if not matrix then
-    return nil
-  end
-  if flip_x then
-    matrix = M.mirror_matrix(matrix)
-  end
-  if sources.needs_quantising(asset_name) then
-    return quantise.reduce(matrix, max_sprite_colours)
-  end
-  return matrix
-end
-
 --- Returns `lines, highlights, width, height`.
 function M.get_rendered_frame(asset_name, frame_idx, flip_x)
   local facing = flip_x and "flipped" or "facing"
@@ -431,6 +317,11 @@ end)
 sources.on_change(function(asset_name)
   M.reset_cache(asset_name)
   raster3d.reset(asset_name)
+end)
+
+-- So is art whose render mode, camera or light changed. `nil` means every asset.
+frame_source.on_change(function(asset_name)
+  M.reset_cache(asset_name)
 end)
 
 return M

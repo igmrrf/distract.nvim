@@ -10,6 +10,7 @@
 
 local M = {}
 
+local frame_source = require("distract.frame_source")
 local raster3d = require("distract.raster3d")
 local sprites = require("distract.terminal_sprites")
 
@@ -233,7 +234,7 @@ end
 
 -- A settings change repaints every frame, and these are described once and cached
 -- for the process lifetime otherwise.
-sprites.on_render_change(function()
+frame_source.on_change(function()
   M.reset()
 end)
 
