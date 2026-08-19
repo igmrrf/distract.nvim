@@ -28,6 +28,7 @@ require("distract").setup({
   max_sprite_colours = 128,
   max_highlight_groups = 4096,
   position = { anchor = "auto", ground = "screen", parallax = { per_unit = 0.0, min = 0.4, max = 1.6 } },
+  render = { mode = "2d", yaw_degrees = 22.0 },
   assets = {},
 })
 ```
@@ -52,6 +53,7 @@ already resolved — to get the automatic choice back, set
 | `restrict_to_instance` | `true` | Hide sprites while this Neovim instance does not have focus. The simulation keeps running. `false` keeps drawing regardless, which is what a standalone desktop animation wants. |
 | `position` | see below | Where entities sit and what they stand on. |
 | `positioning` | see below | Which rectangle entities may move in, what they must not cover, and float stacking. |
+| `render` | see below | Whether entities are drawn as flat sprites or as voxel models, and the camera and light for the models. |
 | `assets` | built-ins | Asset name → manifest. Built-ins resolve lazily on first access. |
 
 ### `position`
@@ -84,6 +86,81 @@ what draws over what. Two different numbers, deliberately not shared.
 Parallax needs sprite scaling, so it has no meaning on `halfblock`: a half-block
 cell is a fixed size. Configuring it there reports the degradation once and
 honours draw order only. `z` still sets draw order on every backend.
+
+
+### `render`
+
+Every asset can be drawn two ways, on every backend.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `mode` | `"2d"` | `"2d"` draws one textured quad per entity, ordered by `z_index`. `"3d"` draws a voxel model extruded from the entity's current frame, depth-tested. Any other value is refused at `setup()`. |
+| `yaw_degrees` | `22.0` | How far a model is turned off head-on. At `0` a model covers exactly the pixels its sprite does, so nothing reveals the depth. |
+| `fov_y_degrees` | `45.0` | Overlay only. Vertical field of view. Clamped to 10–120. |
+| `depth_per_unit` | `0.05` | How deep one unit of `z` is, as a fraction of the camera's eye distance. Clamped to 0–0.5. |
+| `voxel_depth` | `4` | Slab thickness, in voxels. Clamped to 1–64. |
+| `voxel_max_width` | `48` | Widest voxel grid a frame is extruded at; wider art is resampled nearest-neighbour first. Clamped to 1–128. |
+| `light.direction` | `{ -0.4, 0.8, -0.45 }` | Direction the single directional light travels, in world axes. `y` is **down**, so a positive `y` is a light from above. Normalised on use. |
+| `light.ambient` | `0.42` | Brightness of a face the light does not reach. `1.0` removes the lighting and draws every face in its source colour. Clamped to 0–1. |
+
+Change any of it while running, on every backend, without respawning:
+
+```lua
+require("distract").set_render("3d")
+require("distract").set_render({ yaw_degrees = 40, light = { ambient = 0.3 } })
+require("distract").get_render()
+```
+
+or `:DistractRender 3d`, `:DistractRender yaw=40 ambient=0.3`, `:DistractRender`
+to report what is in force.
+
+**There is no second set of 3D assets and no mesh format.** Every asset already
+resolves to RGBA frames, so a frame's opaque pixels are extruded into a slab of
+cubes — a real model of that frame, built from the art the asset already has. The
+built-ins, imported spritesheets, GIFs and anything registered through
+`register_asset` all work in `"3d"` with nothing authored twice.
+
+**Nothing about the simulation changes.** Placement, floors, obstacles, wrapping
+and an asset's cell footprint are identical in both modes: a model is fitted into
+the sprite's own canvas rather than given one of its own, because the footprint is
+what the physics measures against. A model drawn face-on covers *exactly* the
+pixels its sprite does, which the test suite asserts — so turning `"3d"` on never
+moves or reshapes a pet.
+
+`z` becomes real depth. In 2D it is draw order plus the `parallax` size and motion
+damping; in 3D the perspective projection performs the shrink, so `parallax` keeps
+damping motion and stops multiplying size — two mechanisms scaling one sprite
+would compound.
+
+A manifest may pin its own mode, which wins over the configuration in both
+directions:
+
+```lua
+require("distract").register_asset("bubble", {
+  manifest = { name = "bubble", render = "2d", states = { --[[ … ]] } },
+})
+```
+
+That is what flat overlay furniture should do, so it stays flat in a 3D session.
+The two passes composite together, so a flat sprite and a voxel pet can be on
+screen at once.
+
+Per backend: `overlay` draws models on the GPU under a perspective camera with a
+real depth buffer; `halfblock` rasterises them in Lua into the sprite canvas,
+z-buffered, under an *orthographic* projection (a model spans about thirty sprite
+pixels, so a perspective divide across it moves nothing by a whole pixel, and an
+orthographic one lets a rasterised frame be cached wherever the pet is on screen);
+`kitty` does the same and transmits the result. A model has one grid rather than
+the two a flat kitty sprite has, so on `kitty` it is transmitted at
+`voxel_max_width` rather than at the source image's resolution — raise
+`voxel_max_width` for a denser model.
+
+Rasterising is one-off and cached by `(asset, frame, facing)`, so in the steady
+state a 3D pet costs a table lookup per draw exactly as a 2D one does. Measured
+with `tools/bench_render3d.lua`: 200 walking cats step and draw in 4.9 ms a frame
+against 4.2 ms in 2D; one cat frame rasterises from cold in 1.8 ms, and a dense
+32×35 imported model in about 17 ms — a one-frame hitch the first time each pose
+is seen, not a per-frame cost.
 
 ---
 
@@ -148,6 +225,7 @@ cell is closer to `16x36` — measure and set it explicitly. Sprite scale follow
 | `:DistractAction <name> [target]` | Trigger a custom action. |
 | `:DistractBackend [name]` | Switch backend, or print the current one's capabilities. |
 | `:DistractBuild` | Build the overlay engine. |
+| `:DistractRender [args]` | Print how entities are drawn, or change it: `2d`, `3d`, or `yaw=`/`fov=`/`depth=`/`slab=`/`ambient=`. |
 | `:DistractStatus` | Report current state. |
 
 ## Lua API
@@ -161,6 +239,7 @@ distract.is_running()                     distract.status()
 distract.spawn(asset_name, opts)          distract.clear()
 distract.action(action_name, target)
 distract.get_backend()                    distract.set_backend(name)
+distract.get_render()                     distract.set_render(mode_or_opts)
 distract.get_available_backends()         distract.get_backend_capabilities()
 distract.is_overlay()                     distract.build()
 distract.register_asset(name, spec)       distract.get_asset_names()
@@ -231,6 +310,7 @@ local M = {
   initial_state = "walk",
   locomotion = "grounded",            -- grounded | ballistic | omnidirectional
   capabilities = { locomotion = { "grounded" } },
+  render = nil,                       -- nil follows the config; "2d" or "3d" pins it
   z_index = 10,
   states = { … },
   custom_actions = { walk = { target_state = "walk" } },

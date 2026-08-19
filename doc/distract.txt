@@ -10,6 +10,7 @@ CONTENTS                                                    *distract-contents*
        4.1 Position ......................... |distract-position|
        4.2 Positioning scope ................ |distract-positioning|
        4.3 Instance visibility .............. |distract-visibility|
+       4.4 Render mode (2D / 3D) ............ |distract-render|
     5. Commands ............................. |distract-commands|
     6. Backends ............................. |distract-backends|
        6.1 halfblock ........................ |distract-halfblock|
@@ -18,6 +19,7 @@ CONTENTS                                                    *distract-contents*
        6.4 Capabilities ..................... |distract-capabilities|
     7. Assets and manifests ................. |distract-manifests|
        7.1 Locomotion ....................... |distract-locomotion|
+           Asset capabilities ............... |distract-asset-capabilities|
        7.2 Paths ............................ |distract-paths|
        7.3 Units ............................ |distract-units|
        7.4 Custom art ....................... |distract-custom-art|
@@ -78,6 +80,10 @@ engine, or a prebuilt binary. See |distract-overlay|.
         ground = "screen",
         parallax = { per_unit = 0.0, min = 0.4, max = 1.6 },
       },
+      render = {               -- 2D or 3D, see |distract-render|
+        mode = "2d",
+        yaw_degrees = 22.0,
+      },
       assets = {},             -- extra or replacement manifests
     })
 <
@@ -124,6 +130,11 @@ debounce_ms~
 position~
     Where entities are placed and what they stand on. See
     |distract-position|.
+
+                                                     *distract-config-render*
+render~
+    Whether entities are drawn as flat sprites or as voxel models, and the
+    camera and light the models are drawn under. See |distract-render|.
 
                                                      *distract-config-assets*
 assets~
@@ -284,6 +295,115 @@ restrict_to_instance~
     desktop animation wants — the overlay engine is useful without Neovim in
     front of it.
 
+
+------------------------------------------------------------------------------
+4.4 RENDER MODE (2D / 3D)                                     *distract-render*
+
+Every asset can be drawn two ways, and every backend supports both.
+
+>lua
+    require("distract").setup({
+      render = {
+        mode = "2d",             -- "2d" | "3d"
+        yaw_degrees = 22.0,      -- how far a model is turned off head-on
+        fov_y_degrees = 45.0,    -- overlay camera, vertical field of view
+        depth_per_unit = 0.05,   -- how deep one unit of `z` is
+        voxel_depth = 4,         -- slab thickness, in voxels
+        voxel_max_width = 48,    -- widest voxel grid a frame is extruded at
+        light = {
+          direction = { -0.4, 0.8, -0.45 },  -- `y` is down, so +y is from above
+          ambient = 0.42,
+        },
+      },
+    })
+<
+Change any of it while running: >
+    :DistractRender 3d
+    :DistractRender yaw=40 ambient=0.3
+    :DistractRender                     " report what is in force
+<
+or from Lua, which applies live on every backend without respawning anything: >lua
+    require("distract").set_render("3d")
+    require("distract").set_render({ yaw_degrees = 40 })
+    require("distract").get_render()
+<
+                                                        *distract-render-model*
+Where the models come from~
+
+There is no second set of 3D assets, and no mesh format. Every asset already
+resolves to RGBA frames, so a frame's opaque pixels are extruded into a slab of
+cubes: a real model of that frame, built from the art the asset already has. So
+`mode = "3d"` works for the built-ins, for imported spritesheets, for GIFs and
+for anything registered through |distract-custom-art|, with nothing to author
+twice.
+
+A face is only emitted where the neighbour that would hide it is transparent, so
+a solid frame costs two quads a pixel plus its silhouette. Frames wider than
+`voxel_max_width` are resampled to it first, nearest-neighbour.
+
+                                                        *distract-render-depth*
+What changes, and what does not~
+
+Nothing about the simulation changes. Placement, floors, obstacles, wrapping and
+an asset's cell footprint are all identical in both modes — a model is fitted
+into the sprite's own canvas rather than given one of its own, because the
+footprint is what the physics measures against.
+
+A model drawn face-on (`yaw_degrees = 0`) covers *exactly* the pixels its sprite
+does. Turning 3D on therefore never moves or reshapes a pet; only turning it
+does. That is asserted by the test suite rather than assumed.
+
+`z` becomes real depth. In 2D `z` is draw order plus the `parallax` size and
+motion damping (|distract-position-parallax|); in 3D the perspective projection
+performs the shrink instead, so `parallax` keeps damping motion and stops
+multiplying size — two mechanisms scaling one sprite would compound.
+
+                                                     *distract-render-backends*
+Per backend~
+
+`overlay`    Models are drawn on the GPU under a perspective camera, depth
+             tested against a real depth buffer, and lit per face. `fov_y_degrees`
+             and `depth_per_unit` apply here.
+
+`halfblock`  Models are rasterised in Lua into the sprite canvas, z-buffered,
+             under an *orthographic* projection — a model spans about thirty
+             sprite pixels, so a perspective divide across it moves nothing by a
+             whole pixel, and an orthographic one lets a rasterised frame be
+             cached and reused wherever the pet is on screen.
+
+`kitty`      As `halfblock`, and the result is transmitted through the graphics
+             protocol. A model has one grid rather than the two a flat kitty
+             sprite has, so it is transmitted at `voxel_max_width` rather than at
+             the source image's resolution; raise `voxel_max_width` for a denser
+             model. The cell footprint is unchanged.
+
+                                                       *distract-render-manifest*
+Pinning one asset~
+
+A manifest may declare its own mode, which wins over the configuration in both
+directions: >lua
+    require("distract").register_asset("bubble", {
+      manifest = { name = "bubble", render = "2d", states = { ... } },
+    })
+<
+That is what flat overlay furniture — a speech bubble, a badge — should do, so it
+stays flat in a 3D session. The two passes composite together, so a flat sprite
+and a voxel pet can be on screen at once.
+
+                                                           *distract-render-cost*
+Cost~
+
+Rasterising one frame of a model is one-off and cached by
+`(asset, frame, facing)`, so in the steady state a 3D pet costs a table lookup
+per draw exactly as a 2D one does. Measured with `tools/bench_render3d.lua` on
+the reference machine: 200 walking cats step and draw in 4.9 ms a frame against
+4.2 ms in 2D, and rasterising one cat frame from cold takes 1.8 ms. A dense
+imported pet costs more the first time each pose is seen — about 17 ms for a
+32x35 model — which is a one-frame hitch per pose, not a per-frame cost.
+
+`light.ambient` at 1.0 removes the lighting entirely and draws every face in its
+source colour, which is the cheapest and flattest a model gets.
+
 ==============================================================================
 5. COMMANDS                                                 *distract-commands*
 
@@ -328,6 +448,16 @@ restrict_to_instance~
                         to `name`. Switching restarts the plugin if it was
                         running. Entities do not carry over between backends.
                         See |distract-capabilities|.
+
+                                                               *:DistractRender*
+:DistractRender [args]  Show how entities are being drawn, or change it. A bare
+                        `2d` or `3d` sets the mode; `key=value` pairs set one
+                        field each: `yaw=`, `fov=`, `depth=`, `slab=` and
+                        `ambient=`. Applies live on every backend, with nothing
+                        to respawn. See |distract-render|. >
+                            :DistractRender 3d
+                            :DistractRender yaw=45 slab=8
+<
 
                                                                 *:DistractBuild*
 :DistractBuild          Build the overlay engine binary in the background. Only
@@ -463,6 +593,7 @@ how it moves, and what makes it change state.
       initial_state = "idle",
       z_index = 10,
       anchor = "bottom",           -- optional, see below
+      render = nil,                -- optional "2d"/"3d", see |distract-render|
       states = {
         walk = {
           animation = { frames = { 4, 5, 6, 7 }, fps = 6.0, loop_anim = true },
@@ -495,6 +626,13 @@ what wrapping means. A pet that should patrol wants `bounce`.
 
 Transition keys: `on_event`, `on_finish`, `timeout_ms` with `on_timeout`,
 `on_edge_left`, `on_edge_right` and `on_land` (see |distract-locomotion|).
+
+                                                     *distract-manifest-render*
+render~
+    Pins this asset to `"2d"` or `"3d"` regardless of the configured mode, in both
+    directions. Omitting it follows the configuration, which is what a pet wants;
+    flat overlay furniture — a speech bubble, a badge — declares `"2d"` so it stays
+    flat in a 3D session. See |distract-render|.
 
                                                      *distract-manifest-anchor*
 anchor~
@@ -541,7 +679,7 @@ A manifest may set `locomotion` at the top level as the default for every
 state, which is usually what you want: only one of the cat's six states leaves
 the ground.
 
-                                                        *distract-capabilities*
+                                                        *distract-asset-capabilities*
 An asset can declare which classes it is allowed to use: >lua
     capabilities = { locomotion = { "grounded", "ballistic" } },
 <
@@ -820,6 +958,8 @@ The overlay refuses to start~
     distract.get_backend()             -- current backend name
     distract.get_available_backends()  -- { "halfblock", "overlay" }
     distract.set_backend(name)
+    distract.get_render()              -- the render settings in force
+    distract.set_render(mode_or_opts)  -- "2d" | "3d" | a `render` table
     distract.is_running()
     distract.get_asset_names()
     distract.get_all_actions()

@@ -42,6 +42,59 @@ graphics protocol gets `kitty`, everything else gets `halfblock`. Naming one in
 
 ---
 
+## 🧊 2D or 3D
+
+Every asset draws two ways, on every backend:
+
+```vim
+:DistractRender 3d
+:DistractRender yaw=45 slab=8
+:DistractRender               " report what is in force
+```
+
+```lua
+require("distract").setup({ render = { mode = "3d", yaw_degrees = 22.0 } })
+require("distract").set_render("3d")   -- or change it live, no respawn needed
+```
+
+**There is no second set of 3D assets, and no mesh format.** Every asset already
+resolves to RGBA frames, so a frame's opaque pixels are extruded into a slab of
+cubes — a real model of that frame, built from the art the asset already has. The
+built-ins, imported spritesheets, GIFs and anything you register all work in 3D
+with nothing authored twice. A face is only emitted where the neighbour that would
+hide it is transparent, so a solid frame costs two quads a pixel plus its
+silhouette.
+
+**Nothing about the simulation changes.** Placement, floors, obstacles, wrapping
+and an asset's cell footprint are identical in both modes — a model is fitted into
+the sprite's own canvas, because the footprint is what the physics measures
+against. A model drawn face-on covers *exactly* the pixels its sprite does, which
+the suite asserts, so turning 3D on never moves or reshapes a pet. What `z` means
+is the one thing that changes: in 2D it is draw order plus the `parallax` size
+damping, and in 3D the perspective projection performs the shrink instead.
+
+| Backend | How a model is drawn |
+|---|---|
+| `overlay` | On the GPU, perspective camera, real depth buffer, lit per face |
+| `halfblock` | Rasterised in Lua into the sprite canvas, z-buffered, orthographic |
+| `kitty` | The same, transmitted through the graphics protocol |
+
+The orthographic projection in the terminal is deliberate: a model spans about
+thirty sprite pixels, so a perspective divide across it moves nothing by a whole
+pixel — and an orthographic one lets a rasterised frame be cached and reused
+wherever the pet is on screen. In the steady state a 3D pet costs a table lookup
+per draw, exactly as a 2D one does: 200 walking cats step and draw in 4.9 ms a
+frame against 4.2 ms in 2D (`tools/bench_render3d.lua`).
+
+A manifest can pin its own mode with `render = "2d"`, which wins over the
+configuration in both directions — flat overlay furniture stays flat in a 3D
+session, and the two passes composite together.
+
+Full reference: [`docs/configuration.md`](docs/configuration.md#render) and
+`:help distract-render`.
+
+---
+
 ## 🎞️ GIF assets
 
 Point a manifest's `spritesheet.path` at a `.gif` and every backend draws it:
@@ -124,6 +177,9 @@ apart.
 | crab | 24×16 px (24×8 cells) | 25 | idle, walk, walk_fast, clip_claws, burrow, sleep |
 | sun | 16×16 px (16×8 cells) | 25 | shining, eclipse, flare, rising, setting |
 
+Every one of them also has a 3D form, extruded from these same frames — see
+[2D or 3D](#-2d-or-3d).
+
 Frames are drawn on first use, not at startup: loading the plugin costs well
 under a millisecond whether or not you ever spawn anything.
 
@@ -187,6 +243,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 | `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `burrow`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
 | `:DistractClear` | Clear all active entities from the screen | |
 | `:DistractStatus` | Print active entities, states, and coordinates | |
+| `:DistractRender [args]` | View or change how entities are drawn | `2d`, `3d`, or `yaw=`, `fov=`, `depth=`, `slab=`, `ambient=` |
 | `:DistractBuild` | Build the overlay engine binary in the background | |
 
 ---
@@ -410,12 +467,15 @@ nvim --headless --noplugin -u tests/minimal_init.lua -l tests/run_tests.lua
 ```
 
 Both suites also carry cross-engine parity harnesses: `physics_parity` pins one
-manifest to one trajectory on both engines, and `sprite_parity` pins the
-generated art pixel for pixel. Regenerate their goldens only for an intentional
-change, and re-measure the drift budgets when you do:
+manifest to one trajectory on both engines, `sprite_parity` pins the generated art
+pixel for pixel, and `voxel_parity` pins the 3D models vertex for vertex — exactly,
+with no tolerance, because nothing in a mesh goes through a float computation whose
+width matters. Regenerate their goldens only for an intentional change, and
+re-measure the drift budgets when you do:
 ```bash
 UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test physics_parity
 UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test sprite_parity
+UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test voxel_parity
 ```
 
 Look at an asset's frames as text, which is how the art is judged headless:
@@ -427,6 +487,13 @@ What one tick costs, at the scale a particle system would want:
 ```bash
 cargo test --manifest-path engine/Cargo.toml --test tick_budget -- --nocapture
 nvim --headless --noplugin -u tests/minimal_init.lua -l tools/bench_tick.lua 200
+```
+
+What the 3D mode costs, and what the models actually look like — the mesh pass
+writes real PNGs through the real pipeline:
+```bash
+nvim --headless --noplugin -u tests/minimal_init.lua -l tools/bench_render3d.lua 200
+cargo test --manifest-path engine/Cargo.toml --test gpu3d_headless
 ```
 
 Lint and format gates, all enforced in CI:
