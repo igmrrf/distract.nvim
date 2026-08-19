@@ -49,8 +49,14 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
           NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update -o DPkg::Lock::Timeout=300
-          sudo apt-get install -y -o DPkg::Lock::Timeout=300 \
+          # Applied to both commands. Without the Acquire bounds a stalled
+          # mirror hangs `apt-get update` indefinitely, which is where the lint
+          # and ubuntu test jobs were sitting; DPkg::Lock::Timeout covers only
+          # the dpkg frontend lock and does nothing for a network stall.
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
+          APT_OPTS="$APT_OPTS -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=300"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y \
             libxcb-render0-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
@@ -153,8 +159,14 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
           NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update -o DPkg::Lock::Timeout=300
-          sudo apt-get install -y -o DPkg::Lock::Timeout=300 \
+          # Applied to both commands. Without the Acquire bounds a stalled
+          # mirror hangs `apt-get update` indefinitely, which is where the lint
+          # and ubuntu test jobs were sitting; DPkg::Lock::Timeout covers only
+          # the dpkg frontend lock and does nothing for a network stall.
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
+          APT_OPTS="$APT_OPTS -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=300"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y \
             libxcb-render0-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
@@ -226,8 +238,14 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
           NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update -o DPkg::Lock::Timeout=300
-          sudo apt-get install -y -o DPkg::Lock::Timeout=300 \
+          # Applied to both commands. Without the Acquire bounds a stalled
+          # mirror hangs `apt-get update` indefinitely, which is where the lint
+          # and ubuntu test jobs were sitting; DPkg::Lock::Timeout covers only
+          # the dpkg frontend lock and does nothing for a network stall.
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
+          APT_OPTS="$APT_OPTS -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=300"
+          sudo apt-get $APT_OPTS update
+          sudo apt-get $APT_OPTS install -y \
             libxcb-render0-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
