@@ -1,5 +1,6 @@
 require("tests.test_harness")
 
+local sprite_sources = require("distract.sprite_sources")
 local warmup = require("distract.warmup")
 local gif = require("distract.gif")
 local builder = require("tests.gif_builder")
@@ -104,5 +105,43 @@ describe("distract.warmup background worker", function()
     assert.is_not_nil(decoded)
     assert.are_equal(2, #decoded.frames)
     assert.are.same({ 1, 2, 1, 2 }, frame_indices)
+  end)
+end)
+
+describe("distract.warmup cancellation and re-binding", function()
+  local GIF_PATH = vim.fn.getcwd() .. "/tests/fixtures/physics/frame_delays.gif"
+
+  local function manifest()
+    return { spritesheet = { path = GIF_PATH, format = "gif" } }
+  end
+
+  after_each(function()
+    warmup.reset()
+    sprite_sources.unbind_manifest("probe_warm_gif")
+  end)
+
+  it("re-queues a decode that stop() cancelled part-way", function()
+    sprite_sources.bind_manifest("probe_warm_gif", manifest())
+    assert.is_true(warmup.is_pending("gif:probe_warm_gif"))
+
+    -- What `distract.stop()` does: drop the queue without running it.
+    warmup.reset()
+    assert.is_false(warmup.is_pending("gif:probe_warm_gif"))
+
+    -- What a restart does: re-read the same manifest. The source has not
+    -- changed, so a source-gated warm-up would never queue again and the first
+    -- draw would decode the whole GIF synchronously.
+    sprite_sources.bind_manifest("probe_warm_gif", manifest())
+    assert.is_true(warmup.is_pending("gif:probe_warm_gif"))
+  end)
+
+  it("does not re-queue a decode that already finished", function()
+    sprite_sources.bind_manifest("probe_warm_gif", manifest())
+    warmup.drain()
+    assert.are_equal(0, warmup.pending_count())
+
+    sprite_sources.bind_manifest("probe_warm_gif", manifest())
+    assert.is_false(warmup.is_pending("gif:probe_warm_gif"))
+    assert.are_equal(0, warmup.pending_count())
   end)
 end)

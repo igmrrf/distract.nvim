@@ -106,8 +106,15 @@ end
 ---
 --- Rebinding the same source is a no-op, which matters because a spawn re-reads
 --- the manifest and would otherwise throw away a decoded animation every time.
+---
+--- Whether the cache is cold is the condition, not whether the source changed.
+--- `distract.stop()` drops the warm-up queue, so a decode can be cancelled
+--- part-way with the source already recorded; gating on the source alone left
+--- that asset with no queued decode and no way to get one, and the first draw
+--- after a restart paid for the whole GIF synchronously. `warmup.request`
+--- deduplicates by key, so asking again while one is already queued is free.
 local function warm_gif_asset(asset_name, source)
-  if not source then
+  if not source or sprite_cache[asset_name] then
     return
   end
   require("distract.warmup").request("gif:" .. asset_name, function()
@@ -131,8 +138,8 @@ function M.bind_manifest(asset_name, manifest)
     gif_sources[asset_name] = source
     decode_warned[asset_name] = nil
     changed = true
-    warm_gif_asset(asset_name, source)
   end
+  warm_gif_asset(asset_name, source)
 
   if not native_sprite.same_source(native_sources[asset_name], native_source) then
     native_sources[asset_name] = native_source
