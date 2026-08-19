@@ -11,6 +11,7 @@
 //! adapter and the two format choices need no GPU at all.
 
 use bytemuck::{Pod, Zeroable};
+
 use wgpu::util::DeviceExt;
 
 /// Working format for the compositing pass, which sprites and models both draw
@@ -327,55 +328,4 @@ pub fn build_buffers(
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         }),
     }
-}
-
-/// What the resolve pass reads the composited scene through.
-pub struct SceneBinding<'a> {
-    pub layout: &'a wgpu::BindGroupLayout,
-    pub sampler: &'a wgpu::Sampler,
-    pub uniforms: &'a wgpu::Buffer,
-}
-
-/// Builds the offscreen scene texture and the bind group the resolve pass reads
-/// it through.
-pub fn create_scene_target(
-    device: &wgpu::Device,
-    binding: &SceneBinding,
-    viewport: (u32, u32),
-) -> (wgpu::Texture, wgpu::BindGroup) {
-    let (width, height) = viewport;
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Scene Texture"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: SCENE_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
-    });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: binding.layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(binding.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: binding.uniforms.as_entire_binding(),
-            },
-        ],
-        label: Some("Scene Bind Group"),
-    });
-    (texture, bind_group)
 }

@@ -12,8 +12,9 @@
 //! `gpu3d_headless` make -- so a green run on a runner without a GPU says
 //! nothing about whether the pipelines build.
 
+use distract_engine::gpu_bindings::TextureBinding;
 use distract_engine::gpu_setup::{
-    self, AlphaChoice, MIN_INSTANCE_CAPACITY, SCENE_FORMAT, SceneBinding, SpriteInstance, Uniforms,
+    self, AlphaChoice, MIN_INSTANCE_CAPACITY, SCENE_FORMAT, SpriteInstance, Uniforms,
 };
 use wgpu::CompositeAlphaMode::{Auto, Inherit, Opaque, PostMultiplied, PreMultiplied};
 use wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb, Rgba8Unorm, Rgba8UnormSrgb};
@@ -196,15 +197,12 @@ fn the_scene_target_is_the_size_it_was_asked_for_in_the_compositing_format() {
     };
     let pipelines = gpu_setup::build_pipelines(&harness.device, Bgra8UnormSrgb);
     let buffers = gpu_setup::build_buffers(&harness.device, (TARGET, TARGET), false);
-    let (texture, _bind_group) = gpu_setup::create_scene_target(
-        &harness.device,
-        &SceneBinding {
-            layout: &pipelines.bind_group_layout,
-            sampler: &pipelines.sampler,
-            uniforms: &buffers.resolve_uniforms,
-        },
-        (TARGET, 4),
-    );
+    let (texture, _bind_group) = TextureBinding {
+        layout: &pipelines.bind_group_layout,
+        sampler: &pipelines.sampler,
+        uniforms: &buffers.resolve_uniforms,
+    }
+    .scene_target(&harness.device, (TARGET, 4));
 
     assert_eq!(TARGET, texture.width());
     assert_eq!(4, texture.height());
@@ -219,15 +217,12 @@ fn a_zero_sized_scene_target_is_clamped_rather_than_refused() {
     };
     let pipelines = gpu_setup::build_pipelines(&harness.device, Bgra8UnormSrgb);
     let buffers = gpu_setup::build_buffers(&harness.device, (TARGET, TARGET), false);
-    let (texture, _bind_group) = gpu_setup::create_scene_target(
-        &harness.device,
-        &SceneBinding {
-            layout: &pipelines.bind_group_layout,
-            sampler: &pipelines.sampler,
-            uniforms: &buffers.resolve_uniforms,
-        },
-        (0, 0),
-    );
+    let (texture, _bind_group) = TextureBinding {
+        layout: &pipelines.bind_group_layout,
+        sampler: &pipelines.sampler,
+        uniforms: &buffers.resolve_uniforms,
+    }
+    .scene_target(&harness.device, (0, 0));
 
     // wgpu rejects a zero-extent texture outright, so the clamp is what keeps a
     // window still being created from taking the process down.
