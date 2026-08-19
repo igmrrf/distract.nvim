@@ -41,33 +41,7 @@ jobs:
           workspaces: engine
 
       - name: Install Linux GUI/Winit build dependencies
-        env:
-          # needrestart prompts for which services to restart once a package
-          # lands, and a prompt on a runner nobody can answer hangs the job
-          # until the six-hour ceiling. apt itself waits forever for a lock the
-          # runner's own unattended-upgrades timer may be holding.
-          DEBIAN_FRONTEND: noninteractive
-          NEEDRESTART_MODE: a
-        run: |
-          # Applied to both commands. Without the Acquire bounds a stalled
-          # mirror hangs `apt-get update` indefinitely, which is where the lint
-          # and ubuntu test jobs were sitting; DPkg::Lock::Timeout covers only
-          # the dpkg frontend lock and does nothing for a network stall.
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
-          APT_OPTS="$APT_OPTS -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=300"
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libx11-dev \
-            libx11-xcb-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxi-dev \
-            libxinerama-dev \
-            libwayland-dev \
-            libxkbcommon-dev
+        uses: ./.github/actions/linux-gui-deps
 
       - name: cargo fmt --check
         run: cargo fmt --manifest-path engine/Cargo.toml -- --check
@@ -154,33 +128,7 @@ jobs:
 
       - name: Install Linux GUI/Winit build dependencies
         if: runner.os == 'Linux'
-        env:
-          # needrestart prompts for which services to restart once a package
-          # lands, and a prompt on a runner nobody can answer hangs the job
-          # until the six-hour ceiling. apt itself waits forever for a lock the
-          # runner's own unattended-upgrades timer may be holding.
-          DEBIAN_FRONTEND: noninteractive
-          NEEDRESTART_MODE: a
-        run: |
-          # Applied to both commands. Without the Acquire bounds a stalled
-          # mirror hangs `apt-get update` indefinitely, which is where the lint
-          # and ubuntu test jobs were sitting; DPkg::Lock::Timeout covers only
-          # the dpkg frontend lock and does nothing for a network stall.
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
-          APT_OPTS="$APT_OPTS -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=300"
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libx11-dev \
-            libx11-xcb-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxi-dev \
-            libxinerama-dev \
-            libwayland-dev \
-            libxkbcommon-dev
+        uses: ./.github/actions/linux-gui-deps
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -237,35 +185,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Install Linux dependencies
+      - name: Install Linux GUI/Winit build dependencies
         if: runner.os == 'Linux'
-        env:
-          # needrestart prompts for which services to restart once a package
-          # lands, and a prompt on a runner nobody can answer hangs the job
-          # until the six-hour ceiling. apt itself waits forever for a lock the
-          # runner's own unattended-upgrades timer may be holding.
-          DEBIAN_FRONTEND: noninteractive
-          NEEDRESTART_MODE: a
-        run: |
-          # Applied to both commands. Without the Acquire bounds a stalled
-          # mirror hangs `apt-get update` indefinitely, which is where the lint
-          # and ubuntu test jobs were sitting; DPkg::Lock::Timeout covers only
-          # the dpkg frontend lock and does nothing for a network stall.
-          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
-          APT_OPTS="$APT_OPTS -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=300"
-          sudo apt-get $APT_OPTS update
-          sudo apt-get $APT_OPTS install -y \
-            libxcb-render0-dev \
-            libxcb-shape0-dev \
-            libxcb-xfixes0-dev \
-            libx11-dev \
-            libx11-xcb-dev \
-            libxcursor-dev \
-            libxrandr-dev \
-            libxi-dev \
-            libxinerama-dev \
-            libwayland-dev \
-            libxkbcommon-dev
+        uses: ./.github/actions/linux-gui-deps
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable

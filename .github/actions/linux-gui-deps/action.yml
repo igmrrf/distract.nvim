@@ -1,0 +1,35 @@
+name: Linux GUI build dependencies
+description: >
+  Installs the X11, XCB and Wayland headers winit and wgpu link against, without
+  letting apt hang the job.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        # needrestart asks which services to restart once a package lands, and a
+        # prompt on a runner nobody can answer waits until the six-hour job
+        # ceiling.
+        DEBIAN_FRONTEND: noninteractive
+        NEEDRESTART_MODE: a
+      run: |
+        # Applied to both commands. Without the Acquire bounds a stalled mirror
+        # hangs `apt-get update` indefinitely, which is where the lint and ubuntu
+        # test jobs sat for hours; DPkg::Lock::Timeout covers only the dpkg
+        # frontend lock and does nothing for a network stall.
+        APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=30"
+        APT_OPTS="$APT_OPTS -o Acquire::https::Timeout=30 -o DPkg::Lock::Timeout=300"
+        sudo apt-get $APT_OPTS update
+        sudo apt-get $APT_OPTS install -y \
+          libxcb-render0-dev \
+          libxcb-shape0-dev \
+          libxcb-xfixes0-dev \
+          libx11-dev \
+          libx11-xcb-dev \
+          libxcursor-dev \
+          libxrandr-dev \
+          libxi-dev \
+          libxinerama-dev \
+          libwayland-dev \
+          libxkbcommon-dev
