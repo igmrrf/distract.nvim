@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -76,13 +76,16 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
 
+      # The version pin is load-bearing, not incidental: luacheck 1.2.0 dies
+      # inside its own standards.lua under Lua 5.5 before it reads a project
+      # file, and gh-actions-lua v13 added 5.5 to the versions it can select.
       - name: Setup Lua for luacheck
-        uses: leafo/gh-actions-lua@v10
+        uses: leafo/gh-actions-lua@v13
         with:
           luaVersion: "5.1"
 
       - name: Setup LuaRocks
-        uses: leafo/gh-actions-luarocks@v4
+        uses: leafo/gh-actions-luarocks@v6
 
       - name: Install luacheck
         run: luarocks install luacheck
@@ -91,7 +94,7 @@ jobs:
         run: luacheck lua plugin tests
 
       - name: stylua --check
-        uses: JohnnyMorganz/stylua-action@v4
+        uses: JohnnyMorganz/stylua-action@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           version: latest
@@ -106,7 +109,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Neovim
         uses: rhysd/action-setup-vim@v1
@@ -147,7 +150,7 @@ jobs:
             target: x86_64-pc-windows-msvc
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Linux GUI/Winit build dependencies
         if: runner.os == 'Linux'
@@ -226,7 +229,7 @@ jobs:
             bin_name: distract-engine.exe
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -284,7 +287,7 @@ jobs:
           Get-FileHash -Algorithm SHA256 ${{ matrix.artifact_name }} | ForEach-Object { "$($_.Hash.ToLower())  $($_.Path | Split-Path -Leaf)" } | Out-File -Encoding ascii "${{ matrix.artifact_name }}.sha256"
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: |
@@ -302,16 +305,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download all built binary artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-artifacts
           merge-multiple: true
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release-artifacts/*
           generate_release_notes: true
