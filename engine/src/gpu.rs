@@ -4,57 +4,18 @@
 //! uploaded once, rather than compositing on the CPU and re-uploading a
 //! full-screen framebuffer every frame.
 
-use bytemuck::{Pod, Zeroable};
-use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use crate::atlas::Atlas;
 use crate::bounds::Bounds;
 use crate::ecs::World;
+use crate::gpu_setup::{self, Buffers, Pipelines, SceneBinding, Uniforms};
 use crate::gpu3d::{self, MeshPipeline, PassTarget};
 use crate::manifest::WrapMode;
 use crate::mesh_draw::MeshFrame;
 use crate::wrap;
 
-/// A corner of the unit quad every sprite is drawn from.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct Vertex {
-    pub corner: [f32; 2],
-}
-
-const VERTICES: &[Vertex] = &[
-    Vertex { corner: [0.0, 0.0] },
-    Vertex { corner: [0.0, 1.0] },
-    Vertex { corner: [1.0, 1.0] },
-    Vertex { corner: [1.0, 0.0] },
-];
-
-const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
-
-/// Placement of one sprite for one frame. This is the only data that crosses to
-/// the GPU per frame: 32 bytes per visible entity.
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Default, PartialEq, Pod, Zeroable)]
-pub struct SpriteInstance {
-    /// Top-left corner in physical pixels.
-    pub pos: [f32; 2],
-    /// Size in physical pixels.
-    pub size: [f32; 2],
-    /// Atlas rectangle. `uv_min.x > uv_max.x` mirrors the sprite.
-    pub uv_min: [f32; 2],
-    pub uv_max: [f32; 2],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-struct Uniforms {
-    viewport: [f32; 2],
-    flags: [f32; 2],
-}
-
-/// Grows in powers of two so a busy scene does not reallocate every frame.
-const MIN_INSTANCE_CAPACITY: usize = 64;
+pub use crate::gpu_setup::{INDICES, MIN_INSTANCE_CAPACITY, SCENE_FORMAT, SpriteInstance, Vertex};
 
 /// Builds the per-frame instance list from the world, z-sorted.
 ///
@@ -165,6 +126,12 @@ pub struct GpuRenderer {
 }
 
 impl GpuRenderer {
+    /// Opens a surface on `window` and builds everything drawn through it.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message naming the stage that failed: surface creation, adapter
+    /// selection, device creation, or the mesh pipeline.
     pub async fn new(window: &Window, width: u32, height: u32) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -199,217 +166,43 @@ impl GpuRenderer {
             .map_err(|e| format!("Failed to create device: {}", e))?;
 
         let max_texture_dim = device.limits().max_texture_dimension_2d;
-
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .copied()
-            .find(|f| f.is_srgb())
-            .unwrap_or(surface_caps.formats[0]);
-
-        // Prefer a premultiplied surface, because that is what the compositing
-        // pass naturally produces. When only a straight-alpha mode is offered,
-        // the resolve pass divides the alpha back out instead of leaving the
-        // two conventions mismatched.
-        let alpha_mode = if surface_caps
-            .alpha_modes
-            .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
-        {
-            wgpu::CompositeAlphaMode::PreMultiplied
-        } else if surface_caps
-            .alpha_modes
-            .contains(&wgpu::CompositeAlphaMode::PostMultiplied)
-        {
-            wgpu::CompositeAlphaMode::PostMultiplied
-        } else if surface_caps
-            .alpha_modes
-            .contains(&wgpu::CompositeAlphaMode::Inherit)
-        {
-            wgpu::CompositeAlphaMode::Inherit
-        } else {
-            surface_caps.alpha_modes[0]
-        };
-        let needs_unpremultiply = alpha_mode == wgpu::CompositeAlphaMode::PostMultiplied;
+        let alpha = gpu_setup::choose_alpha_mode(&surface_caps.alpha_modes);
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface_format,
+            format: gpu_setup::choose_surface_format(&surface_caps.formats),
             width: width.max(1),
             height: height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode,
+            alpha_mode: alpha.mode,
             view_formats: vec![],
         };
         surface.configure(&device, &config);
 
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Distract Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
+        let Pipelines {
+            sprite: sprite_pipeline,
+            resolve: resolve_pipeline,
+            bind_group_layout,
+            sampler,
+        } = gpu_setup::build_pipelines(&device, config.format);
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Texture Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
+        let Buffers {
+            vertex: vertex_buffer,
+            index: index_buffer,
+            instance: instance_buffer,
+            sprite_uniforms,
+            resolve_uniforms,
+        } = gpu_setup::build_buffers(&device, (width, height), alpha.needs_unpremultiply);
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
-        });
-
-        // Sprites composite into a linear-working sRGB target with
-        // premultiplied blending, which is the only way overlapping
-        // semi-transparent sprites come out right.
-        let sprite_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Sprite Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_sprite",
-                buffers: &[
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x2],
-                    },
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<SpriteInstance>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![
-                            1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2
-                        ],
-                    },
-                ],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_sprite",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: SCENE_FORMAT,
-                    blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        let resolve_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Resolve Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_resolve",
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_resolve",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
-                    // The triangle covers the whole target, so there is nothing
-                    // to blend against.
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Index Buffer"),
-            contents: bytemuck::cast_slice(INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-        let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Sprite Instance Buffer"),
-            size: (MIN_INSTANCE_CAPACITY * std::mem::size_of::<SpriteInstance>()) as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let sprite_uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Sprite Uniforms"),
-            contents: bytemuck::bytes_of(&Uniforms {
-                viewport: [width.max(1) as f32, height.max(1) as f32],
-                flags: [0.0, 0.0],
-            }),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let resolve_uniforms = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Resolve Uniforms"),
-            contents: bytemuck::bytes_of(&Uniforms {
-                viewport: [width.max(1) as f32, height.max(1) as f32],
-                flags: [if needs_unpremultiply { 1.0 } else { 0.0 }, 0.0],
-            }),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            // Pixel art: any filtering turns crisp edges to mush.
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        let (scene_texture, scene_bind_group) = Self::create_scene_target(
+        let (scene_texture, scene_bind_group) = gpu_setup::create_scene_target(
             &device,
-            &bind_group_layout,
-            &sampler,
-            &resolve_uniforms,
-            width,
-            height,
+            &SceneBinding {
+                layout: &bind_group_layout,
+                sampler: &sampler,
+                uniforms: &resolve_uniforms,
+            },
+            (width, height),
         );
 
         let mesh = MeshPipeline::new(&device, SCENE_FORMAT)?;
@@ -443,50 +236,6 @@ impl GpuRenderer {
             depth_texture,
             mesh_frame: MeshFrame::default(),
         })
-    }
-
-    fn create_scene_target(
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        sampler: &wgpu::Sampler,
-        uniforms: &wgpu::Buffer,
-        width: u32,
-        height: u32,
-    ) -> (wgpu::Texture, wgpu::BindGroup) {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Scene Texture"),
-            size: wgpu::Extent3d {
-                width: width.max(1),
-                height: height.max(1),
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: SCENE_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: uniforms.as_entire_binding(),
-                },
-            ],
-            label: Some("Scene Bind Group"),
-        });
-        (texture, bind_group)
     }
 
     /// Uploads whatever the current asset set needs: the sprite atlas always, and
@@ -624,13 +373,14 @@ impl GpuRenderer {
 
         self.depth_texture = gpu3d::create_depth_texture(&self.device, new_width, new_height);
 
-        let (texture, bind_group) = Self::create_scene_target(
+        let (texture, bind_group) = gpu_setup::create_scene_target(
             &self.device,
-            &self.bind_group_layout,
-            &self.sampler,
-            &self.resolve_uniforms,
-            new_width,
-            new_height,
+            &SceneBinding {
+                layout: &self.bind_group_layout,
+                sampler: &self.sampler,
+                uniforms: &self.resolve_uniforms,
+            },
+            (new_width, new_height),
         );
         self.scene_texture = texture;
         self.scene_bind_group = bind_group;
@@ -747,10 +497,6 @@ impl GpuRenderer {
         Ok(())
     }
 }
-
-/// Working format for the compositing pass. sRGB so blending happens in linear
-/// space and the encode is done by the hardware on write.
-const SCENE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
 #[cfg(test)]
 mod tests {

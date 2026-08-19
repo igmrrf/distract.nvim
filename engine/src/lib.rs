@@ -9,6 +9,7 @@ pub mod compositor;
 pub mod ecs;
 pub mod gpu;
 pub mod gpu3d;
+pub mod gpu_setup;
 pub mod ipc;
 pub mod journal;
 pub mod manifest;
