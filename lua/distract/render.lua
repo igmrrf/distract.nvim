@@ -18,6 +18,20 @@ M.VOXEL = "3d"
 
 local MODES = { [M.FLAT] = true, [M.VOXEL] = true }
 
+---@class DistractLightConfig
+---@field direction? number[] Direction the single directional light travels in [x, y, z] world axes (y is down)
+---@field ambient? number Ambient floor brightness between 0.0 and 1.0 (default: 0.42)
+
+---@class DistractRenderConfig
+---@field mode? "2d"|"3d" Render mode: "2d" for flat sprites, "3d" for voxel models (default: "2d")
+---@field fov_y_degrees? number Overlay only: vertical field of view in degrees (10 to 120, default: 45.0)
+---@field depth_per_unit? number Depth of one unit of z as fraction of eye distance (0 to 0.5, default: 0.05)
+---@field yaw_degrees? number Off-axis model rotation in degrees (default: 22.0)
+---@field voxel_max_width? integer Widest voxel grid extruded before resampling (1 to 128, default: 48)
+---@field voxel_depth? integer Slab thickness in voxels (1 to 64, default: 4)
+---@field light? DistractLightConfig Directional and ambient lighting settings
+
+---@type DistractRenderConfig
 M.DEFAULTS = {
   mode = M.FLAT,
   fov_y_degrees = 45.0,
