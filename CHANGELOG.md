@@ -10,6 +10,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **A sprite import pipeline** (`import_sprite`, a new binary in the engine
+  crate). Turns a GIF, a folder of PNG frames, or a pre-packed atlas
+  (`--spritesheet` with `--cell` and `--row-counts`) into three artifacts from one
+  decoded frame set: a background-removed spritesheet PNG for the overlay
+  backend, a raw-pixel `.rgba` sidecar for the kitty backend, and a Lua manifest
+  scaffold. Background removal is a four-corner flood fill with a feathered edge
+  rather than a binary cutout, and a frame that already carries its own alpha
+  cutout is detected and passed through untouched. See
+  [`docs/importing-assets.md`](docs/importing-assets.md).
+- **Native-resolution sprites on the kitty backend.** `backends.lua` gained a
+  `native_resolution` capability, and a manifest may declare
+  `spritesheet.native_path` pointing at a `.rgba` sidecar. Backends that can
+  show real pixels get it; the half-block backend keeps its cell-grid art and is
+  provably unaffected. The sidecar is resolved as a fourth art source ahead of
+  `sprite_sources`' per-asset cache, so two backends asking for different
+  fidelity for the same asset cannot leak into each other.
+- **`lua/distract/native_sprite.lua`** — the `.rgba` reader. Byte arithmetic
+  rather than a parser (LuaJIT has no `string.unpack`), cached by path, and a
+  missing or malformed file is an expected `nil, err` failure that falls back to
+  the asset's other art instead of stopping the render loop.
+- **Full configuration reference** at
+  [`docs/configuration.md`](docs/configuration.md), covering the plugin config
+  table, backends, commands, the Lua API, the manifest schema and the engine.
+- **codex-pets import tooling** (`tools/codex_pets/`, development only) and a
+  reference for that sheet format at
+  [`docs/codex-pets-sprite-layout.md`](docs/codex-pets-sprite-layout.md).
+
+### Changed
+- **`assets/cat_walking/`** was regenerated through the new pipeline. Its
+  spritesheet keeps its 128x72 / 8x4 geometry but no longer carries an opaque
+  background, and it now ships a `.rgba` sidecar alongside it.
+
+### Fixed
+- The manifest scaffold emitted state names as bare Lua table keys, so any name
+  that is not a plain identifier — anything hyphenated, like `running-right` —
+  produced a file that would not parse. Such names are now bracketed.
+
+### Added
 - **GIF assets on every backend.** A manifest whose `spritesheet.path` ends in
   `.gif` is drawn per-pixel on `kitty` and `overlay` and in half-blocks in the
   terminal, with no per-backend branching. Decoding in the terminal is pure Lua

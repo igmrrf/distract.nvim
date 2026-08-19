@@ -13,6 +13,7 @@ engine_render_screenshot.png
 
 # Temporary & scratch scripts
 *.py
+!tools/codex_pets/*.py
 engine/test_window.rs
 
 # Agent review & planning artifacts

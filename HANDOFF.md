@@ -26,9 +26,76 @@ mkdir -p ~/Desktop/tmp/distract_sprites && DUMP_TO=~/Desktop/tmp/distract_sprite
 | Item | State |
 |---|---|
 | Kitty backend (P4) and GIF assets (P5) seen on a real screen | **unverified — needs a human** |
+| Native-resolution sprites on kitty, seen on a real screen | **unverified — needs a human; same reason** |
 | Step 4: silhouette-first art redo, every asset | **not started; blocked on an art-parity harness** |
 | Art parity between the Lua and Rust ports | **measured, unenforced — see below** |
 | `engine.lua` over the size caps | **accepted debt, see below** |
+| codex-pets sheets under `assets/codex_pets/` | **staged, deliberately uncommitted — see below** |
+
+---
+
+## Sprite import pipeline — status 2026-08-19
+
+The pipeline from
+[`docs/superpowers/specs/2026-08-16-sprite-import-pipeline-design.md`](docs/superpowers/specs/2026-08-16-sprite-import-pipeline-design.md)
+and its [atlas addendum](docs/superpowers/specs/2026-08-19-spritesheet-atlas-import-addendum.md)
+is **fully implemented and green**. All 12 base-plan tasks plus the addendum's
+Tasks 13 and 14 are landed on `fix/assets`.
+
+How to use it: [`docs/importing-assets.md`](docs/importing-assets.md).
+Configuration: [`docs/configuration.md`](docs/configuration.md).
+
+**Shipped:**
+
+- `engine/src/bin/import_sprite/` — the CLI. Three input modes (`--gif`,
+  `--frames`, `--spritesheet` + `--cell`/`--row-counts`), corner flood-fill
+  background removal with soft alpha, already-cutout detection, padding, grid
+  packing, `.rgba` sidecar writer, Lua manifest scaffold. 31 tests.
+- `lua/distract/native_sprite.lua` — the sidecar reader, `nil, err` contract,
+  cached by path.
+- `backends.lua` gained `native_resolution`; `sprite_sources.get_pixel_frames`
+  gained an `opts` second parameter resolving the sidecar as a fourth art source
+  *ahead of* its per-asset-name cache; all four call sites pass their backend's
+  capability.
+- `assets/cat_walking/` regenerated through the pipeline, now with a
+  `native_path` sidecar.
+- `tools/codex_pets/` — the test harness described below.
+
+**Gates at the last sweep:** 177 Rust (137 lib + 31 import_sprite + 6 GPU + 2
+parity + 1 screenshot), 341 Lua, `cargo fmt --check` clean, `clippy -D warnings`
+clean, `stylua --check` clean. `luacheck` could not run — see the traps section.
+
+### What is NOT done
+
+1. **Nothing is pushed.** `fix/assets` is ahead of `origin/fix/assets`. No PR
+   exists. Deciding how this integrates is the owner's call.
+2. **Kitty's native-resolution output has never been looked at.** A
+   characterization test proves `kitty/frames.lua` and `protocol.lua` are
+   resolution-agnostic — a 24×16 sidecar goes through kitty's real call site and
+   comes out with the right `pixel_w`/`cols`/`rgba` length — but no human has
+   seen a native-resolution sprite on a real terminal. Same standing caveat as
+   every other kitty claim in this file.
+3. **No codex-pets asset is wired up as a real plugin asset.** Fifteen are
+   imported under `assets/codex_pets/imported/`, each with a manifest scaffold
+   whose `physics` and `transitions` are still placeholders. Turning one into a
+   usable pet means hand-tuning that scaffold and registering it.
+4. **`assets/codex_pets/` is staged but uncommitted, on purpose.** 236 MB — 34 MB
+   of source sheets and 202 MB of derived output. Committing it puts a
+   quarter-gigabyte in git history permanently. `imported/` is regenerable from
+   `sheets/` with one command, so if any of it should land, it should probably be
+   `sheets/` only. It is also third-party artwork with no stated licence: fine as
+   local test material, not fine as shipped plugin assets.
+
+### If you want to trim before committing
+
+A v2 pet's 74 frames include 16 directional look poses that are not an
+animation. Importing only the 9 animated rows drops it to 57 frames
+(~8.9 MB instead of ~11.5 MB per sidecar):
+
+```bash
+# animated rows only: drop the trailing 8,8
+--row-counts 7,8,8,4,5,8,6,6,6
+```
 
 ---
 
@@ -207,6 +274,37 @@ it.
 ---
 
 ## Traps that cost time — read before debugging
+
+0. **Traps from the sprite import work, 2026-08-19.**
+   - **`luacheck` is broken in this environment, not by your change.** luacheck
+     1.2.0 under Lua 5.5 dies with `attempt to assign to const variable
+     'field_name'` before it reads any project file, and fails identically on
+     files nobody touched. Run it against an unmodified file to confirm before
+     chasing it. `stylua --check` still works and is the real Lua gate.
+   - **`x and false or y` never yields `false` in Lua.** `false` is falsy, so the
+     `or` branch always wins. This shipped in the plan's own sidecar-decoding
+     snippet and would have made every transparent pixel render opaque. Use an
+     explicit `if`.
+   - **A hyphen in a table key is a Lua syntax error.** Generated manifests need
+     `["running-right"] = { … }`, not `running-right = { … }`. Real action names
+     have hyphens; `walk`/`idle` test fixtures never caught it. Fixed in
+     `manifest_scaffold.rs::lua_table_key`.
+   - **`tests/run_tests.lua` has an explicit `SPECS` list.** A new spec file that
+     is not added to it silently never runs, and the suite still reports green.
+   - **The harness is not Plenary.** `tests/test_harness.lua` provides
+     `assert.are.same`, `assert.are_equal`, `assert.are_not_equal`,
+     `assert.is_true/is_false/is_nil/is_not_nil/is_function`. There is no
+     `assert.are.equal`, no `assert.is_not.same`.
+   - **`native_sprite.load` caches by path**, so a spec reusing one fixture path
+     across tests reads the first test's frames. Call `native_sprite.reset()` in
+     `after_each`.
+   - **The importer never resamples.** Feed it 1920×1080 stills and you get
+     1920×1080 frames, a 15360×4320 sheet and a 265 MB sidecar. Downscale first.
+     This is why `cat_walking` was regenerated from its existing packed atlas
+     rather than from `assets/cat_walking/source/` or the source GIFs.
+   - **Don't point `--manifest-out` at a hand-tuned manifest.** The scaffold
+     overwrites, and its `physics`/`transitions` are placeholders. Write it
+     elsewhere and diff.
 
 1. **`vim.fn.screenstring` lies inside `nvim -l` scripts.** It reads the current
    window's grid, not the composited screen, so floating windows appear at the
