@@ -319,3 +319,60 @@ describe("pushing the render settings to the overlay", function()
     assert.is_true(ok, "a stopped overlay is not an error")
   end)
 end)
+
+describe("the kitty backend in 3D", function()
+  local frames = require("distract.kitty.frames")
+
+  after_each(function()
+    sprites.configure_render(render.DEFAULTS)
+    sprites.bind_manifest(CAT, require("distract.manifests.cat"))
+    frames.reset()
+  end)
+
+  it("keeps the cell footprint the engine wraps and anchors against", function()
+    -- Trap-for-trap the same failure the 2D kitty path has: the footprint has to
+    -- be the one `get_dimensions` reports, or kitty draws a 32-column cat while
+    -- the engine anchors a 24-column one.
+    with_mode({ mode = "2d" })
+    local flat = frames.describe(CAT, 1, false)
+    frames.reset()
+    with_mode({ mode = "3d" })
+    local model = frames.describe(CAT, 1, false)
+
+    assert.are_equal(flat.cols, model.cols, "columns")
+    assert.are_equal(flat.rows, model.rows, "rows")
+  end)
+
+  it("transmits the model rather than the sheet", function()
+    with_mode({ mode = "3d" })
+    local model = frames.describe(CAT, 1, false)
+
+    assert.is_true(#model.rgba > 0, "there is a payload")
+    assert.are_equal(model.pixel_w * model.pixel_h * 4, #model.rgba, "RGBA, four bytes a pixel")
+  end)
+
+  it("builds the opacity mask on the footprint grid, as the 2D path does", function()
+    -- A mask built on the image grid produces the right number of rows while
+    -- reading the wrong region, and the sprite silently vanishes.
+    with_mode({ mode = "3d" })
+    local model = frames.describe(CAT, 1, false)
+    local spans = frames.spans(model, model.cols, model.rows)
+
+    assert.are_equal(model.rows, vim.tbl_count(model.mask), "one mask row per cell row")
+    local drawn = 0
+    for _, row_spans in pairs(spans) do
+      drawn = drawn + #row_spans
+    end
+    assert.is_true(drawn > 0, "an all-empty mask means nothing is transmitted")
+  end)
+
+  it("drops its described frames when the settings change", function()
+    with_mode({ mode = "2d" })
+    local flat = frames.describe(CAT, 1, false)
+    with_mode({ mode = "3d", yaw_degrees = 55 })
+    local model = frames.describe(CAT, 1, false)
+
+    assert.is_false(flat == model, "a stale cache would transmit the flat sheet")
+    assert.are_not_equal(flat.rgba, model.rgba)
+  end)
+end)

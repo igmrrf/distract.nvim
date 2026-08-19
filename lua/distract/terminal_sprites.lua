@@ -44,12 +44,27 @@ end
 local render_settings = render.DEFAULTS
 local declared_modes = {}
 
+--- Notified when the render settings change.
+---
+--- The kitty renderer describes frames into a cache of its own and cannot be
+--- reached from here without a circular require, so it subscribes rather than
+--- being called. Every mode, yaw or light change repaints every frame.
+local render_listeners = {}
+
+---@param callback fun()
+function M.on_render_change(callback)
+  table.insert(render_listeners, callback)
+end
+
 --- Applies the render settings frames are drawn under.
 ---@param settings table validated `render` settings
 function M.configure_render(settings)
   render_settings = settings or render.DEFAULTS
   raster3d.configure(render_settings)
   M.reset_cache()
+  for _, listener in ipairs(render_listeners) do
+    listener()
+  end
 end
 
 --- Whether this asset is drawn as a voxel model.

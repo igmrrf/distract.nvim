@@ -10,6 +10,7 @@
 
 local M = {}
 
+local raster3d = require("distract.raster3d")
 local sprites = require("distract.terminal_sprites")
 
 --- Sprite pixel rows stacked into one terminal cell, as the half-block glyphs
@@ -103,6 +104,37 @@ local cache = {}
 
 --- Builds, once, everything the kitty backend needs for one frame.
 ---
+--- The pixels a frame is transmitted from, and the grid its footprint is measured
+--- on.
+---
+--- The image and the box it fills are sized separately. `c`/`r` tell the terminal
+--- how many cells to resample the transmitted pixels into, so fidelity and
+--- footprint are independent -- and the footprint has to be the one
+--- `sprites.get_dimensions` reports, or kitty draws a 128-column cat while the
+--- engine wraps and anchors a 32-column one.
+---
+--- A voxel model is one grid rather than two: its fidelity is bounded by the voxel
+--- grid, not by the source image, so there is no native-resolution form of it to
+--- transmit. Raise `render.voxel_max_width` for a denser model.
+local function source_matrices(asset_name, frame_idx, flip_x)
+  if sprites.is_voxel(asset_name) then
+    local model = raster3d.matrix(asset_name, frame_idx, flip_x)
+    return model, model
+  end
+
+  local pixel_frames = sprites.get_pixel_frames(asset_name, KITTY_CAPABILITY)
+  local footprint_frames = sprites.get_pixel_frames(asset_name, FOOTPRINT_CAPABILITY)
+  local matrix = pixel_frames[frame_idx] or pixel_frames[1]
+  local footprint = footprint_frames[frame_idx] or footprint_frames[1]
+  if not matrix or not footprint then
+    return nil, nil
+  end
+  if flip_x then
+    return sprites.mirror_matrix(matrix), sprites.mirror_matrix(footprint)
+  end
+  return matrix, footprint
+end
+
 --- Keyed on `(asset, frame, flip_x)` -- the same key the half-block render and
 --- frame-buffer caches use, and invalidated by the same `reset` call, so the
 --- two backends cannot end up disagreeing about what frame 3 looks like.
@@ -123,26 +155,9 @@ function M.describe(asset_name, frame_idx, flip_x)
     return entry
   end
 
-  local pixel_frames = sprites.get_pixel_frames(asset_name, KITTY_CAPABILITY)
-  local matrix = pixel_frames[frame_idx] or pixel_frames[1]
-  if not matrix then
+  local matrix, footprint = source_matrices(asset_name, frame_idx, flip_x)
+  if not matrix or not footprint then
     return nil
-  end
-
-  -- The image and the box it fills are sized separately. `c`/`r` tell the
-  -- terminal how many cells to resample the transmitted pixels into, so
-  -- fidelity and footprint are independent -- and the footprint has to be the
-  -- one `sprites.get_dimensions` reports, or kitty draws a 128-column cat while
-  -- the engine wraps and anchors a 32-column one.
-  local footprint_frames = sprites.get_pixel_frames(asset_name, FOOTPRINT_CAPABILITY)
-  local footprint = footprint_frames[frame_idx] or footprint_frames[1]
-  if not footprint then
-    return nil
-  end
-
-  if flip_x then
-    matrix = sprites.mirror_matrix(matrix)
-    footprint = sprites.mirror_matrix(footprint)
   end
 
   local width = matrix_width(matrix)
@@ -215,5 +230,11 @@ function M.reset(asset_name)
     cache = {}
   end
 end
+
+-- A settings change repaints every frame, and these are described once and cached
+-- for the process lifetime otherwise.
+sprites.on_render_change(function()
+  M.reset()
+end)
 
 return M
