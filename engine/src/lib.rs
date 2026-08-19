@@ -17,6 +17,7 @@ pub mod mesh_draw;
 pub mod meshbook;
 pub mod obstacles;
 pub mod overlay_placement;
+pub mod physics_config;
 pub mod platform;
 pub mod render;
 pub mod response;
