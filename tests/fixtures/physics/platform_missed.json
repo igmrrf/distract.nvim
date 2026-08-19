@@ -1,0 +1,14 @@
+{
+  "description": "The same fall beside the platform rather than onto it: the entity passes the platform's row and lands on the floor. Proves the horizontal span is honoured rather than the row alone.",
+  "physics": { "target_vx": 0.0, "target_vy": 0.0, "gravity": 0.6, "friction": 0.05, "wrap_mode": "none", "locomotion": "ballistic" },
+  "transitions": { "on_land": "landed" },
+  "spawn": { "x": 80, "y": 2, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "ground_row": 34,
+  "obstacles": [
+    { "x": 24, "y": 20, "width": 30, "height": 1, "type": "solid_platform" }
+  ],
+  "dt": 0.016666667,
+  "steps": 200
+}

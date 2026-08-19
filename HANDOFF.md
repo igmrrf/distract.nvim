@@ -1,93 +1,38 @@
 # Handoff — what is still open
 
-Working notes for whoever picks this up next. Rewritten 2026-08-16, against the
-commit that landed P5.
+Working notes for whoever picks this up next. Rewritten 2026-08-19, after the
+full-feature pass.
 
-This file is **only** the pending work and the traps that cost time. It is not a
-record of what shipped:
+This file holds **only** open work and the traps that cost time. It is
+deliberately not a record of what shipped:
 
 - **What was built and why** — [`CHANGELOG.md`](CHANGELOG.md).
+- **What is not built yet** — [`future.md`](future.md), which is now entirely
+  separate repositories: every core surface they need exists.
+- **The decisions this pass took** —
+  [`docs/superpowers/plans/2026-08-19-full-feature-completion.md`](docs/superpowers/plans/2026-08-19-full-feature-completion.md).
 - **What the design says** —
   [`docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md`](docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md),
-  including the unit contract, the backend/renderer split, and every decision
-  settled during implementation. Where this file and the spec disagree, the spec
-  wins.
-- **Which review findings are closed** — [`REVIEW.md`](REVIEW.md).
-- **What might come next** — [`future.md`](future.md), which holds unbuilt work
-  only, and its program plan
-  [`docs/superpowers/plans/2026-08-16-future-roadmap-master.md`](docs/superpowers/plans/2026-08-16-future-roadmap-master.md).
+  including the unit contract and the backend/renderer split. Where this file and
+  the spec disagree, the spec wins.
+- **How to use the import pipeline** — [`docs/importing-assets.md`](docs/importing-assets.md),
+  configuration in [`docs/configuration.md`](docs/configuration.md).
 
 ---
-mkdir -p ~/Desktop/tmp/distract_sprites && DUMP_TO=~/Desktop/tmp/distract_sprites cargo test --manifest-path engine/Cargo.toml --test parity_dump -- --ignored
-
 
 ## Pending
 
 | Item | State |
 |---|---|
-| Kitty backend (P4) and GIF assets (P5) seen on a real screen | **unverified — needs a human** |
-| Step 4: silhouette-first art redo, every asset | **not started; blocked on an art-parity harness** |
-| Art parity between the Lua and Rust ports | **measured, unenforced — see below** |
-| `engine.lua` over the size caps | **accepted debt, see below** |
+| Nothing is pushed | committed on `fix/assets`, two commits ahead of `origin/fix/assets`, no PR; pushing and integration are the owner's call |
+| The three bundled pets cost ~47 MB of git history | both artifacts per pet are load-bearing; see below |
+| Four Lua modules and `ecs.rs` are over the 400-line cap | partly closed; see below for what is left and why |
+| Three gallery pets ship as built-ins; nothing else from either gallery may | the rule is the licence, not the source — see below |
+| The first draw of a GIF asset hitches | 130–375 ms, once per asset; not fixed, see below |
+| Nothing else | every roadmap section is now out-of-repo work |
 
----
-
-## Verification sweep — 2026-08-16
-
-Everything below was run, not assumed. Re-run before trusting it again.
-
-**Green:**
-
-- Four gates pass: **325 Lua**, **145 Rust** (136 lib + 6 GPU + 2 parity + 1
-  screenshot, `parity_dump` ignored), `stylua --check` clean, `clippy -D warnings`
-  clean. The only clippy output is a future-incompat notice for the transitive
-  `block v0.1.6` crate, not this codebase.
-- `cargo build --release` produces the overlay engine.
-- **Gravity, live.** A cat given `jump` leaves at `vy = -2.2`, peaks at `y = 1.76`
-  at t = 0.10s under `gravity = 0.32`, falls, lands on its `ground_y`, and returns
-  to `idle`. Gravity is per-state and only `jump` declares it — a cat in `idle`
-  does not fall, and that is the manifest's contract, not a bug.
-- **14 physics fixtures** cover gravity, ballistic landing, settling to rest,
-  floorless acceleration, a pushed floor, bounce, clamp, wrap, parallax damping
-  and all four path types.
-- **Manifest integrity:** every animation frame index is in range. cat 29 frames /
-  6 states, crab 25 / 6, sun 25 / 5.
-- **Real GIF assets decode.** `cat_walking_1.gif` → 15 frames in **126 ms**,
-  `cat_walking_2.gif` → 32 frames in **372 ms**, both resampled to 32×24 with
-  per-frame delays read from the file (100 ms / 80 ms). This confirms the
-  first-draw hitch figures quoted in the open question below.
-- **Backend registry** offers `halfblock` (no parallax) and `overlay` (parallax);
-  an unset backend resolves to `halfblock` headless, as designed.
-- Failures are explicit: an over-budget GIF names `spritesheet.frame_width` /
-  `frame_height` as the fix rather than degrading silently.
-
-**Finding — art parity drifts and nothing enforces it.** Dumping all 79 built-in
-frames from both engines gives **220 mismatched cells out of 27,136 (0.81%)** —
-112 in the alpha mask, 108 in colour, 44 of those differing by more than 128 on a
-channel.
-
-The mechanism is not what `parity_dump.rs`'s docstring implies. `Canvas::set`
-floors its coordinates on both sides; Lua computes in f64, Rust in f32. A
-coordinate landing either side of an integer boundary throws a whole drawing step
-into the adjacent cell, so a *tiny* precision difference produces a *large* colour
-difference. 204 of the 220 (93%) are explained by the other engine's value sitting
-in an adjacent cell; the remaining 16 sit inside a smooth shading gradient.
-**No transcription error was found** — the ports agree as closely as f32 and f64
-allow.
-
-Consequences for the art-parity harness: an exact-mask assertion cannot pass, and
-a per-channel colour tolerance alone cannot either. Assert that the other engine's
-value appears in the same cell or one of its eight neighbours, or within a channel
-tolerance — and cap the total mismatch count per asset just above today's
-measurement, so a transcription error's large jump fails while precision drift
-does not.
-
-**Finding — highlight headroom is thinner than it looks.** Rendering all 79
-built-in frames creates **1,894** live highlight groups against a
-`max_highlight_groups` cap of 4,096. Three assets consume 46% of the cap.
-
-**Still unverifiable without a human:** the kitty backend on screen, a GIF on
-screen, and the overlay window on screen. See the next section.
+Everything in [`future.md`](future.md) is unbuilt by definition, and all of it is
+now out-of-repo work.
 
 ---
 
@@ -102,89 +47,127 @@ stylua --check lua plugin tests
 cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
 ```
 
-Expected: **325 Lua tests**, **145 Rust tests** (136 lib + 6 headless GPU + 2
-parity + 1 screenshot; `parity_dump` is `#[ignore]`).
+Expected: **463 Lua tests**, **232 Rust tests** (179 lib + 31 import_sprite + 6
+headless GPU + 6 IPC contract + 2 physics parity + 2 sprite parity + 2 tick
+budget + 1 argv exit + 1 screenshot). The Rust count does not move with a new
+physics or sprite fixture — one test function iterates the whole directory.
 
-The Lua suite needs `-u tests/minimal_init.lua` — that is where the runtimepath
-is set. Either `-l` or CI's `-c "luafile ..."` form works.
+`cargo fmt --manifest-path engine/Cargo.toml -- --check` is a fifth gate worth
+running; CI enforces it.
+
+The Lua suite needs `-u tests/minimal_init.lua`; that is where the runtimepath is
+set. Either `-l` or CI's `-c "luafile ..."` form works.
 
 `luacheck` is listed in the README as a gate but **is broken on this machine** —
-it fails to load under the installed Lua 5.5. Environment problem, not a code
-problem. CI may still run it; a green local run does not mean luacheck passed.
+luacheck 1.2.0 under Lua 5.5 dies with `attempt to assign to const variable
+'field_name'` before it reads any project file, and fails identically on files
+nobody touched. Run it against an unmodified file to confirm before chasing it.
+`stylua --check` is the real local Lua gate. CI may still run luacheck; a green
+local run does not mean it passed.
+
+**The Lua suite starts the overlay engine.** Some specs drive a real
+`distract-engine` process, and `engine_binary.find()` prefers
+`engine/bin` → `target/release` → `target/debug`. A stale release binary makes
+those specs exercise an old IPC contract and log `unknown variant` parse errors
+while still passing. Rebuild it (`cargo build --release --manifest-path
+engine/Cargo.toml`) after changing `ipc.rs`.
 
 ---
 
-## The one thing the test suite cannot tell you
+## Looking at the art
 
-**Nobody has watched a kitty placement render.** The backend is asserted byte for
-byte — chunk boundaries, base64 payloads, diacritic encoding, `q=2` on every
-command, `d=I` on every delete, one transmission per frame however many entities
-show it. None of which is the same claim as *a cat appears on the screen*.
+**Look at the rendered pixels, not only at a text grid.** The screenshot suite is
+the fastest way, and it writes 17 real PNGs through the actual wgpu pipeline:
 
-The three ways it can be byte-correct and still wrong, in the order worth
-checking:
+```bash
+cargo test --manifest-path engine/Cargo.toml --test render_flow_screenshots
+# -> tests/screenshots/*.png, including a composite of all three assets
+```
 
-1. **Neovim may not emit the placeholder unchanged.** `U+10EEEE` is plane-16
-   private use; if Neovim gives it a width other than 1, or normalises the
-   combining marks, the cells arrive scrambled.
-2. **`vim.v.stderr` may interleave** with the TUI's own output under load. The P0
-   spike measured that it *reaches* the terminal, not that a 4-chunk transmission
-   survives arriving mid-frame.
-3. **The float may cover the placeholders.** Rows below the last buffer line go
-   to a float; its `Normal` has `bg = "NONE"`, but a terminal that paints its own
-   background over a graphics placement would blank the sprite there and leave
-   the buffer-overlay rows visible. A cat cut off at the waist is this.
+Judging the silhouette-first redo from `preview_sprite.lua` alone passed art that
+was plainly wrong when rendered: the cat read as an orange sausage with a dark
+head. Two defects were invisible in a character grid and obvious in a picture, and
+both are worth knowing about before drawing anything else:
 
-The user has Ghostty. Get a human to look at the screen: `:DistractSpawn cat` —
-a Ghostty session gets the kitty backend by default, so no `:DistractBackend`
-call is needed; it still reports which one is running. If nothing draws at all,
-check `:set termguicolors?` — the backend declines without it and says so.
+1. **A contour drawn as "a filled disc, then a smaller filled disc inset" is not a
+   one-pixel outline.** The radii quantise to whole pixels, so at a head-sized
+   `rx = 2.4` the inner disc collapses to a single plus and the shape renders as
+   solid outline with one pixel of fill. `blob` now stamps the rim proper — a pixel
+   inside the ellipse whose four-neighbourhood leaves it.
+2. **A near-black rim disappears into a dark editor background** and takes the
+   silhouette's edge with it. Each asset's rim is now a darker tone *of its own
+   fill* (`FUR_DARK`, `SHELL_DARK`, the sun's `LIMB`), and the near-black `CONTOUR`
+   is kept only for accents that must read as holes: eyes, an open mouth.
 
-The same visit answers the GIF question: point a manifest at
-`assets/cat_walking_1.gif` with `frame_width = 32, frame_height = 24` and see
-whether an imported animation reads better than the procedural cat.
+Legs also have to be drawn *below* the barrel, not inside it. They were inside it,
+which is why the first rendered cat had none.
 
----
+`tools/preview_sprite.lua` dumps an asset's frames as text: `#` for opaque, and a
+letter per distinct colour so the tone bands can be counted. It is how the
+silhouette-first redo was judged, and it is the only way to see this art from a
+headless run.
 
-## Step 4 — art
+```bash
+nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua cat
+nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua crab 0 4
+```
 
-Do **not** start by editing sprites. The same art exists twice —
-`lua/distract/sprites/*.lua` and `engine/src/sprites/*.rs` — with **no automated
-parity test** between them. `engine/tests/parity_dump.rs` is `#[ignore]` and
-dumps *geometry*, not physics; it is a dev aid needing `DUMP_TO`, and it is
-**not** covered by the physics parity harness. Build an art-parity harness first
-or the two drift the moment either is touched. `future.md` §5.7 names the tool:
-`validate_sprite_parity`. The tolerance it must use is measured in the
-verification sweep above — read that before designing it.
-
-Owner's answer: the redo covers **every asset, existing and future** — not the
-cat alone. Three assets times two implementations is six files that can drift,
-which makes the harness a precondition rather than a nicety.
-
-The art problem itself: at 24×16 the sprite is 24 columns × **8 rows**, and
-`sprite_gen.orb` spends five lighting terms (Lambert, rim, fill, specular,
-dither) across a body twelve pixels wide. At that size **silhouette is the only
-thing that reads** — the cat currently reads as a fox. Ears are 3-pixel stubs
-(`cat.lua`, `EAR_HALF = {0,1,1}`), the four legs are identical capsules,
-whiskers and muzzle are below the detail floor. Flat fills, a 1px dark contour
-and 2–3 tone bands read better *and* collapse the highlight-group count.
+**The canvas is 1-based on both engines.** `Canvas.set` drops anything at `x < 1`
+or `y < 1`, so a layout laid out from row 0 sits one row high and the bottom row
+of the sprite is empty — which floats the pet above the floor it is anchored to,
+because an asset's cell footprint is its whole canvas. Cost an hour; the giveaway
+is a sprite whose last row is blank in every frame.
 
 ---
 
-## The parity harness — read before touching physics
+## The art-parity harness — read before touching sprites
 
-The recurring defect class in this project is `lua/distract/engine.lua` and
-`engine/src/ecs.rs` drifting apart while both claim "one manifest describes one
-behaviour on both backends". Three such divergences had to be found by reading
-before the harness existed; it has since caught two more on its own.
+`engine/tests/sprite_parity.rs` dumps every frame of `cat`, `crab` and `sun` to
+`tests/fixtures/sprites/<name>.golden.json` and asserts Rust still reproduces
+them exactly. `tests/sprite_parity_spec.lua` asserts the Lua generators reproduce
+the same pixels within the drift f32 against f64 makes unavoidable. Neither suite
+runs the other's toolchain; they meet at the JSON.
 
-`engine/tests/physics_parity.rs` generates the goldens; `tests/physics_parity_spec.lua`
-asserts the Lua engine reproduces them. Neither suite runs the other's
-toolchain — they meet at the JSON in `tests/fixtures/physics/`, in **terminal
-cells**.
+```bash
+UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test sprite_parity
+```
 
-**Any change to physics on either side means adding a fixture.** Regenerate
-after an intentional behaviour change:
+The golden also pins each asset's canvas size, frame count and state-to-frame
+`layout`. A state pointing at the wrong frames is the same defect class as a
+frame drawn wrongly and far cheaper to catch here than on a screen.
+
+**Why the tolerance has two rules.** `Canvas.set` floors its coordinates on both
+sides, so a coordinate landing either side of an integer boundary throws a whole
+drawing step into the adjacent pixel. A differing pixel is accepted when the
+other engine's value appears anywhere in its 3×3 neighbourhood, or when both are
+opaque and no channel differs by more than 24.
+
+**The budgets are measurements, not allowances.** Re-measured after the redo:
+
+| Asset | Pixels | Drifted | Budget | Unexplained | Budget |
+|---|---|---|---|---|---|
+| cat | 11,136 | 14 (0.13%) | 22 | 0 | 0 |
+| crab | 9,600 | 4 (0.04%) | 12 | 0 | 0 |
+| sun | 6,400 | 79 (1.23%) | 87 | 0 | 0 |
+
+Flat fills are why `unexplained` is now zero everywhere: a gradient put a
+different colour on every radius, so a boundary difference changed the colour as
+well as the position and no neighbourhood rule could explain it. With one fill
+and one band per part, a boundary difference moves a pixel between two colours
+that are already neighbours. **Any unexplained pixel is now a real divergence.**
+
+All 79 built-in frames create **118** live highlight groups against the 4,096
+cap — 3%, where the shaded art used 46%.
+
+---
+
+## The physics-parity harness — read before touching physics
+
+`engine/tests/physics_parity.rs` generates the goldens;
+`tests/physics_parity_spec.lua` asserts the Lua engine reproduces them. They meet
+at the JSON in `tests/fixtures/physics/`, in **terminal cells**.
+
+**Any change to physics on either side means adding a fixture.**
 
 ```bash
 UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test physics_parity
@@ -193,126 +176,270 @@ UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test physics_pari
 Then run the Lua suite. If it disagrees, that is the point — read the reported
 step index before assuming the fixture is wrong.
 
-Two fixtures deliberately avoid knife edges and say so in their own `description`
-field, so nobody "fixes" them back: `constant_velocity_wrap` uses
-`target_vx = 1.3`, and `path_bezier` uses `freq = 0.47`. In both, f32 and f64
-land either side of a discontinuity — a precision artefact, not a divergence.
+A fixture may declare `bounds.col` / `bounds.row` for a **scoped viewport**, and
+an `obstacles` list of `solid_platform` / `hazard` rectangles in cells. Both are
+absent on the older fixtures, which means "the whole editor grid, no obstacles"
+and keeps every existing trajectory unchanged.
 
-**The harness does not cover frame timing.** `frame_duration_seconds` exists in
-both `lua/distract/engine.lua` and `engine/src/ecs.rs` and must keep saying the
-same thing (`animation.fps` wins, else the source file's per-frame delay, else
-0.1s). It is the newest member of the divergence class with no fixture guarding
-it.
+**Avoid knife edges, and say so in the fixture's own `description`** so nobody
+"fixes" them back. `constant_velocity_wrap` uses `target_vx = 1.3` and
+`path_bezier` uses `freq = 0.47` for this reason; the frame-timing fixtures use
+`dt = 0.013`. Two obstacle fixtures put a platform edge at `45.3` and a hazard at
+`61.3` rather than on even cells: an entity advancing exactly 2 cells a step and
+24 wide would otherwise land with its right edge exactly on the obstacle's left
+edge, where f32 and f64 fall either side of the span test. That cost a debugging
+round; the symptom was one engine picking the higher platform a step earlier.
+
+**The two engines index `animation.frames` differently, on purpose.** Lua's
+`frame_idx` is 1-based; Rust's is 0-based. Each indexes its own convention
+correctly and both cycle the same number of frames, which is why a fixture
+records the *resolved sheet index* rather than `frame_idx`.
+
+`tests/fixtures/physics/frame_delays.gif` is the art the frame-timing fixtures
+bind: 209 bytes, four solid 24×16 frames, delays 40/120/80/200 ms. No two delays
+are equal, none is 100 ms (the fallback), and 24×16 matches the size an unbound
+probe already reports. The regeneration command is in the harness header.
 
 ---
 
 ## Traps that cost time — read before debugging
 
-1. **`vim.fn.screenstring` lies inside `nvim -l` scripts.** It reads the current
-   window's grid, not the composited screen, so floating windows appear at the
-   wrong place or not at all. A **vanilla** float at `row=12, col=10` reproduces
-   the artifact while `nvim_win_get_position` correctly reports `{12, 10}`.
-   Attaching a real UI via a pty does not fix it.
-   - Assert on `nvim_win_get_position` / `nvim_win_get_config` for float rows.
-   - `screenstring` **is** trustworthy for the extmark overlay path, because
-     those are written into the current window's own buffer.
+1. **A `local function` used by an earlier closure is a nil global.** Lua
+   resolves a local by lexical position, so a helper declared below the function
+   that calls it is looked up as a global and is nil at call time. In
+   `renderer.lua` that error was swallowed by `tick`'s `pcall`, so the symptom
+   was a sprite that silently stopped drawing rather than an error. Declare
+   shared helpers above every consumer.
 
-2. **`engine.setup` merges with `vim.tbl_deep_extend("force", ...)`.**
+2. **One asset has one cell footprint, and fidelity is independent of it.**
+   `get_dimensions` takes no backend argument by design: sprite size feeds
+   physics through `sprite_cell_size`, which is what wrapping and floor-anchoring
+   measure against, so a per-backend answer makes one manifest describe two
+   behaviours. Kitty's `c`/`r` fields resample a transmitted image into a given
+   cell box, so kitty loses nothing by honouring the fitted footprint.
+
+3. **A kitty opacity mask must be built on the footprint grid, not the image
+   grid.** `frames.spans` resamples the mask *from* `frame.cols` × `frame.rows`.
+   Building it on the image's grid still produces the right *number* of rows
+   while reading the wrong region — the top 17 pixel rows of 72 — and the sprite
+   silently vanishes. `describe` therefore takes `rgba` from the native matrix
+   and `mask` from the fitted one.
+
+4. **Any test of a spatial mask needs art that varies in space.** The mutation in
+   trap 3 initially slipped past its own test because the fixture was fully
+   opaque and every candidate mask was identical.
+
+5. **`terminal_sprites.lua` is the quantiser's only gate.** 32 unquantised
+   imported frames go straight through the 4,096 highlight-group cap, so
+   `needs_quantising` must stay true for sidecar-backed assets. It stays false
+   for procedural art: the silhouette-first redo took the built-ins to 123 groups
+   on its own, so quantising them again would only spend CPU.
+
+6. **macOS display detection matches by ID, never by coordinates or size.**
+   `NSScreen.mainScreen`'s `NSScreenNumber` is a `CGDirectDisplayID` and so is
+   winit's `native_id()`, so **no Cocoa-to-winit conversion is involved**. Do not
+   reintroduce one: Cocoa's origin is the primary screen's bottom-left and
+   winit's is its top-left. Matching by size breaks on two identical monitors.
+
+7. **Neither engine measures its own floor, viewport scope or obstacles.**
+   `events.sync_floor`, `external.sync_viewport_scope` and
+   `events.sync_obstacles` each measure once in Neovim and push the same answer
+   to both engines. A change that has an engine look for itself reintroduces the
+   divergence class the harness exists to catch. The one exception is a spawn
+   naming its own `ground`.
+
+8. **`engine.lua` holds `floor_row` and the obstacle list as module state**, so a
+   spec that spawns after another spec's push inherits it.
+   `tests/physics_parity_spec.lua` calls `set_ground_row(nil)` and
+   `set_obstacles({})` before every fixture; any new spec asserting on `ground_y`
+   or on platform physics must do the same.
+
+9. **`engine.setup` merges with `vim.tbl_deep_extend("force", ...)`.**
    Registering two test manifests under the same asset name lets the first one's
    `physics` fields survive into the second. Every spec that builds probe
    manifests gives each test its own `probe_N` name for this reason.
 
-3. **Wall-clock `dt` in `engine.tick()`.** A tight loop of 20 ticks advances
-   almost no simulated time. Use `engine.step(dt, bounds)` for anything that
-   asserts on distance; `tick` is only for testing the timer path.
+10. **Test probes inherit the cat's manifest.** Both parity runners and several
+    spec helpers start from `AssetManifest::default_cat()`, which declares
+    `capabilities` and `locomotion = "grounded"` — so a probe that orbits is
+    *correctly* refused. Clear both:
+    `manifest.locomotion = None; manifest.capabilities = Default::default();`.
 
-4. **Test probes inherit the cat's manifest.** Both parity runners and several
-   spec helpers start from `AssetManifest::default_cat()`, which declares
-   `capabilities` and `locomotion = "grounded"` — so a probe that orbits is
-   *correctly* refused. Clear both on the probe:
-   `manifest.locomotion = None; manifest.capabilities = Default::default();`.
+11. **The cat's states do not share a `wrap_mode`.** `idle` clamps, `walk` wraps,
+    `pounce` bounces. A test that spawns a cat and expects wrapping gets a
+    clamped one, because the initial state is `idle`; put the entity in `walk`
+    first. This is also the answer to "should a pet only walk one way" — the
+    manifest decides, per state.
 
-5. **`vim.json.encode` writes an empty Lua table as `{}`, not `[]`.**
-   `path_params.points` is the first array-valued manifest field, so the Rust
-   deserialiser explicitly accepts both. Any future array-valued field needs the
-   same treatment or it parses in the terminal and fails on the overlay.
-
-6. **Highlight groups are the unbounded shape to watch.** 1,894 live groups exist
-   for the three built-in assets alone (46% of the 4,096 cap); kitty adds one per transmitted
-   image. `highlights.lua` caps live groups, but step 4's quantised palette is
-   what actually shrinks the number.
-
-7. **Neither engine measures its own floor.** `events.sync_floor` measures once
-   and pushes the same number to `engine.set_ground_row` and
-   `external.set_ground_row`. A change that has an engine call `position.floor_row`
-   for itself reintroduces the divergence class the harness exists to catch. The
-   one exception is a spawn naming its own `ground`.
-
-8. **`engine.lua` holds `floor_row` as module state**, so a spec that spawns
-   after another spec's push inherits its floor. `tests/physics_parity_spec.lua`
-   calls `set_ground_row(nil)` before every fixture. Any new spec asserting on
-   `ground_y` must do the same.
-
-9. **`backends`, `position` and `distract.kitty` warn once, process-wide, and
-   the registries are process-wide too.** `reset_warnings()`, `backends.reset()`
-   and `kitty.reset()` exist for tests. A spec that registers kitty and does not
-   put it back breaks `backends_spec`, which asserts the exact backend list; a
-   spec that counts warnings without resetting counts zero, passes, and proves
-   nothing. `kitty.reset()` also unregisters the renderer surface — leaving it
-   registered is the on-paper-only backend the two registries are kept in step to
-   prevent.
-
-10. **`vim.tbl_deep_extend` cannot set a field to nil**, so a placement-request
-    helper built with it cannot express "no floor measured". `position_spec`
-    assigns `request.floor_row = nil` after building instead.
-
-11. **The kitty test seam is `writer.set_writer`, and every spec that uses it
-    must put it back.** A leaked capture silently swallows every subsequent
-    escape and nothing fails — the assertions are all on what was captured. Use
-    `captured()` / `with_kitty()` in `tests/kitty_spec.lua` rather than calling
-    `set_writer` directly.
-
-12. **`detect.is_available()` answers once and caches.** Headless it is always
-    false, because there is no UI to answer the query. `detect.override(true)`
-    gets a test past that; `detect.reset()` puts it back.
+12. **Wall-clock `dt` in `engine.tick()`.** A tight loop of 20 ticks advances
+    almost no simulated time. Use `engine.step(dt, bounds)` for anything that
+    asserts on distance; `tick` is only for testing the timer path.
 
 13. **A spawn randomises `frame_idx`, `frame_timer` and `path_phase`** so two
     entities spawned together do not move in lockstep. Any test asserting on
     elapsed animation time has to zero the first two afterwards;
     `tests/gif_assets_spec.lua` has `spawn_at_first_frame()` for it.
 
-14. **The harness compares with `vim.inspect`, which prints table identity.**
-    `assert.are.same({ RED, RED }, row)` fails against a row of two equal but
-    distinct tables, because the expected side prints `{ <1>{...}, <table 1> }`.
-    Assert per pixel rather than per row.
+14. **`vim.fn.screenstring` lies inside `nvim -l` scripts.** It reads the current
+    window's grid, not the composited screen, so floating windows appear at the
+    wrong place or not at all. Assert on `nvim_win_get_position` /
+    `nvim_win_get_config` for float rows. `screenstring` **is** trustworthy for
+    the extmark overlay path, because those are written into the current window's
+    own buffer.
 
-15. **`config.backend` is `nil` by default**, and nil means "pick the best this
+15. **`backends`, `position`, `distract.kitty`, `viewport`, `visibility`,
+    `plugins` and `obstacles` all hold process-wide state.** Each has a `reset()`
+    for tests. A spec that registers kitty and does not put it back breaks
+    `backends_spec`; a spec that leaves a plugin registered changes what the
+    overlay subscribes to for every later spec; a spec that leaves an obstacle
+    provider registered changes physics for every later spec.
+
+16. **The kitty test seam is `writer.set_writer`, and every spec that uses it
+    must put it back.** A leaked capture silently swallows every subsequent
+    escape and nothing fails — the assertions are all on what was captured. Use
+    `captured()` / `with_kitty()` in `tests/kitty_spec.lua`.
+
+17. **`detect.is_available()` answers once and caches.** Headless it is always
+    false, because there is no UI to answer the query. `detect.override(true)`
+    gets a test past that; `detect.reset()` puts it back.
+
+18. **`config.backend` is `nil` by default**, and nil means "pick the best this
     terminal can draw". A spec that wants the default path back has to assign
-    `distract.config.backend = nil` before calling `setup()`, because a previous
-    `setup()` resolved it to a concrete name and that is what "the user chose it"
-    looks like from the inside.
+    `distract.config.backend = nil` before calling `setup()`.
+
+19. **`tests/run_tests.lua` has an explicit `SPECS` list.** A new spec file that
+    is not added to it silently never runs, and the suite still reports green.
+
+20. **The harness is not Plenary.** `tests/test_harness.lua` provides
+    `assert.are.same`, `assert.are_equal`, `assert.are_not_equal`,
+    `assert.is_true/is_false/is_nil/is_not_nil/is_function`. There is no
+    `assert.are.equal`, no `assert.is_not.same`.
+
+21. **The harness compares with `vim.inspect`, which prints table identity.**
+    `assert.are.same({ RED, RED }, row)` fails against a row of two equal but
+    distinct tables. Assert per pixel rather than per row.
+
+22. **An imported asset's art binds on spawn, not on `setup`.**
+    `sprite_sources` resolves a manifest's spritesheet when
+    `bind_manifest` is called, which `engine.spawn` does. Asking for such an
+    asset's frames before anything has spawned it reports the *procedural
+    fallback* — 29 cat frames at 24×16 — with a notification saying so, which
+    reads exactly like a manifest whose frame indices are out of range. It fooled
+    the first draft of `tests/builtin_assets_spec.lua` into "finding" a bug in
+    `cat_walking`, whose 32 frames are correct. `bind_manifest(name, manifest)`
+    first, as that spec now does.
+
+23. **`native_sprite.load` caches by path**, so a spec reusing one fixture path
+    across tests reads the first test's frames. Call `native_sprite.reset()` in
+    `after_each`.
+
+24. **`vim.json.encode` writes an empty Lua table as `{}`, not `[]`.** Both
+    `path_params.points` and `UpdateObstacles.obstacles` accept either encoding
+    for that reason. Any future array-valued field needs the same treatment or it
+    parses in the terminal and fails on the overlay.
+
+25. **`vim.tbl_deep_extend` cannot set a field to nil**, so a placement-request
+    helper built with it cannot express "no floor measured". `position_spec`
+    assigns `request.floor_row = nil` after building instead. It also merges
+    lists by index, which is why `viewport.configure` replaces
+    `exclude_filetypes` outright rather than extending it.
+
+26. **`x and false or y` never yields `false` in Lua.** `false` is falsy, so the
+    `or` branch always wins. Use an explicit `if`.
+
+27. **A hyphen in a table key is a Lua syntax error.** Generated manifests need
+    `["running-right"] = { … }`. Real action names have hyphens; `walk`/`idle`
+    test fixtures never caught it.
+
+28. **The importer never resamples.** Feed it 1920×1080 stills and you get
+    1920×1080 frames, a 15360×4320 sheet and a 265 MB sidecar. Downscale first.
+
+29. **Don't point `--manifest-out` at a hand-tuned manifest.** The scaffold
+    overwrites, and its `physics`/`transitions` are placeholders. Write it
+    elsewhere and diff.
 
 ---
 
 ## Accepted debt
 
-**`engine.lua` is over 900 lines** against a 400-line cap, with `M.spawn` and
-`M.step` well over the 60-line function cap. `renderer.lua` is 501. Owner's call,
-2026-08-16: leave them until the features are in, but **no new file may break the
-standards**.
+**The size-cap debt is partly closed.** Everything added during the feature pass
+went into new modules rather than into the three files that were already over the
+cap — `kinematics.lua`, `placement.lua`, `viewport.lua`, `visibility.lua`,
+`plugins.lua`, `obstacles.lua`, `entity_step.lua`, `engine_binary.lua`,
+`overlay_grid.lua`, `overlay_report.lua`, `overlay_plugins.lua`, and `commands.rs`,
+`response.rs`, `subscription.rs`, `bounds.rs`, `journal.rs`, `obstacles.rs`,
+`wrap.rs`. `main.rs` stayed under the cap that way, and `ipc.rs` came down to 186
+by moving its wire-format tests to `engine/tests/ipc_contract.rs`.
 
----
+`engine.lua`'s per-entity frame then moved out to `entity_step.lua`, which took the
+module from 1,012 lines to 780 and turned a 200-line `M.step` into a 64-line one
+that coordinates. The physics-parity fixtures are what made that safe: they are the
+characterization tests a parity-first refactor requires, and none of the goldens
+moved.
 
-## Open questions for the owner
+| File | Lines | Cap |
+|---|---|---|
+| `engine.lua` | 780 | 400 |
+| `renderer.lua` | 635 | 400 |
+| `external.lua` | 448 | 400 |
+| `sprite_gen.lua` | 445 | 400 |
+| `engine/src/ecs.rs` | 2,168 | 400 |
 
-1. **How large may a first-draw hitch be?** A GIF is decoded once, on the first
-   frame that needs it, on the main loop: ~130ms for the 15-frame reference
-   asset, ~375ms for the 32-frame one. If that is too much, the fix is a
-   coroutine seam in `sprite_sources.load_sprite` that yields between frames —
-   worth building only if someone actually notices it.
+What is left in each is one function whose locals every branch shares:
+`M.spawn` (135 lines), `M.place_surface`, `World::update`, and
+`entity_step.advance` — which is over the *function* cap by design and says so in
+its own header, because its five numbered steps each read what the previous one
+wrote. §5 of the standards covers that case: a cap is a signal to decompose, not a
+reason to fragment a unit that has to be read as one. `M.spawn` is the next
+worthwhile extraction and the one with the clearest seam (build the entity, then
+insert and report it); the parity harnesses do **not** cover spawn placement as
+tightly as they cover the step, so write the characterization test first.
 
-2. **Should the half-block quantiser run on procedural art too?** It is gated on
-   imported art today, because the built-ins are drawn from a small palette by
-   construction. Step 4's redo changes that arithmetic; if the quantised palette
-   lands there, the gate can go and `max_sprite_colours` becomes the single
-   answer for every asset.
+**The three bundled pets cost ~47 MB, and both artifacts per pet are needed.** The
+packed sheet (4 MB) is what the overlay backend draws from; the `.rgba` sidecar
+(11.8 MB) is the only form the in-terminal backends can decode, because pure Lua
+can read a GIF but not a PNG. Drop a sidecar and that pet silently renders as the
+procedural cat — 29 frames at 24×16, indistinguishable from `cat`. Verified by
+moving one aside.
+
+The obvious lever if that becomes a problem: the half-block backend never uses the
+native pixels, it fits them to 32 sprite pixels wide at load. A sidecar written
+*pre-fitted* would be ~330 KB rather than 11.8 MB, 36× smaller, at the cost of the
+kitty backend's native-resolution fidelity — which is the entire reason that path
+exists. That is a change to the importer's output contract and to what
+`native_path` means, so it is a deliberate decision rather than an optimisation.
+
+**One trap, learned the expensive way.** `git checkout <file>` during a session with
+uncommitted work throws that work away with no warning and no recovery — it cost a
+full reconstruction of `engine.lua` from the session record. Use `git stash` or a
+copy before reverting anything, and prefer reverting the specific edit.
+
+`assets/codex_pets/` is gitignored on purpose — 236 MB of third-party artwork
+with no stated licence, kept on disk as local test material only. `imported/`
+regenerates from `sheets/` via `tools/codex_pets/`.
+
+**Three pets ship as built-ins, and what let them is the licence rather than the
+source.** `gudong` (CC BY 4.0), `iris` (MIT, with the artist's explicit
+redistribution permission) and `minty` (MIT) are original characters from
+[`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex-pet),
+credited per artist in [`ATTRIBUTION.md`](ATTRIBUTION.md), which is what CC BY's
+attribution term requires. Everything else in that gallery — and everything under
+`assets/codex_pets/` — is franchise fan art or carries no stated licence: **none
+of it may be bundled.** `scrape_pets.py --source awesome` copies each pet's
+declared licence into the catalogue so that question can be answered before
+publishing rather than after.
+
+Their cells are 192×208. `sprite_sources.TERMINAL_SPRITE_MAX_WIDTH` fits that to
+32 sprite pixels wide — 32 columns by 18 terminal rows — for the half-block
+renderer, while `kitty` and `overlay` use the full-resolution sidecar and packed
+sheet. **`frame_width`/`frame_height` must keep describing the source cell**: the
+asset loader slices the packed sheet by them, so shrinking them to shrink the
+drawn sprite silently slices the wrong pixels. The drawn footprint is
+`TERMINAL_SPRITE_MAX_WIDTH`'s job, not the manifest's. Verified: all three spawn,
+animate across nine states and 74 frames, and draw.
+
+**The first draw of a GIF asset hitches**: it is decoded once, on the first frame
+that needs it, on the main loop — ~130 ms for the 15-frame reference asset,
+~375 ms for the 32-frame one. The fix is a coroutine seam in
+`sprite_sources.load_sprite` that yields between frames. Not built: it is real
+work for a hitch nobody has reported.

@@ -1,0 +1,15 @@
+{
+  "description": "The middle branch of frame_duration_seconds: a state declaring no fps is timed by the delays the source file carries. frame_delays.gif holds 40/120/80/200ms across its four frames, and animation.frames indexes them out of order (0,3,1,2) so a lookup that ignored the atlas index would land on the wrong duration. dt 0.013 keeps every boundary at least 1ms away from a step, since f32 and f64 land either side of an exact one.",
+  "physics": { "target_vx": 0.0, "gravity": 0.0, "friction": 0.05, "wrap_mode": "none" },
+  "animation": { "frames": [0, 3, 1, 2], "fps": 0.0, "loop_anim": true },
+  "spritesheet": {
+    "path": "tests/fixtures/physics/frame_delays.gif",
+    "frame_width": 24,
+    "frame_height": 16
+  },
+  "spawn": { "x": 20, "y": 10, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "dt": 0.013,
+  "steps": 70
+}

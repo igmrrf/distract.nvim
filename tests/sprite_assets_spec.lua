@@ -131,17 +131,36 @@ describe("generated sprite geometry", function()
 end)
 
 describe("generated sprite shading", function()
-  it("shades every frame rather than filling flat colour", function()
+  -- This suite used to assert the opposite -- at least twelve colours a frame, on
+  -- the grounds that volumetric shading should produce a gradient. At 24x16 a
+  -- sprite is 24 columns by eight half-block rows and that gradient read as noise:
+  -- the cat read as a fox. The art is now silhouette-first, so the contract this
+  -- pins is a *bounded* palette per frame, which is also what keeps the three
+  -- built-ins from consuming half of `max_highlight_groups` between them.
+  local MAX_COLOURS_PER_FRAME = 10
+  local MIN_COLOURS_PER_FRAME = 3
+
+  it("fills every frame flat, from a palette small enough to read", function()
     for name, _ in pairs(ASSETS) do
-      for i, matrix in ipairs(sprites.get_pixel_frames(name)) do
-        local n = distinct_colors(matrix)
+      for index, matrix in ipairs(sprites.get_pixel_frames(name)) do
+        local colours = distinct_colors(matrix)
         assert(
-          n >= 12,
+          colours <= MAX_COLOURS_PER_FRAME,
           string.format(
-            "%s frame %d uses only %d colours; volumetric shading should give a gradient",
+            "%s frame %d uses %d colours; flat art should stay at or under %d",
             name,
-            i,
-            n
+            index,
+            colours,
+            MAX_COLOURS_PER_FRAME
+          )
+        )
+        assert(
+          colours >= MIN_COLOURS_PER_FRAME,
+          string.format(
+            "%s frame %d uses only %d colours; a fill, a band and a contour is the floor",
+            name,
+            index,
+            colours
           )
         )
       end
@@ -386,5 +405,192 @@ describe("distract custom asset registration", function()
   it("refuses a sprite set with no frames", function()
     local ok = pcall(sprites.register, "broken", {})
     assert.is_false(ok, "a sprite set without frames must not register")
+  end)
+end)
+
+describe("native-resolution frames as a fourth art source", function()
+  local sources = require("distract.sprite_sources")
+  local native_sprite = require("distract.native_sprite")
+
+  local function u32(value)
+    return string.char(
+      value % 256,
+      math.floor(value / 256) % 256,
+      math.floor(value / 65536) % 256,
+      math.floor(value / 16777216) % 256
+    )
+  end
+
+  --- Writes a one-pixel `.rgba` sidecar whose single pixel is `{9, 9, 9}`.
+  local function write_sidecar(path)
+    local file = io.open(path, "wb")
+    file:write("DRGB" .. string.char(1) .. u32(1) .. u32(1) .. u32(1) .. string.char(9, 9, 9, 255))
+    file:close()
+  end
+
+  --- Writes a single opaque `{9, 9, 9}` frame wider than a terminal footprint,
+  --- so the backends that cannot draw native resolution have something to fit.
+  local function write_wide_sidecar(path, width, height)
+    local file = io.open(path, "wb")
+    file:write("DRGB" .. string.char(1) .. u32(width) .. u32(height) .. u32(1))
+    file:write(string.rep(string.char(9, 9, 9, 255), width * height))
+    file:close()
+  end
+
+  --- Runs `fn` with `vim.notify` silenced: an asset bound to art that does not
+  --- resolve reports itself, and that report is not what these tests are about.
+  local function quietly(fn)
+    local original = vim.notify
+    vim.notify = function() end
+    local ok, err = pcall(fn)
+    vim.notify = original
+    if not ok then
+      error(err)
+    end
+  end
+
+  after_each(function()
+    native_sprite.reset()
+  end)
+
+  it("ignores native_resolution when the manifest has no native_path", function()
+    quietly(function()
+      sources.bind_manifest("native_test_no_native", { spritesheet = { path = "x.png" } })
+
+      local without_opts = sources.get_pixel_frames("native_test_no_native")
+      local with_native =
+        sources.get_pixel_frames("native_test_no_native", { native_resolution = true })
+
+      assert.are_equal(without_opts, with_native)
+      sources.unbind_manifest("native_test_no_native")
+    end)
+  end)
+
+  it("serves native resolution to the backend that can draw it", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_sidecar(fixture_path)
+
+      sources.bind_manifest(
+        "native_test_with_native",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      local native_frames =
+        sources.get_pixel_frames("native_test_with_native", { native_resolution = true })
+      local standard_frames = sources.get_pixel_frames("native_test_with_native")
+
+      assert.are.same({ 9, 9, 9 }, native_frames[1][1][1])
+      -- Already within a terminal footprint, so both forms are the sidecar's
+      -- own pixels. The point here is that neither is the fallback cat.
+      assert.are.same({ 9, 9, 9 }, standard_frames[1][1][1])
+
+      sources.unbind_manifest("native_test_with_native")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("fits an oversized sidecar to a terminal footprint for halfblock", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_wide_sidecar(fixture_path, 64, 32)
+
+      sources.bind_manifest(
+        "native_test_fitted",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      local fitted = sources.get_pixel_frames("native_test_fitted")
+
+      assert.are_equal(32, #fitted[1][1], "64 sprite pixels wide must fit to 32 columns")
+      assert.are_equal(16, #fitted[1], "the aspect ratio must survive the fit")
+      assert.are.same({ 9, 9, 9 }, fitted[1][1][1])
+
+      sources.unbind_manifest("native_test_fitted")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("keeps the two footprints apart, whichever backend asked first", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_wide_sidecar(fixture_path, 64, 32)
+
+      sources.bind_manifest(
+        "native_test_order",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      local native_first =
+        sources.get_pixel_frames("native_test_order", { native_resolution = true })
+      local halfblock_second = sources.get_pixel_frames("native_test_order")
+
+      assert.are_equal(64, #native_first[1][1], "the native request must keep full width")
+      assert.are_equal(
+        32,
+        #halfblock_second[1][1],
+        "a name-keyed cache must not serve halfblock the native form"
+      )
+
+      sources.unbind_manifest("native_test_order")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("reports the fitted footprint as the asset's one dimension", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_wide_sidecar(fixture_path, 128, 72)
+
+      sources.bind_manifest(
+        "native_test_dimensions",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      local width, height = sources.get_dimensions("native_test_dimensions")
+
+      -- Not 128x72 and not the fallback cat's 24x16. This is what
+      -- `engine.sprite_cell_size` measures wrapping and floor anchoring against,
+      -- so it has to be the size the art is actually drawn at.
+      assert.are_equal(32, width)
+      assert.are_equal(18, height)
+
+      sources.unbind_manifest("native_test_dimensions")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("quantises sidecar art, which the highlight-group cap depends on", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_wide_sidecar(fixture_path, 64, 32)
+
+      sources.bind_manifest(
+        "native_test_quantise",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      assert.is_true(sources.needs_quantising("native_test_quantise"))
+
+      sources.unbind_manifest("native_test_quantise")
+      assert.is_false(sources.needs_quantising("native_test_quantise"))
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("falls through to the standard chain when the sidecar is unreadable", function()
+    quietly(function()
+      sources.bind_manifest(
+        "native_test_broken",
+        { spritesheet = { path = "x.png", native_path = "/does/not/exist.rgba" } }
+      )
+
+      local frames = sources.get_pixel_frames("native_test_broken", { native_resolution = true })
+
+      assert.is_not_nil(frames)
+      assert.is_true(#frames > 0, "a bad sidecar must not take down the render loop")
+
+      sources.unbind_manifest("native_test_broken")
+    end)
   end)
 end)

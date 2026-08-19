@@ -7,6 +7,8 @@ local M = {}
 local external = require("distract.external")
 local engine = require("distract.engine")
 local position = require("distract.position")
+local obstacles = require("distract.obstacles")
+local visibility = require("distract.visibility")
 
 local uv = vim.uv or vim.loop
 local group = vim.api.nvim_create_augroup("DistractEvents", { clear = true })
@@ -42,6 +44,7 @@ end
 --- in-terminal backend — the default — never received an `idle` event and
 --- `idle_timeout_ms` was dead config for it.
 local function dispatch_event(event_name, context)
+  require("distract.plugins").dispatch_editor_event(event_name, context or {})
   if external.is_running() then
     external.send_event(event_name, context)
   end
@@ -99,6 +102,21 @@ function M.sync_floor(position_config)
   external.set_ground_row(row)
 end
 
+--- Collects the registered obstacles and pushes them to both engines.
+---
+--- Debounced by its callers, never called per tick: a provider may run a
+--- Tree-sitter query, and doing that per frame per entity is the performance trap
+--- the provider contract exists to avoid. Cheap when nothing registered one --
+--- `collect` returns immediately with no providers.
+function M.sync_obstacles()
+  if obstacles.provider_count() == 0 then
+    return
+  end
+  local rects = obstacles.collect()
+  engine.set_obstacles(rects)
+  external.set_obstacles(rects)
+end
+
 --- Whether the floor follows the buffer text, and so moves as the text does.
 local function is_text_grounded()
   return (config.position or {}).ground == position.TEXT
@@ -109,6 +127,7 @@ function M.setup(opts)
     config.idle_timeout_ms = opts.idle_timeout_ms or config.idle_timeout_ms
     config.debounce_ms = opts.debounce_ms or config.debounce_ms
     config.position = opts.position or config.position
+    visibility.configure(opts)
   end
 
   -- Detect typing
@@ -121,6 +140,9 @@ function M.setup(opts)
       if is_text_grounded() then
         M.sync_floor()
       end
+      -- Editing moves every function header in the file, so what a provider
+      -- reported is stale. Throttled by the same deadline the events use.
+      M.sync_obstacles()
     end,
   })
 
@@ -132,6 +154,19 @@ function M.setup(opts)
       if is_text_grounded() then
         M.sync_floor()
       end
+      external.sync_viewport_scope()
+      M.sync_obstacles()
+    end,
+  })
+
+  -- The scoped rectangle follows the window the user is working in, so it is
+  -- re-measured when that changes rather than per tick: resolving a window rect
+  -- is several API calls and a `getwininfo`.
+  vim.api.nvim_create_autocmd({ "WinEnter", "WinResized", "BufWinEnter", "WinClosed" }, {
+    group = group,
+    callback = function()
+      external.sync_viewport_scope()
+      M.sync_obstacles()
     end,
   })
 
@@ -143,12 +178,22 @@ function M.setup(opts)
     end,
   })
 
+  -- Focus. A companion belongs to the instance it was spawned from, so an
+  -- unfocused instance stops drawing and keeps simulating.
+  vim.api.nvim_create_autocmd({ "FocusGained", "FocusLost" }, {
+    group = group,
+    callback = function(event)
+      M.set_focus(event.event == "FocusGained")
+    end,
+  })
+
   -- Detect terminal resize
   vim.api.nvim_create_autocmd("VimResized", {
     group = group,
     callback = function()
       external.update_grid()
       M.sync_floor()
+      external.sync_viewport_scope()
     end,
   })
 
@@ -163,7 +208,22 @@ function M.setup(opts)
   })
 
   M.sync_floor()
+  M.sync_obstacles()
   M.reset_idle_timer()
+end
+
+--- Records a focus change and tells the backends to show or hide.
+---
+--- Exposed rather than inlined into the autocommand because `FocusGained` and
+--- `FocusLost` never fire headless, and this is the seam the specs drive.
+---@param gained boolean
+function M.set_focus(gained)
+  if not visibility.set_focus(gained) then
+    return
+  end
+  local is_visible = visibility.is_visible()
+  engine.set_visible(is_visible)
+  external.set_visible(is_visible)
 end
 
 function M.reset_idle_timer()

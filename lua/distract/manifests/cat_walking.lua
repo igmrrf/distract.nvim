@@ -3,6 +3,7 @@ local M = {
   asset_type = "sprite",
   spritesheet = {
     path = "assets/cat_walking/cat_walking_sheet.png",
+    native_path = "assets/cat_walking/cat_walking_frames.rgba",
     frame_width = 128,
     frame_height = 72,
     columns = 8,

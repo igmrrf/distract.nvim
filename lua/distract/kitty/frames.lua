@@ -19,6 +19,22 @@ local PIXEL_ROWS_PER_CELL = 2
 
 local TRANSPARENT_PIXEL = "\0\0\0\0"
 
+--- The graphics protocol transmits real pixels, so this backend asks for an
+--- asset's native-resolution art where its manifest declares one. Passed as a
+--- literal rather than looked up through `distract.backends`: this module is the
+--- kitty backend's own internals, and `kitty/init.lua` already requires it, so
+--- reading the registry back would be a circular require.
+---@type table
+local KITTY_CAPABILITY = { native_resolution = true }
+
+--- The same request the half-block backend makes, used here only for its size.
+---
+--- Kitty draws real pixels but must occupy the cell footprint every other
+--- consumer agrees on, and the fitted frames are footprint-sized by
+--- construction. For an asset with no sidecar both requests return the same
+--- frames, so this costs nothing and changes nothing.
+local FOOTPRINT_CAPABILITY = { native_resolution = false }
+
 --- One frame of one asset, ready to transmit and to place.
 ---@class DistractKittyFrame
 ---@field key string identifies the frame and its facing, not its placement size
@@ -107,30 +123,48 @@ function M.describe(asset_name, frame_idx, flip_x)
     return entry
   end
 
-  local pixel_frames = sprites.get_pixel_frames(asset_name)
+  local pixel_frames = sprites.get_pixel_frames(asset_name, KITTY_CAPABILITY)
   local matrix = pixel_frames[frame_idx] or pixel_frames[1]
   if not matrix then
     return nil
   end
+
+  -- The image and the box it fills are sized separately. `c`/`r` tell the
+  -- terminal how many cells to resample the transmitted pixels into, so
+  -- fidelity and footprint are independent -- and the footprint has to be the
+  -- one `sprites.get_dimensions` reports, or kitty draws a 128-column cat while
+  -- the engine wraps and anchors a 32-column one.
+  local footprint_frames = sprites.get_pixel_frames(asset_name, FOOTPRINT_CAPABILITY)
+  local footprint = footprint_frames[frame_idx] or footprint_frames[1]
+  if not footprint then
+    return nil
+  end
+
   if flip_x then
     matrix = sprites.mirror_matrix(matrix)
+    footprint = sprites.mirror_matrix(footprint)
   end
 
   local width = matrix_width(matrix)
-  local cell_rows = math.ceil(#matrix / PIXEL_ROWS_PER_CELL)
-  if width < 1 or cell_rows < 1 then
+  local cols = matrix_width(footprint)
+  local cell_rows = math.ceil(#footprint / PIXEL_ROWS_PER_CELL)
+  if width < 1 or cols < 1 or cell_rows < 1 then
     return nil
   end
-  local height = cell_rows * PIXEL_ROWS_PER_CELL
+  -- The payload keeps whole cells of its own pixels; `spans` never indexes it.
+  local height = math.ceil(#matrix / PIXEL_ROWS_PER_CELL) * PIXEL_ROWS_PER_CELL
 
   entry = {
     key = frame_idx .. ":" .. facing,
     pixel_w = width,
     pixel_h = height,
-    cols = width,
+    cols = cols,
     rows = cell_rows,
     rgba = encode_rgba(matrix, width, height),
-    mask = opacity_mask(matrix, width, cell_rows),
+    -- Built on the footprint grid because `spans` resamples it from
+    -- `frame.cols` x `frame.rows`; a mask on the image's grid would be indexed
+    -- with the footprint's dimensions and tear.
+    mask = opacity_mask(footprint, cols, cell_rows),
   }
   by_asset[facing][frame_idx] = entry
   return entry

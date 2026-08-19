@@ -22,14 +22,19 @@ M.OVERLAY = "overlay"
 --- `alpha` is the finest transparency the backend resolves -- `"cell"` for the
 --- half-block renderer, whose smallest addressable unit is half a terminal
 --- cell, `"pixel"` for a surface with a real alpha channel.
+---
+--- `native_resolution` is whether the backend can show a sprite at the source
+--- artwork's own pixel resolution rather than at the character-cell grid the
+--- procedural generator draws into.
 ---@class DistractBackendCapabilities
 ---@field scale boolean
 ---@field alpha "cell"|"pixel"
+---@field native_resolution boolean
 
 ---@type table<string, DistractBackendCapabilities>
 local BUILT_IN_CAPABILITIES = {
-  [M.HALFBLOCK] = { scale = false, alpha = "cell" },
-  [M.OVERLAY] = { scale = true, alpha = "pixel" },
+  [M.HALFBLOCK] = { scale = false, alpha = "cell", native_resolution = false },
+  [M.OVERLAY] = { scale = true, alpha = "pixel", native_resolution = true },
 }
 
 --- Names that resolve to a backend which is genuinely implemented.
@@ -81,11 +86,17 @@ function M.register(name, caps, backend_aliases)
   if type(name) ~= "string" or name == "" then
     error("distract.backends.register: name must be a non-empty string")
   end
-  if type(caps) ~= "table" or type(caps.scale) ~= "boolean" or caps.alpha == nil then
-    error("distract.backends.register: capabilities need `scale` and `alpha`")
+  if
+    type(caps) ~= "table"
+    or type(caps.scale) ~= "boolean"
+    or caps.alpha == nil
+    or type(caps.native_resolution) ~= "boolean"
+  then
+    error("distract.backends.register: capabilities need `scale`, `alpha`, and `native_resolution`")
   end
 
-  capabilities[name] = { scale = caps.scale, alpha = caps.alpha }
+  capabilities[name] =
+    { scale = caps.scale, alpha = caps.alpha, native_resolution = caps.native_resolution }
   aliases[name] = name
   substitutions[name] = nil
   for _, alias in ipairs(backend_aliases or {}) do

@@ -6,7 +6,9 @@
     "vy": -3.65,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 32.0,
@@ -15,7 +17,9 @@
     "vy": -3.3000002,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 33.0,
@@ -24,7 +28,9 @@
     "vy": -2.9500003,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 34.0,
@@ -33,7 +39,9 @@
     "vy": -2.6000004,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 35.0,
@@ -42,7 +50,9 @@
     "vy": -2.2500005,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 36.0,
@@ -51,7 +61,9 @@
     "vy": -1.9000005,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 37.0,
@@ -60,7 +72,9 @@
     "vy": -1.5500004,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 38.0,
@@ -69,7 +83,9 @@
     "vy": -1.2000004,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 39.0,
@@ -78,7 +94,9 @@
     "vy": -0.8500004,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 40.0,
@@ -87,7 +105,9 @@
     "vy": -0.50000036,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 41.0,
@@ -96,7 +116,9 @@
     "vy": -0.15000036,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 42.0,
@@ -105,7 +127,9 @@
     "vy": 0.19999963,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 43.0,
@@ -114,7 +138,9 @@
     "vy": 0.5499996,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 44.0,
@@ -123,7 +149,9 @@
     "vy": 0.8999996,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 45.0,
@@ -132,7 +160,9 @@
     "vy": 1.2499996,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 46.0,
@@ -141,7 +171,9 @@
     "vy": 1.5999997,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 47.0,
@@ -150,7 +182,9 @@
     "vy": 1.9499997,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 48.0,
@@ -159,7 +193,9 @@
     "vy": 2.2999997,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 49.0,
@@ -168,7 +204,9 @@
     "vy": 2.6499996,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 50.0,
@@ -177,7 +215,9 @@
     "vy": 2.9999995,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 51.0,
@@ -186,7 +226,9 @@
     "vy": 3.3499994,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 52.0,
@@ -195,7 +237,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 52.951225,
@@ -204,7 +248,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 53.856068,
@@ -213,7 +259,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 54.716774,
@@ -222,7 +270,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 55.535503,
@@ -231,7 +281,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 56.31431,
@@ -240,7 +292,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 57.055126,
@@ -249,7 +303,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 57.759815,
@@ -258,7 +314,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 58.430134,
@@ -267,7 +325,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 59.06776,
@@ -276,7 +336,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 59.674294,
@@ -285,7 +347,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 60.25124,
@@ -294,7 +358,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 60.80005,
@@ -303,7 +369,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 61.322094,
@@ -312,7 +380,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 61.818684,
@@ -321,7 +391,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 62.291054,
@@ -330,7 +402,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 62.74038,
@@ -339,7 +413,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 63.167797,
@@ -348,7 +424,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 63.574364,
@@ -357,7 +435,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 63.96111,
@@ -366,7 +446,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 64.32899,
@@ -375,7 +457,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 64.678925,
@@ -384,7 +468,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 65.011795,
@@ -393,7 +479,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 65.32844,
@@ -402,7 +490,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 65.62963,
@@ -411,7 +501,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 65.91614,
@@ -420,7 +512,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 66.188675,
@@ -429,7 +523,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 66.447914,
@@ -438,7 +534,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 66.6945,
@@ -447,7 +545,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 66.92908,
@@ -456,7 +556,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 67.15221,
@@ -465,7 +567,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 67.364456,
@@ -474,7 +578,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 67.56636,
@@ -483,7 +589,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 67.75841,
@@ -492,7 +600,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 67.941086,
@@ -501,7 +611,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.11486,
@@ -510,7 +622,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.28017,
@@ -519,7 +633,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.4374,
@@ -528,7 +644,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.58697,
@@ -537,7 +655,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.72924,
@@ -546,7 +666,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.86458,
@@ -555,7 +677,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.99331,
@@ -564,7 +688,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.11577,
@@ -573,7 +699,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.232254,
@@ -582,7 +710,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.343056,
@@ -591,7 +721,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.448456,
@@ -600,7 +732,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.54871,
@@ -609,7 +743,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.64408,
@@ -618,7 +754,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.734795,
@@ -627,7 +765,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.82109,
@@ -636,7 +776,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.903175,
@@ -645,7 +787,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.981255,
@@ -654,7 +798,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.05553,
@@ -663,7 +809,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.126175,
@@ -672,7 +820,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.19338,
@@ -681,7 +831,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.25731,
@@ -690,7 +842,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.31812,
@@ -699,7 +853,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.37596,
@@ -708,7 +864,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.430984,
@@ -717,7 +875,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.48332,
@@ -726,7 +886,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.53311,
@@ -735,7 +897,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.58047,
@@ -744,7 +908,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.62552,
@@ -753,7 +919,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.66837,
@@ -762,7 +930,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.70913,
@@ -771,7 +941,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.74791,
@@ -780,7 +952,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.78479,
@@ -789,7 +963,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.81987,
@@ -798,7 +974,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.85325,
@@ -807,7 +985,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.884995,
@@ -816,7 +996,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.91519,
@@ -825,7 +1007,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.94392,
@@ -834,7 +1018,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.97124,
@@ -843,7 +1029,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 70.99723,
@@ -852,7 +1040,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.02196,
@@ -861,7 +1051,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.04547,
@@ -870,7 +1062,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.06784,
@@ -879,7 +1073,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.08912,
@@ -888,7 +1084,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.10936,
@@ -897,7 +1095,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.12862,
@@ -906,7 +1106,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.14693,
@@ -915,7 +1117,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.16435,
@@ -924,7 +1128,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.18092,
@@ -933,7 +1139,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.196686,
@@ -942,7 +1150,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.211685,
@@ -951,7 +1161,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.225945,
@@ -960,7 +1172,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.23952,
@@ -969,7 +1183,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.252426,
@@ -978,7 +1194,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.2647,
@@ -987,7 +1205,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.27638,
@@ -996,7 +1216,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.28749,
@@ -1005,7 +1227,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.29805,
@@ -1014,7 +1238,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.308105,
@@ -1023,7 +1249,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.31767,
@@ -1032,7 +1260,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.32677,
@@ -1041,7 +1271,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.33541,
@@ -1050,7 +1282,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.34364,
@@ -1059,7 +1293,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.35147,
@@ -1068,7 +1304,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.35892,
@@ -1077,7 +1315,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.366005,
@@ -1086,7 +1326,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.37274,
@@ -1095,7 +1337,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.37915,
@@ -1104,7 +1348,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.38525,
@@ -1113,7 +1359,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.391045,
@@ -1122,7 +1370,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.39656,
@@ -1131,7 +1381,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.40181,
@@ -1140,7 +1392,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.40681,
@@ -1149,7 +1403,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.41155,
@@ -1158,7 +1414,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.41607,
@@ -1167,7 +1425,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.420364,
@@ -1176,7 +1436,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.42445,
@@ -1185,7 +1447,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.428345,
@@ -1194,7 +1458,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.432045,
@@ -1203,7 +1469,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.43556,
@@ -1212,7 +1480,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.4389,
@@ -1221,7 +1491,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.442085,
@@ -1230,7 +1502,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.445114,
@@ -1239,7 +1513,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.44799,
@@ -1248,7 +1524,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.45073,
@@ -1257,7 +1535,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.45334,
@@ -1266,7 +1546,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.45582,
@@ -1275,7 +1557,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.458176,
@@ -1284,7 +1568,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.46041,
@@ -1293,7 +1579,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.46255,
@@ -1302,7 +1590,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.464584,
@@ -1311,7 +1601,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.46651,
@@ -1320,7 +1612,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.468346,
@@ -1329,7 +1623,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.47009,
@@ -1338,7 +1634,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.471756,
@@ -1347,7 +1645,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.473335,
@@ -1356,7 +1656,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.47484,
@@ -1365,7 +1667,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.476265,
@@ -1374,7 +1678,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.47762,
@@ -1383,7 +1689,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.47892,
@@ -1392,7 +1700,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.48015,
@@ -1401,7 +1711,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.48132,
@@ -1410,7 +1722,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.48244,
@@ -1419,7 +1733,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.4835,
@@ -1428,7 +1744,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.484505,
@@ -1437,7 +1755,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.48546,
@@ -1446,7 +1766,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.486374,
@@ -1455,7 +1777,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.487236,
@@ -1464,7 +1788,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.48806,
@@ -1473,7 +1799,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.488846,
@@ -1482,7 +1810,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.48959,
@@ -1491,7 +1821,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.4903,
@@ -1500,7 +1832,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49098,
@@ -1509,7 +1843,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49162,
@@ -1518,7 +1854,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49223,
@@ -1527,7 +1865,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49281,
@@ -1536,7 +1876,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49336,
@@ -1545,7 +1887,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49389,
@@ -1554,7 +1898,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49439,
@@ -1563,7 +1909,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.494865,
@@ -1572,7 +1920,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.495316,
@@ -1581,7 +1931,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49575,
@@ -1590,7 +1942,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49616,
@@ -1599,7 +1953,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.49655,
@@ -1608,7 +1964,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.496925,
@@ -1617,6 +1975,8 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "landed",
-    "quiescent": true
+    "quiescent": true,
+    "sheet_index": 0,
+    "animation_finished": false
   }
 ]

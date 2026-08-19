@@ -132,6 +132,40 @@ function M.ellipse(c, cx, cy, rx, ry, color)
   end
 end
 
+--- Flat-filled ellipse with a genuine one-pixel contour around it.
+---
+--- The silhouette primitive. At 24x16 a sprite is 24 columns by eight half-block
+--- rows, and a five-term lighting model spends every one of them on gradient
+--- nobody can see; a flat fill inside a dark outline is what actually reads, and
+--- it collapses the number of distinct colours -- and so of Neovim highlight
+--- groups -- an asset needs.
+---
+--- The contour is the *rim*: a pixel inside the ellipse whose four-neighbourhood
+--- leaves it. Drawing it as two ellipses instead -- a contour disc with a smaller
+--- fill disc inset -- looks equivalent and is not, because the radii quantise to
+--- whole pixels: at a head-sized `rx = 2.4` the inset fill collapses to a single
+--- plus and the head renders as a dark blob with a fur pixel in it. That is
+--- exactly what the cat's head did.
+function M.blob(c, cx, cy, rx, ry, fill, contour)
+  rx, ry = max(rx, 0.5), max(ry, 0.5)
+  local function is_inside(dx, dy)
+    local nx, ny = dx / rx, dy / ry
+    return nx * nx + ny * ny <= 1.0
+  end
+
+  for dy = -floor(ry), floor(ry) do
+    for dx = -floor(rx), floor(rx) do
+      if is_inside(dx, dy) then
+        local on_rim = not is_inside(dx - 1, dy)
+          or not is_inside(dx + 1, dy)
+          or not is_inside(dx, dy - 1)
+          or not is_inside(dx, dy + 1)
+        M.set(c, cx + dx, cy + dy, on_rim and contour or fill)
+      end
+    end
+  end
+end
+
 --- Bresenham line between two points, inclusive of both endpoints.
 function M.line(c, x0, y0, x1, y1, color)
   x0, y0, x1, y1 = floor(x0), floor(y0), floor(x1), floor(y1)
@@ -298,6 +332,24 @@ function M.cel_limb(c, x0, y0, x1, y1, radius, base, opts)
     local y = y0 + (y1 - y0) * t
     local r = radius * (1 - 0.25 * t)
     M.cel_orb(c, x, y, r, r, base, opts)
+  end
+end
+
+--- Flat capsule from (x0, y0) to (x1, y1) with a one-pixel contour.
+---
+--- The silhouette counterpart to `cel_limb`: two passes, so one step's contour
+--- cannot be painted over the previous step's fill and leave a dark seam down the
+--- middle of a leg.
+function M.limb(c, x0, y0, x1, y1, radius, fill, contour)
+  local steps = max(1, floor(sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2) * 2))
+  for pass = 1, 2 do
+    local color = pass == 1 and contour or fill
+    local inset = pass == 1 and 0 or 1
+    for index = 0, steps do
+      local t = index / steps
+      local r = radius * (1 - 0.25 * t) - inset
+      M.ellipse(c, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, r, r, color)
+    end
   end
 end
 

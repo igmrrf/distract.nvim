@@ -8,6 +8,8 @@ CONTENTS                                                    *distract-contents*
     3. Setup ................................ |distract-setup|
     4. Configuration ........................ |distract-config|
        4.1 Position ......................... |distract-position|
+       4.2 Positioning scope ................ |distract-positioning|
+       4.3 Instance visibility .............. |distract-visibility|
     5. Commands ............................. |distract-commands|
     6. Backends ............................. |distract-backends|
        6.1 halfblock ........................ |distract-halfblock|
@@ -21,8 +23,11 @@ CONTENTS                                                    *distract-contents*
        7.4 Custom art ....................... |distract-custom-art|
        7.5 GIF assets ....................... |distract-gif|
     8. Events ............................... |distract-events|
-    9. Troubleshooting ...................... |distract-troubleshooting|
-   10. Lua API .............................. |distract-api|
+    9. Extending it ......................... |distract-extending|
+       9.1 Plugin hooks ..................... |distract-plugins|
+       9.2 Obstacle providers ............... |distract-obstacles|
+   10. Troubleshooting ...................... |distract-troubleshooting|
+   11. Lua API .............................. |distract-api|
 
 ==============================================================================
 1. INTRODUCTION                                         *distract-introduction*
@@ -203,6 +208,81 @@ z~
 
         - Draw order. A spawned `z` overrides the manifest's `z_index`.
         - Parallax, as above.
+
+------------------------------------------------------------------------------
+4.2 POSITIONING SCOPE                                    *distract-positioning*
+
+Which rectangle sprites may move in, what they must not cover, and where their
+surfaces sit in Neovim's float stacking.
+
+>lua
+    require("distract").setup({
+      positioning = {
+        scope = "editor",
+        exclude_floating = true,
+        exclude_filetypes = {
+          "toggleterm", "lazy", "TelescopePrompt", "fzf", "help",
+        },
+        z_index_offset = 40,
+      },
+    })
+<
+                                                    *distract-positioning-scope*
+scope~
+    `"editor"`   The whole editor grid. The default, and what every release so
+                 far has used.
+    `"window"`   The current window, including its gutter.
+    `"buffer"`   The current window's text area, with the sign, number and fold
+                 columns taken off. This is the one to pick if you want a pet
+                 that lives in the file you are editing.
+    `"absolute"` The editor grid with no exclusions at all: sprites may cover
+                 anything, including floating windows.
+
+    Wrapping, bouncing and clamping all measure against this rectangle, on both
+    backends: the overlay is told about it over IPC, because only the editor can
+    see where a window's text area is.
+
+                                         *distract-positioning-exclude_floating*
+exclude_floating~
+    Hide a sprite for as long as its footprint would cover a floating window. An
+    LSP hover or a completion menu is what you are reading; a sprite over it is
+    worse than no sprite. On by default.
+
+                                        *distract-positioning-exclude_filetypes*
+exclude_filetypes~
+    Windows whose contents a sprite must never cover, floating or not. Setting
+    this REPLACES the default list rather than adding to it.
+
+                                           *distract-positioning-z_index_offset*
+z_index_offset~
+    Neovim float stacking for sprite surfaces. The default of 40 puts a sprite
+    below LSP hovers and completion menus, which sit at 50 and above.
+
+    This is not |distract-position-z|. That one is depth and parallax; this one
+    is what draws over what. Two different numbers.
+
+------------------------------------------------------------------------------
+4.3 INSTANCE VISIBILITY                                   *distract-visibility*
+
+                                                  *distract-restrict_to_instance*
+restrict_to_instance~
+    Hide sprites while this Neovim instance does not have focus, and show them
+    again when it regains it. On by default.
+
+    A companion belongs to the editor it was spawned from. Both renderers draw
+    somewhere the editor does not own — the overlay is a separate always-on-top
+    window, and an in-terminal float survives whatever is in front of the
+    terminal — so an unfocused instance used to keep painting over whatever you
+    had switched to, including a second Neovim.
+
+    The simulation keeps running while hidden. Hiding is a drawing decision and
+    never a simulation one, for the same reason a settled world is still
+    stepped: an entity halfway through a screen wrap must not be stranded at the
+    edge until you come back.
+
+    Set it to `false` to keep drawing regardless, which is what a standalone
+    desktop animation wants — the overlay engine is useful without Neovim in
+    front of it.
 
 ==============================================================================
 5. COMMANDS                                                 *distract-commands*
@@ -403,6 +483,16 @@ how it moves, and what makes it change state.
 positions in the animation. `wrap_mode` is one of `wrap`, `bounce`, `clamp`,
 `despawn` or `none`.
 
+                                                  *distract-manifest-wrap_mode*
+`wrap` is toroidal, not a teleport: an entity crossing an edge is drawn at both
+edges at once, so the half that has left the right side arrives at the left in
+the same frame. A sprite leaving a corner is drawn four times. Nothing about
+this is configurable — a seam that popped was simply wrong.
+
+`bounce` turns the entity around at the edge and flips which way it faces;
+`wrap` deliberately does neither, because continuing in the same direction is
+what wrapping means. A pet that should patrol wants `bounce`.
+
 Transition keys: `on_event`, `on_finish`, `timeout_ms` with `on_timeout`,
 `on_edge_left`, `on_edge_right` and `on_land` (see |distract-locomotion|).
 
@@ -601,7 +691,102 @@ moving state in response will turn to face the cursor, so it looks like it
 noticed where you are working.
 
 ==============================================================================
-9. TROUBLESHOOTING                                   *distract-troubleshooting*
+9. EXTENDING IT                                            *distract-extending*
+
+Three surfaces. Everything a companion knows about your editor arrives through
+one of them, and each one works the same way on all three backends.
+
+------------------------------------------------------------------------------
+9.1 PLUGIN HOOKS                                             *distract-plugins*
+
+>lua
+    require("distract").register_plugin("my-plugin", {
+      on_init = function(world) end,
+      on_tick = function(entity, dt) end,
+      on_state_change = function(entity, from_state, to_state) end,
+      on_collision = function(entity, collision) end,
+      on_editor_event = function(event_name, context) end,
+      on_draw = function(layers) end,
+      on_teardown = function() end,
+    })
+<
+Every hook is optional; an unknown key is refused rather than ignored.
+
+The entity a hook receives is READ-ONLY. Assigning to it raises. That is not
+politeness: the in-terminal backends simulate in Lua while `overlay` simulates
+in its own process, so a hook that wrote `entity.vx` would move the sprite on
+two backends out of three. Changes go through the `world` handle instead:
+
+>lua
+    world.backend                       -- "halfblock" | "kitty" | "overlay"
+    world.entities()                    -- read-only views of what is alive
+    world.request_state(id, state)      -- put an entity into a declared state
+    world.apply_impulse(id, vx, vy)     -- add to its velocity
+    world.despawn(id)
+    world.mark_dirty()                  -- redraw a frame that would be skipped
+<
+Commands are queued and applied at the top of the next simulated step, so a
+hook never observes an entity halfway through its own frame. On `overlay` the
+same queue is forwarded over IPC, so one plugin produces one behaviour.
+
+`collision.edge` is `"left"`, `"right"`, `"top"`, `"bottom"` or `"obstacle"`.
+
+`on_draw` receives where every sprite was actually drawn, in terminal cells, on
+every backend: `{ id, asset_name, row, col, width, height }`. It is what a
+speech bubble or a highlight is built on.
+
+`mark_dirty` matters more than it looks. A settled world is not redrawn — that
+is what makes an idle pet free — and that includes whatever a plugin just
+changed about it.
+
+A hook that raises is reported once at WARN and its plugin is disabled for the
+session. One broken plugin cannot silence the others, and cannot produce a
+notification per frame.
+
+Nothing is put on the wire for `overlay` unless a registered plugin actually
+subscribes: no plugins means no per-frame traffic at all.
+
+Working examples live in `examples/plugins/` in the repository.
+
+------------------------------------------------------------------------------
+9.2 OBSTACLE PROVIDERS                                     *distract-obstacles*
+
+Solid ground and hazards, made out of whatever your editor can see.
+
+>lua
+    require("distract").register_obstacle_provider(function(win_id, buf_id)
+      return {
+        { x = 10, y = 15, width = 40, height = 1, type = "solid_platform" },
+        { x = 0,  y = 25, width = 80, height = 1, type = "hazard" },
+      }
+    end)
+<
+Rectangles are in terminal cells, the same units the floor is measured in.
+
+    solid_platform  A one-way floor. It catches an entity falling onto it from
+                    above and is what a grounded entity walks along; passing
+                    upward through it is free, so a jump onto one works.
+    hazard          A wall. An entity that reaches one is returned the way it
+                    came and turns around.
+
+A grounded state has no gravity to fall under, so which surface it stands on is
+resolved every frame: the highest platform under its feet, or the floor. Walk
+off the end of a platform and the pet is on whatever is below it.
+
+Providers are called on a debounced cadence — editing, scrolling, window and
+buffer changes — and never per tick per entity. A Tree-sitter query per frame is
+a performance trap, which is why the contract takes a function.
+
+At most 128 rectangles are used, reported once if a provider returns more. A
+malformed rectangle is refused with a message rather than reaching the physics.
+A provider that raises is skipped; the others still contribute.
+
+Providers are collected in Neovim and pushed to whichever engine is running.
+Neither engine goes looking for its own, for the same reason neither measures
+its own floor: only the editor can see the buffer.
+
+==============================================================================
+10. TROUBLESHOOTING                                  *distract-troubleshooting*
 
 Sprites are the wrong colour, or invisible~
     Truecolor is required: >vim
@@ -618,7 +803,7 @@ The overlay refuses to start~
     Run `:DistractStop` then `:DistractStart`. If it recurs, please report it.
 
 ==============================================================================
-10. LUA API                                                      *distract-api*
+11. LUA API                                                      *distract-api*
 
 >lua
     local distract = require("distract")
@@ -638,6 +823,13 @@ The overlay refuses to start~
     distract.is_running()
     distract.get_asset_names()
     distract.get_all_actions()
+
+    distract.register_asset(name, spec)         -- { manifest, sprites }
+    distract.register_plugin(name, hooks)       -- see |distract-plugins|
+    distract.unregister_plugin(name)
+    distract.get_plugin_names()
+    distract.register_obstacle_provider(fn)     -- see |distract-obstacles|
+    distract.unregister_obstacle_provider(id)
 <
 
 vim:tw=78:ts=8:ft=help:norl:

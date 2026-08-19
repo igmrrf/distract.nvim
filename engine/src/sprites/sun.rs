@@ -7,17 +7,22 @@
 use std::f32::consts::PI;
 
 use super::SpriteSet;
-use crate::sprite_gen::{self as g, Canvas, OrbOpts, Rgb};
+use crate::sprite_gen::{self as g, Canvas, Rgb};
 
 const W: u32 = 16;
 const H: u32 = 16;
 
+// Flat, banded palette. Mirrors `lua/distract/sprites/sun.lua`: a disc twelve
+// pixels across cannot carry a gradient, and the old per-pixel shading of the
+// corona and the rays spent a distinct colour on every radius.
 const CORE: Rgb = [255, 246, 196];
 const SURFACE: Rgb = [255, 206, 62];
-const LIMB: Rgb = [255, 146, 26];
+const LIMB: Rgb = [236, 132, 22];
 const CORONA: Rgb = [255, 224, 132];
+const WHITE_HOT: Rgb = [255, 255, 240];
 const MOON: Rgb = [34, 32, 46];
-const HORIZON: Rgb = [92, 74, 124];
+const HORIZON: Rgb = [96, 78, 128];
+const HORIZON_DEEP: Rgb = [66, 52, 94];
 
 /// One sun pose.
 #[derive(Debug, Clone, Copy)]
@@ -55,100 +60,103 @@ impl Default for Pose {
     }
 }
 
+/// The corona: one band, not a gradient.
+///
+/// `shade` per pixel produced a distinct colour per radius, which is what made
+/// three assets consume 46% of the highlight-group cap between them. One tone at a
+/// wobbling edge reads the same at eight rows and costs one group.
 fn draw_corona(c: &mut Canvas, cx: f32, cy: f32, radius: f32, corona: f32, spin: f32) {
     if corona <= 0.02 {
         return;
     }
     let inner = radius + 0.4;
     let outer = radius + 1.0 + corona * 3.2;
-    for y in 1..=H as i32 {
-        for x in 1..=W as i32 {
-            let dx = x as f32 - cx;
-            let dy = y as f32 - cy;
-            let d = (dx * dx + dy * dy).sqrt();
-            if d > inner && d <= outer {
-                let ang = dy.atan2(dx);
-                let edge = outer * (1.0 + 0.10 * (ang * 6.0 + spin * 2.0 * PI).sin());
-                if d <= edge {
-                    let falloff = 1.0 - (d - inner) / (edge - inner).max(0.001);
-                    let tone = g::shade(CORONA, -0.62 + falloff * 0.5 * corona);
-                    c.set(x as f32, y as f32, tone);
+    for y in 1..=H {
+        for x in 1..=W {
+            let (dx, dy) = (x as f32 - cx, y as f32 - cy);
+            let distance = (dx * dx + dy * dy).sqrt();
+            if distance > inner && distance <= outer {
+                let angle = dy.atan2(dx);
+                let edge = outer * (1.0 + 0.10 * (angle * 6.0 + spin * 2.0 * PI).sin());
+                if distance <= edge {
+                    c.set(x as f32, y as f32, CORONA);
                 }
             }
         }
     }
 }
 
+/// Eight rays, two tones, thick enough to survive eight half-block rows.
+///
+/// A one-pixel ray drawn in a per-step gradient disappeared entirely at sprite
+/// size. Each is two pixels across for its inner half, one for its tip.
 fn draw_rays(c: &mut Canvas, cx: f32, cy: f32, radius: f32, rays: f32, spin: f32) {
     if rays <= 0.05 {
         return;
     }
-    let inner = radius + 0.7;
-    let outer = inner + rays * 3.4;
-    for i in 0..8 {
-        let ang = (i as f32 / 8.0 + spin) * 2.0 * PI;
-        let ca = ang.cos();
-        let sa = ang.sin();
-        let steps = (((outer - inner) * 2.0).floor() as i32).max(1);
+    let inner = radius + 0.6;
+    let outer = inner + rays * 3.2;
+    for index in 0..8 {
+        let angle = (index as f32 / 8.0 + spin) * 2.0 * PI;
+        let (ca, sa) = (angle.cos(), angle.sin());
+        let steps = ((outer - inner) * 2.0).floor().max(1.0) as i32;
         for step in 0..=steps {
             let t = step as f32 / steps as f32;
             let rr = inner + (outer - inner) * t;
-            let mixed = g::mix(SURFACE, CORONA, t);
-            let tone = g::shade(mixed, 0.10 - t * 0.30);
+            let tone = if t < 0.55 { SURFACE } else { CORONA };
             c.set(cx + ca * rr, cy + sa * rr, tone);
+            if t < 0.5 {
+                // Thickened across the ray, not along it, so a ray reads as a
+                // spike rather than as a dotted line.
+                c.set(cx + ca * rr - sa * 0.9, cy + sa * rr + ca * 0.9, tone);
+            }
         }
     }
 }
 
+/// A clean disc: flat surface, a rim in the deeper tone, one bright core band.
 fn draw_disc(c: &mut Canvas, cx: f32, cy: f32, radius: f32, flare: f32) {
-    let surface_opts = OrbOpts {
-        light: Some([0.0, 0.0, 1.0]),
-        ambient: Some(0.30 + flare * 0.35),
-        rim: Some(0.55),
-        rim_color: Some(LIMB),
-        dither: Some(0.06),
-        ..Default::default()
-    };
-    c.orb(cx, cy, radius, radius, SURFACE, &surface_opts);
-    let core_opts = OrbOpts {
-        light: Some([0.0, 0.0, 1.0]),
-        ambient: Some(0.62),
-        rim: Some(0.20),
-        rim_color: Some(CORE),
-        ..Default::default()
-    };
-    let core_color = g::shade(CORE, flare * 0.35);
-    c.orb(cx, cy, radius * 0.55, radius * 0.55, core_color, &core_opts);
+    c.blob(cx, cy, radius, radius, SURFACE, LIMB);
+    c.ellipse(
+        cx - radius * 0.18,
+        cy - radius * 0.22,
+        radius * 0.5,
+        radius * 0.5,
+        CORE,
+    );
+    if flare > 0.35 {
+        c.ellipse(cx, cy, radius * 0.22, radius * 0.22, WHITE_HOT);
+    }
 }
 
+/// The eclipse silhouette, kept distinguishable from the shining pose.
+///
+/// The moon is flat and dark inside a bright rim, which is the one thing that
+/// separates the two poses when both are a disc at eight rows.
 fn draw_eclipse(c: &mut Canvas, cx: f32, cy: f32, radius: f32, occlude: f32) {
     if occlude <= 0.02 {
         return;
     }
     let mx = cx - radius * 2.2 + occlude * radius * 2.2;
-    let moon_opts = OrbOpts {
-        light: Some([-0.4, -0.4, 0.7]),
-        ambient: Some(0.5),
-        rim: Some(0.42),
-        rim_color: Some(CORONA),
-        ..Default::default()
-    };
-    c.orb(mx, cy, radius * 1.02, radius * 1.02, MOON, &moon_opts);
+    c.blob(mx, cy, radius * 1.08, radius * 1.08, MOON, CORONA);
     if occlude > 0.82 {
-        c.spark(cx + radius * 0.75, cy - radius * 0.75, 2.0, [255, 255, 240]);
+        c.spark(cx + radius * 0.75, cy - radius * 0.75, 2.0, WHITE_HOT);
     }
 }
 
+/// The horizon band, two flat tones rather than a shaded ramp.
 fn draw_horizon(c: &mut Canvas, horizon: f32) {
     if horizon <= 0.02 {
         return;
     }
-    let band_y = 13_i32;
+    let band_y = 13.0;
     for row in 0..=2 {
-        let tone = g::shade(HORIZON, -0.12 * row as f32 + (1.0 - horizon) * 0.4);
-        for x in 1..=W as i32 {
-            if row > 0 || ((x + row) % 7) != 0 {
-                c.set(x as f32, (band_y + row) as f32, tone);
+        let tone = if row == 0 { HORIZON } else { HORIZON_DEEP };
+        for x in 1..=W {
+            // The gap in the top row is what makes the band read as a horizon
+            // rather than as a bar.
+            if row > 0 || !(x + row as u32).is_multiple_of(7) {
+                c.set(x as f32, band_y + row as f32, tone);
             }
         }
     }

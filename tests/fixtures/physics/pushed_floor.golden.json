@@ -6,7 +6,9 @@
     "vy": 0.4,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 23.0,
@@ -15,7 +17,9 @@
     "vy": 0.8,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 24.5,
@@ -24,7 +28,9 @@
     "vy": 1.2,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 26.0,
@@ -33,7 +39,9 @@
     "vy": 1.6,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 27.5,
@@ -42,7 +50,9 @@
     "vy": 2.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 29.0,
@@ -51,7 +61,9 @@
     "vy": 2.4,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 30.5,
@@ -60,7 +72,9 @@
     "vy": 2.8000002,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 32.0,
@@ -69,7 +83,9 @@
     "vy": 3.2000003,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 33.5,
@@ -78,7 +94,9 @@
     "vy": 3.6000004,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 35.0,
@@ -87,7 +105,9 @@
     "vy": 4.0000005,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 36.5,
@@ -96,7 +116,9 @@
     "vy": 4.4000006,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 38.0,
@@ -105,7 +127,9 @@
     "vy": 4.8000007,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 39.5,
@@ -114,7 +138,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 41.0,
@@ -123,7 +149,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 42.5,
@@ -132,7 +160,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 44.0,
@@ -141,7 +171,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 45.5,
@@ -150,7 +182,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 47.0,
@@ -159,7 +193,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 48.5,
@@ -168,7 +204,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 50.0,
@@ -177,7 +215,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 51.5,
@@ -186,7 +226,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 53.0,
@@ -195,7 +237,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 54.5,
@@ -204,7 +248,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 56.0,
@@ -213,7 +259,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 57.5,
@@ -222,7 +270,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 59.0,
@@ -231,7 +281,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 60.5,
@@ -240,7 +292,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 62.0,
@@ -249,7 +303,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 63.5,
@@ -258,7 +314,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 65.0,
@@ -267,7 +325,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 66.5,
@@ -276,7 +336,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 68.0,
@@ -285,7 +347,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 69.5,
@@ -294,7 +358,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 71.0,
@@ -303,7 +369,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 72.5,
@@ -312,7 +380,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 74.0,
@@ -321,7 +391,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 75.5,
@@ -330,7 +402,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 77.0,
@@ -339,7 +413,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 78.5,
@@ -348,7 +424,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 80.0,
@@ -357,7 +435,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 81.5,
@@ -366,7 +446,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 83.0,
@@ -375,7 +457,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 84.5,
@@ -384,7 +468,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 86.0,
@@ -393,7 +479,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 87.5,
@@ -402,7 +490,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 89.0,
@@ -411,7 +501,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 90.5,
@@ -420,7 +512,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 92.0,
@@ -429,7 +523,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 93.5,
@@ -438,7 +534,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 95.0,
@@ -447,7 +545,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 96.5,
@@ -456,7 +556,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 98.0,
@@ -465,7 +567,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 99.5,
@@ -474,7 +578,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 101.0,
@@ -483,7 +589,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 102.5,
@@ -492,7 +600,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 104.0,
@@ -501,7 +611,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 105.5,
@@ -510,7 +622,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 107.0,
@@ -519,7 +633,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 108.5,
@@ -528,7 +644,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 110.0,
@@ -537,7 +655,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 111.5,
@@ -546,7 +666,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 113.0,
@@ -555,7 +677,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 114.5,
@@ -564,7 +688,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 116.0,
@@ -573,7 +699,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 117.5,
@@ -582,7 +710,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 119.0,
@@ -591,7 +721,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 120.5,
@@ -600,7 +732,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 122.0,
@@ -609,7 +743,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 123.5,
@@ -618,7 +754,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 125.0,
@@ -627,7 +765,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 126.5,
@@ -636,7 +776,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 128.0,
@@ -645,7 +787,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 129.5,
@@ -654,7 +798,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 131.0,
@@ -663,7 +809,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 132.5,
@@ -672,7 +820,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 134.0,
@@ -681,7 +831,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 135.5,
@@ -690,7 +842,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 137.0,
@@ -699,7 +853,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 138.5,
@@ -708,7 +864,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 140.0,
@@ -717,7 +875,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 141.5,
@@ -726,7 +886,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 143.0,
@@ -735,7 +897,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 144.5,
@@ -744,7 +908,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 146.0,
@@ -753,7 +919,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 147.5,
@@ -762,7 +930,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 149.0,
@@ -771,7 +941,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 150.5,
@@ -780,7 +952,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 152.0,
@@ -789,7 +963,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 153.5,
@@ -798,7 +974,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 155.0,
@@ -807,7 +985,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 156.5,
@@ -816,7 +996,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 158.0,
@@ -825,7 +1007,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 159.5,
@@ -834,7 +1018,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 161.0,
@@ -843,7 +1029,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 162.5,
@@ -852,7 +1040,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 164.0,
@@ -861,7 +1051,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 165.5,
@@ -870,7 +1062,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 167.0,
@@ -879,7 +1073,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 168.5,
@@ -888,7 +1084,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 170.0,
@@ -897,7 +1095,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 171.5,
@@ -906,7 +1106,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 173.0,
@@ -915,7 +1117,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 174.5,
@@ -924,7 +1128,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 176.0,
@@ -933,7 +1139,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 177.5,
@@ -942,7 +1150,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 179.0,
@@ -951,7 +1161,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 180.5,
@@ -960,7 +1172,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 182.0,
@@ -969,7 +1183,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 183.5,
@@ -978,7 +1194,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 185.0,
@@ -987,7 +1205,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 186.5,
@@ -996,7 +1216,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 188.0,
@@ -1005,7 +1227,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 189.5,
@@ -1014,7 +1238,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 191.0,
@@ -1023,7 +1249,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 192.5,
@@ -1032,7 +1260,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 194.0,
@@ -1041,7 +1271,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 195.5,
@@ -1050,7 +1282,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 197.0,
@@ -1059,7 +1293,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 198.5,
@@ -1068,7 +1304,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 200.0,
@@ -1077,7 +1315,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 201.5,
@@ -1086,7 +1326,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 203.0,
@@ -1095,7 +1337,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 204.5,
@@ -1104,7 +1348,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 206.0,
@@ -1113,7 +1359,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 207.5,
@@ -1122,7 +1370,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 209.0,
@@ -1131,7 +1381,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 210.5,
@@ -1140,7 +1392,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 212.0,
@@ -1149,7 +1403,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 213.5,
@@ -1158,7 +1414,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 215.0,
@@ -1167,7 +1425,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 216.5,
@@ -1176,7 +1436,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 218.0,
@@ -1185,7 +1447,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 219.5,
@@ -1194,7 +1458,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 221.0,
@@ -1203,7 +1469,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 222.5,
@@ -1212,7 +1480,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 224.0,
@@ -1221,7 +1491,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 225.5,
@@ -1230,7 +1502,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 227.0,
@@ -1239,7 +1513,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 228.5,
@@ -1248,7 +1524,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 230.0,
@@ -1257,7 +1535,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 231.5,
@@ -1266,7 +1546,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 233.0,
@@ -1275,7 +1557,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 234.5,
@@ -1284,7 +1568,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 236.0,
@@ -1293,7 +1579,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 237.5,
@@ -1302,7 +1590,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 239.0,
@@ -1311,7 +1601,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 240.5,
@@ -1320,7 +1612,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 242.0,
@@ -1329,7 +1623,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 243.5,
@@ -1338,7 +1634,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 245.0,
@@ -1347,7 +1645,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 246.5,
@@ -1356,7 +1656,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 248.0,
@@ -1365,7 +1667,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 249.5,
@@ -1374,7 +1678,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 251.0,
@@ -1383,7 +1689,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 252.5,
@@ -1392,7 +1700,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 254.0,
@@ -1401,7 +1711,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 255.5,
@@ -1410,7 +1722,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 257.0,
@@ -1419,7 +1733,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 258.5,
@@ -1428,7 +1744,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 260.0,
@@ -1437,7 +1755,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 261.5,
@@ -1446,7 +1766,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 263.0,
@@ -1455,7 +1777,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 264.5,
@@ -1464,7 +1788,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 266.0,
@@ -1473,7 +1799,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 267.5,
@@ -1482,7 +1810,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 269.0,
@@ -1491,7 +1821,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 270.5,
@@ -1500,7 +1832,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 272.0,
@@ -1509,7 +1843,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 273.5,
@@ -1518,7 +1854,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 275.0,
@@ -1527,7 +1865,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 276.5,
@@ -1536,7 +1876,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 278.0,
@@ -1545,7 +1887,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 279.5,
@@ -1554,7 +1898,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 281.0,
@@ -1563,7 +1909,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 282.5,
@@ -1572,7 +1920,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 284.0,
@@ -1581,7 +1931,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 285.5,
@@ -1590,7 +1942,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 287.0,
@@ -1599,7 +1953,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 288.5,
@@ -1608,7 +1964,9 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   },
   {
     "x": 290.0,
@@ -1617,6 +1975,8 @@
     "vy": 0.0,
     "flip_x": false,
     "state": "idle",
-    "quiescent": false
+    "quiescent": false,
+    "sheet_index": 0,
+    "animation_finished": false
   }
 ]

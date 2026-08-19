@@ -3,123 +3,69 @@
 local M = {}
 
 local asset_path = require("distract.asset_path")
+local engine_binary = require("distract.engine_binary")
+local overlay_grid = require("distract.overlay_grid")
+local overlay_plugins = require("distract.overlay_plugins")
+local overlay_report = require("distract.overlay_report")
+local viewport = require("distract.viewport")
+local plugins = require("distract.plugins")
 local locomotion = require("distract.locomotion")
 local position = require("distract.position")
+
+--- The cadence a plugin that only wants events subscribes at, in milliseconds.
+--- The engine clamps anything slower.
+local SLOWEST_SNAPSHOT_MS = 5000
+
+--- The scope last pushed, so an unchanged rectangle costs nothing.
+local pushed_scope = nil
 
 local job_id = nil
 local config = {}
 local is_shutting_down = false
-local build_job = nil
-
---- The floor last pushed to the engine, in terminal cells.
----
---- Held so `UpdateGrid` can carry it and so a floor that has not moved costs
---- nothing: it is sent on change, never per frame.
-local ground_row = nil
 
 function M.setup(opts)
   config = opts or {}
-end
-
-local function plugin_root()
-  return asset_path.plugin_root()
-end
-
-local function exe_suffix()
-  return vim.fn.has("win32") == 1 and ".exe" or ""
-end
-
---- Where a compiled engine binary may live, most preferred first.
----
---- `engine/bin` is where a binary downloaded from a GitHub release should be
---- placed. The release workflow publishes per-platform archives, but nothing
---- looked anywhere they could plausibly be installed, so the published binaries
---- were unreachable and every user fell through to building from source.
-function M.binary_candidates()
-  local root = plugin_root()
-  local ext = exe_suffix()
-  return {
-    root .. "/engine/bin/distract-engine" .. ext,
-    root .. "/engine/target/release/distract-engine" .. ext,
-    root .. "/engine/target/debug/distract-engine" .. ext,
-  }
-end
-
---- Locate the compiled Rust engine binary, or nil when none is installed.
-local function find_binary()
-  for _, path in ipairs(M.binary_candidates()) do
-    if vim.fn.executable(path) == 1 or vim.fn.filereadable(path) == 1 then
-      return path
-    end
-  end
-  return nil
-end
-
-function M.build_command()
-  return { "cargo", "build", "--release", "--manifest-path", plugin_root() .. "/engine/Cargo.toml" }
+  overlay_grid.configure(config)
 end
 
 function M.is_running()
   return job_id ~= nil and job_id > 0
 end
 
---- Compiles the engine without blocking the editor.
----
---- This used to be `vim.fn.system(...)`, which made Neovim completely
---- unresponsive for however long a cold Rust build takes — minutes — with a
---- single notification beforehand and no progress.
---- @param on_success function|nil called after a successful build
-function M.build(on_success)
-  if build_job then
-    vim.notify("[Distract] Engine build already in progress.", vim.log.levels.INFO)
-    return
+--- Where a compiled engine binary may live, and how to build one.
+M.binary_candidates = engine_binary.candidates
+M.build_command = engine_binary.build_command
+M.build = engine_binary.build
+
+function M.overlay_args(overlay)
+  if type(overlay) ~= "table" then
+    return {}
   end
 
-  local cmd = M.build_command()
-  vim.notify(
-    "[Distract] Building the overlay engine in the background:\n  "
-      .. table.concat(cmd, " ")
-      .. "\nThis can take a few minutes on a cold build.",
-    vim.log.levels.INFO
-  )
-
-  local stderr_tail = {}
-  build_job = vim.fn.jobstart(cmd, {
-    on_stderr = function(_, data)
-      for _, line in ipairs(data or {}) do
-        if line ~= "" then
-          table.insert(stderr_tail, line)
-          -- Keep the last few lines only; a full cargo log is not a useful
-          -- notification.
-          if #stderr_tail > 20 then
-            table.remove(stderr_tail, 1)
-          end
-        end
-      end
-    end,
-    on_exit = function(_, code)
-      build_job = nil
-      if code == 0 then
-        vim.notify("[Distract] Engine built.", vim.log.levels.INFO)
-        if on_success then
-          on_success()
-        end
-      else
-        vim.notify(
-          "[Distract] Engine build failed (exit "
-            .. tostring(code)
-            .. "):\n"
-            .. table.concat(stderr_tail, "\n"),
-          vim.log.levels.ERROR
-        )
-      end
-    end,
-  })
-
-  if build_job <= 0 then
-    build_job = nil
-    vim.notify("[Distract] Could not start cargo. Is Rust installed?", vim.log.levels.ERROR)
+  local position = overlay.position
+  if position ~= nil then
+    if
+      type(position) ~= "table"
+      or type(position.x) ~= "number"
+      or type(position.y) ~= "number"
+    then
+      return nil, "overlay.position must be { x = <number>, y = <number> }"
+    end
+    return {
+      "--overlay-position",
+      string.format("%d,%d", math.floor(position.x), math.floor(position.y)),
+    }
   end
+
+  local monitor = overlay.monitor
+  if monitor ~= nil then
+    if type(monitor) ~= "number" or monitor < 0 or monitor ~= math.floor(monitor) then
+      return nil, "overlay.monitor must be a non-negative whole number (0 is the primary display)"
+    end
+    return { "--overlay-monitor", tostring(monitor) }
+  end
+
+  return {}
 end
 
 function M.start()
@@ -128,7 +74,7 @@ function M.start()
   end
   is_shutting_down = false
 
-  local bin_path = find_binary()
+  local bin_path = engine_binary.find()
   if not bin_path then
     -- Refuse and say exactly what to do, rather than freezing the editor on a
     -- synchronous build the user did not ask for.
@@ -140,7 +86,16 @@ function M.start()
     return
   end
 
-  job_id = vim.fn.jobstart({ bin_path }, {
+  local overlay_args, overlay_err = M.overlay_args(require("distract").config.overlay)
+  if not overlay_args then
+    vim.notify("[Distract] " .. overlay_err, vim.log.levels.ERROR)
+    return
+  end
+
+  local command = { bin_path }
+  vim.list_extend(command, overlay_args)
+
+  job_id = vim.fn.jobstart(command, {
     on_stdout = function(_, data)
       for _, line in ipairs(data) do
         if line ~= "" then
@@ -179,8 +134,32 @@ function M.start()
     return
   end
 
+  plugins.bind_world({ backend = "overlay", entities = overlay_plugins.entities })
+  M.sync_plugin_subscription()
+  pushed_scope = nil
+  M.sync_viewport_scope()
+
   -- Send viewport / grid bounds
   M.update_grid()
+end
+
+--- Tells the engine whether anything is listening, and on what cadence.
+---
+--- Off by default: a session with no plugins gets no per-frame traffic at all.
+--- Called on start and whenever a plugin is registered or removed, because the
+--- answer is derived from the registrations rather than stored.
+function M.sync_plugin_subscription()
+  if not M.is_running() then
+    return
+  end
+  local snapshot_ms = overlay_plugins.desired_snapshot_ms()
+  if not snapshot_ms and overlay_plugins.wants_world_events() then
+    -- The journal only records while the engine is subscribed, so an events-only
+    -- plugin still subscribes; the slowest cadence keeps snapshots off the wire
+    -- in all but name.
+    snapshot_ms = SLOWEST_SNAPSHOT_MS
+  end
+  M.send_command({ command = "Subscribe", snapshot_ms = snapshot_ms })
 end
 
 function M.handle_ipc_message(raw_json)
@@ -189,46 +168,17 @@ function M.handle_ipc_message(raw_json)
     return
   end
 
-  local status = msg.status
-  if status == "ready" then
-    vim.notify("[Distract] Engine v" .. tostring(msg.version) .. " active", vim.log.levels.INFO)
-  elseif status == "spawned" then
-    vim.notify(
-      string.format("[Distract] Spawned %s (#%d) [%s]", msg.asset_name, msg.id, msg.state),
-      vim.log.levels.INFO
-    )
-  elseif status == "action_triggered" then
-    vim.notify(
-      string.format("[Distract] %s (#%d) -> %s", msg.asset_name, msg.id, msg.action),
-      vim.log.levels.INFO
-    )
-  elseif status == "despawned" then
-    vim.notify(string.format("[Distract] Despawned entity #%d", msg.id), vim.log.levels.INFO)
-  elseif status == "cleared" then
-    vim.notify("[Distract] All entities cleared", vim.log.levels.INFO)
-  elseif status == "status_report" then
-    local count = msg.count or 0
-    if count == 0 then
-      vim.notify("[Distract] No active entities.", vim.log.levels.INFO)
-    else
-      local lines = { string.format("[Distract] %d active entities:", count) }
-      for _, ent in ipairs(msg.entities or {}) do
-        table.insert(
-          lines,
-          string.format(
-            "  • #%d %s (state: %s, pos: %.0f, %.0f)",
-            ent.id,
-            ent.asset_name,
-            ent.state,
-            ent.x,
-            ent.y
-          )
-        )
-      end
-      vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
-    end
-  elseif status == "error" then
-    vim.notify("[Distract Error] " .. tostring(msg.message), vim.log.levels.ERROR)
+  if overlay_report.notify(msg) then
+    return
+  end
+
+  if msg.status == "snapshot" then
+    local cell_width, cell_height = M.cell_size()
+    overlay_plugins.on_snapshot(msg, { width = cell_width, height = cell_height })
+    overlay_plugins.flush_commands(M.send_command)
+  elseif msg.status == "world_events" then
+    overlay_plugins.on_world_events(msg)
+    overlay_plugins.flush_commands(M.send_command)
   end
 end
 
@@ -383,86 +333,94 @@ function M.send_event(event_type, context)
   })
 end
 
---- Terminal cell size in physical pixels.
----
---- There is no portable way to ask a terminal for this from inside Neovim, and
---- it was previously hardcoded to 10x20 on both sides — so on any font that is
---- not exactly that, and never on a HiDPI display, overlay entities were
---- positioned against a coordinate space that matched nothing on screen.
----
---- Resolution order:
----   1. `cell_width` / `cell_height` from user config, if set.
----   2. The terminal's own report, when it answers `CSI 16 t`.
----   3. A documented 10x20 default.
----
---- See `:help distract-overlay`.
-local DEFAULT_CELL_W, DEFAULT_CELL_H = 10, 20
-local reported_cell = nil
+--- The geometry the engine is told about: cell size and the floor.
+M.set_reported_cell_size = overlay_grid.set_reported_cell_size
+M.cell_size = overlay_grid.cell_size
+M.query_cell_size = overlay_grid.query_cell_size
+M.get_ground_row = overlay_grid.get_ground_row
 
---- Records a cell size reported by the terminal via `CSI 16 t`.
---- @param height number cell height in pixels
---- @param width number cell width in pixels
-function M.set_reported_cell_size(height, width)
-  if type(width) == "number" and type(height) == "number" and width > 0 and height > 0 then
-    reported_cell = { width = width, height = height }
-  end
-end
-
-function M.cell_size()
-  local w = tonumber(config.cell_width)
-  local h = tonumber(config.cell_height)
-  if w and h and w > 0 and h > 0 then
-    return w, h
-  end
-  if reported_cell then
-    return reported_cell.width, reported_cell.height
-  end
-  return DEFAULT_CELL_W, DEFAULT_CELL_H
-end
-
---- Asks the terminal for its cell size in pixels.
+--- Pushes the registered obstacles, converted to overlay pixels.
 ---
---- `CSI 16 t` is answered by kitty, WezTerm, Ghostty, foot and iTerm2, and
---- silently ignored elsewhere — so this is best effort and never blocks.
-function M.query_cell_size()
-  if vim.fn.has("nvim-0.10") ~= 1 then
+--- Sent whenever the collection ran rather than diffed: a provider's answer
+--- changes with the buffer, and comparing two lists of rectangles costs more than
+--- the message does.
+---@param rects table[] rectangles in terminal cells
+function M.set_obstacles(rects)
+  if not M.is_running() then
     return
   end
-  pcall(function()
-    io.stdout:write("\27[16t")
-  end)
+
+  local cell_width, cell_height = M.cell_size()
+  local converted = {}
+  for _, rect in ipairs(rects or {}) do
+    table.insert(converted, {
+      x = rect.x * cell_width,
+      y = rect.y * cell_height,
+      width = rect.width * cell_width,
+      height = rect.height * cell_height,
+      type = rect.type,
+    })
+  end
+
+  M.send_command({ command = "UpdateObstacles", obstacles = converted })
 end
 
-function M.update_grid()
-  local cw, ch = M.cell_size()
+--- Pushes the rectangle entities may move in, if it moved.
+---
+--- Measured in Neovim, in cells, and converted here: the engine cannot see a
+--- window's text area, what is floating over it or which splits the user is
+--- working in. An `editor` scope sends no rectangle at all, which returns the
+--- engine to the whole overlay window.
+function M.sync_viewport_scope()
+  if not M.is_running() then
+    return
+  end
+
+  local cell_width, cell_height = M.cell_size()
+  local scope = nil
+  if viewport.scope() ~= viewport.EDITOR and viewport.scope() ~= viewport.ABSOLUTE then
+    local rect = viewport.rect()
+    scope = {
+      x = rect.col * cell_width,
+      y = rect.row * cell_height,
+      width = rect.width * cell_width,
+      height = rect.height * cell_height,
+    }
+  end
+
+  local signature = scope and table.concat({ scope.x, scope.y, scope.width, scope.height }, ":")
+    or "editor"
+  if signature == pushed_scope then
+    return
+  end
+  pushed_scope = signature
+
   M.send_command({
-    command = "UpdateGrid",
-    width = vim.o.columns,
-    height = vim.o.lines,
-    cell_width = cw,
-    cell_height = ch,
-    -- The floor is a position, so it converts with the cell height rather than
-    -- with the sprite scale. Getting that wrong is the `ground_y` units bug.
-    ground_y = ground_row and (ground_row * ch) or nil,
+    command = "UpdateViewportScope",
+    x = scope and scope.x or nil,
+    y = scope and scope.y or nil,
+    width = scope and scope.width or nil,
+    height = scope and scope.height or nil,
   })
 end
 
---- Records the floor and pushes it, if it moved.
+--- Shows or hides the overlay window.
 ---
---- Sent on the existing `UpdateGrid` message rather than a new one: the engine
---- already treats that as "the geometry changed", and a floor is geometry.
----@param row number|nil the floor in terminal cells, or nil for none
-function M.set_ground_row(row)
-  if row == ground_row then
-    return
-  end
-  ground_row = row
-  M.update_grid()
+--- The window belongs to the engine process, so this is the only way to hide it;
+--- the simulation there keeps running for the same reason it does in-terminal.
+---@param is_visible boolean
+function M.set_visible(is_visible)
+  M.send_command({ command = "SetVisible", visible = is_visible })
 end
 
---- The floor last pushed, in cells. For tests and diagnostics.
-function M.get_ground_row()
-  return ground_row
+function M.update_grid()
+  M.send_command(overlay_grid.grid_command())
+end
+
+function M.set_ground_row(row)
+  if overlay_grid.set_ground_row(row) then
+    M.update_grid()
+  end
 end
 
 function M.stop()
@@ -482,6 +440,9 @@ function M.stop()
     job_id = nil
     is_shutting_down = false
   end
+  plugins.dispatch_teardown()
+  plugins.unbind_world()
+  overlay_plugins.reset()
 end
 
 return M

@@ -1,0 +1,9 @@
+{
+  "description": "Bounce off a scoped viewport's left and right edges, which sit inside the screen. Vertical bounce too, so the scoped top and bottom are both exercised.",
+  "physics": { "target_vx": 3.0, "target_vy": 0.7, "gravity": 0.0, "friction": 0.05, "wrap_mode": "bounce" },
+  "spawn": { "x": 66, "y": 10, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 50, "lines": 18, "col": 22, "row": 4 },
+  "dt": 0.016666667,
+  "steps": 260
+}

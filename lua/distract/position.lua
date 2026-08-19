@@ -252,15 +252,21 @@ function M.placement(request)
   local parallax = M.parallax_for(z, settings, request.backend)
   local ground_y = request.floor_row and (request.floor_row - request.sprite_h * parallax)
 
+  -- Bounds carry an origin, because a scoped viewport is a rectangle inside the
+  -- editor grid rather than the grid itself. Absent, it is the whole screen and
+  -- every placement is where it always was.
+  local origin_col = request.bounds.col or 0
+  local origin_row = request.bounds.row or 0
+
   if anchor == M.BOTTOM then
     placed.y = ground_y
   elseif anchor == M.TOP then
-    placed.y = 0
+    placed.y = origin_row
   end
 
   return {
-    x = opts.x or placed.x or math.floor(request.bounds.columns / 2),
-    y = opts.y or placed.y or math.floor(request.bounds.lines / 2),
+    x = opts.x or placed.x or (origin_col + math.floor(request.bounds.columns / 2)),
+    y = opts.y or placed.y or (origin_row + math.floor(request.bounds.lines / 2)),
     z = z,
     parallax = parallax,
     ground_y = ground_y,

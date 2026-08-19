@@ -2,26 +2,40 @@ local g = require("distract.sprite_gen")
 
 local W, H = 24, 16
 
-local SHELL = { 238, 52, 44 }
-local SHELL_DARK = { 156, 24, 28 }
-local SHELL_LIGHT = { 255, 124, 88 }
-local SHELL_SPEC = { 255, 172, 140 }
-local SHELL_GROOVE = { 120, 18, 22 }
-local CONTOUR = { 48, 14, 18 }
+-- Flat, banded palette. Four shell tones did not read at 24x16 -- a carapace
+-- twelve pixels across cannot carry a gradient -- and every distinct colour pair
+-- is a Neovim highlight group. One fill, one shadow band, one light band, a
+-- one-pixel contour and the accents that carry identity.
+local CONTOUR = { 44, 14, 18 }
+local SHELL = { 232, 54, 46 }
+local SHELL_DARK = { 150, 24, 28 }
+local SHELL_LIGHT = { 255, 132, 96 }
 local CLAW = { 252, 108, 64 }
-local CLAW_DARK = { 184, 52, 36 }
-local CLAW_LIGHT = { 255, 148, 108 }
 local CLAW_TOOTH = { 255, 246, 230 }
-local LEG = { 204, 40, 36 }
-local LEG_DARK = { 136, 20, 22 }
-local LEG_LIGHT = { 240, 72, 64 }
 local EYE_WHITE = { 255, 255, 255 }
 local EYE_DARK = { 24, 20, 32 }
-local WHITE = { 255, 255, 255 }
 local SAND = { 224, 192, 138 }
-local SPARKLE = { 255, 248, 160 }
+local SAND_DEEP = { 186, 154, 104 }
 local ZZZ = { 176, 212, 255 }
-local ZZZ_FADE = { 140, 180, 235 }
+
+-- The bands the old five-term model spent on gradient, aliased so every drawing
+-- call still names the part of the crab it is drawing.
+local SHELL_SPEC = SHELL_LIGHT
+local SHELL_GROOVE = SHELL_DARK
+local CLAW_DARK = SHELL_DARK
+local CLAW_LIGHT = SHELL_LIGHT
+local LEG = SHELL_DARK
+local LEG_DARK = SHELL_DARK
+local LEG_LIGHT = SHELL
+local WHITE = EYE_WHITE
+local SPARKLE = CLAW_TOOTH
+local ZZZ_FADE = ZZZ
+
+-- The rim is a darker shell tone rather than the near-black contour, for the same
+-- reason the cat's is: a near-black outline merges into a dark editor background
+-- and takes the silhouette's edge with it. CONTOUR is kept for the eye pupil and
+-- the closed-eye line, which must read as holes.
+local RIM = SHELL_DARK
 
 local sin, cos, pi, floor, max = math.sin, math.cos, math.pi, math.floor, math.max
 
@@ -36,11 +50,9 @@ local function draw_legs(c, cx, cy, shell_ry, leg, sink)
     local swing = sin((leg + phase) * 2 * pi)
     local foot_x = hip_x + dir * (2.8 + swing * 1.3)
     local foot_y = cy + 3.6 + max(0, -swing) * 1.1
-    g.cel_limb(c, hip_x, cy + shell_ry * 0.5, foot_x, foot_y, 1.15, LEG, {
-      shadow = LEG_DARK,
-      highlight = LEG_LIGHT,
-      outline = CONTOUR,
-    })
+    -- Fill and contour are the same tone: a leg one pixel across cannot carry
+    -- both, and the leg is already the darkest thing on the crab.
+    g.limb(c, hip_x, cy + shell_ry * 0.5, foot_x, foot_y, 1.15, LEG_DARK, LEG_DARK)
   end
 end
 
@@ -50,24 +62,22 @@ local function draw_claws(c, cx, cy, shell_rx, raise, clamp)
     local base_x = cx + side * (shell_rx + 0.6)
     local base_y = cy - 0.4 - raise * 3.4
     local reach_x = base_x + side * 2.2
-    g.cel_limb(c, cx + side * shell_rx * 0.7, cy - 0.2, base_x + side * 1.4, base_y, 1.3, SHELL, {
-      shadow = SHELL_DARK,
-      highlight = SHELL_LIGHT,
-      outline = CONTOUR,
-    })
-    local gap = (1 - clamp) * 2.6
-    g.cel_orb(c, reach_x, base_y - gap * 0.5 - 0.4, 2.2, 1.5, CLAW, {
-      shadow = CLAW_DARK,
-      highlight = CLAW_LIGHT,
-      outline = CONTOUR,
-      rim = 0.3,
-      rim_color = WHITE,
-    })
-    g.cel_orb(c, reach_x, base_y + gap * 0.5 + 0.4, 2.2, 1.5, CLAW, {
-      shadow = CLAW_DARK,
-      highlight = SHELL_LIGHT,
-      outline = CONTOUR,
-    })
+    -- The arm is thin so the pincer at the end of it is the wide part.
+    g.limb(
+      c,
+      cx + side * shell_rx * 0.7,
+      cy - 0.2,
+      base_x + side * 1.4,
+      base_y,
+      1.1,
+      SHELL_DARK,
+      SHELL_DARK
+    )
+    local gap = 1.2 + (1 - clamp) * 3.4
+    -- Two prongs with daylight between them, which is the only way a pincer
+    -- reads as a pincer at this size.
+    g.blob(c, reach_x, base_y - gap * 0.5, 2.4, 1.3, CLAW, RIM)
+    g.blob(c, reach_x, base_y + gap * 0.5, 2.4, 1.3, CLAW, RIM)
     g.set(c, reach_x + side * 1.6, base_y - gap * 0.3, CLAW_TOOTH)
     g.set(c, reach_x + side * 1.6, base_y + gap * 0.3, CLAW_TOOTH)
     if clamp > 0.85 then
@@ -81,13 +91,10 @@ local function draw_eyestalks(c, cx, cy, stalk, eye)
   for _, side in ipairs(sides) do
     local sx = cx + side * 2.1
     local sy = cy - 2.8 - stalk * 1.6
-    g.line(c, sx, cy - 1.2, sx, sy + 1.2, CONTOUR)
+    g.line(c, sx, cy - 1.2, sx, sy + 1.2, RIM)
     g.line(c, sx, cy - 1.0, sx, sy + 1.4, SHELL)
     if eye > 0.3 then
-      g.cel_orb(c, sx, sy, 1.6, 1.6, EYE_WHITE, {
-        shadow = SHELL_DARK,
-        outline = CONTOUR,
-      })
+      g.blob(c, sx, sy, 1.6, 1.6, EYE_WHITE, RIM)
       g.set(c, sx, sy, EYE_DARK)
       g.set(c, sx + 0.4, sy - 0.4, WHITE)
     else
@@ -100,10 +107,13 @@ local function draw_sand_and_sleep(c, cx, cy, sink, zzz)
   if sink > 0.05 then
     local mound_w = floor(4 + sink * 7)
     local mound_y = 13
+    -- Two flat tones, not a per-pixel ramp: `g.shade` per column gave the mound
+    -- a distinct colour per pixel, which is a highlight group per pixel.
     for row = 0, floor(sink * 3) do
       local half = mound_w - row * 2
+      local tone = row == 0 and SAND or SAND_DEEP
       for dx = -half, half do
-        g.set(c, cx + dx, mound_y - row, g.shade(SAND, -0.08 * row + 0.05 * cos(dx * 0.9)))
+        g.set(c, cx + dx, mound_y - row, tone)
       end
     end
   end
@@ -133,22 +143,17 @@ local function draw(pose)
   local zzz = pose.zzz or 0
 
   local cx = 12
-  local cy = 8.4 + bob * 0.6 + sink * 4.0
+  -- Seated low enough that the legs reach the bottom of the canvas: an asset's
+  -- cell footprint is its whole canvas, so empty rows underneath would float the
+  -- crab above the floor it is anchored to.
+  local cy = 9.8 + bob * 0.6 + sink * 4.0
   local shell_rx, shell_ry = 5.6, 3.4
 
   draw_legs(c, cx, cy, shell_ry, leg, sink)
   draw_claws(c, cx, cy, shell_rx, raise, clamp)
 
-  g.cel_orb(c, cx, cy, shell_rx, shell_ry, SHELL, {
-    shadow = SHELL_DARK,
-    highlight = SHELL_LIGHT,
-    outline = CONTOUR,
-  })
-  g.cel_orb(c, cx, cy + 0.5, shell_rx * 0.66, shell_ry * 0.52, SHELL_DARK, {
-    shadow = CONTOUR,
-    highlight = SHELL,
-    outline = CONTOUR,
-  })
+  g.blob(c, cx, cy, shell_rx, shell_ry, SHELL, RIM)
+  g.blob(c, cx, cy + 0.5, shell_rx * 0.66, shell_ry * 0.52, SHELL_DARK, RIM)
 
   g.set(c, cx - 2.0, cy - 1.2, SHELL_SPEC)
   g.set(c, cx - 1.0, cy - 1.4, WHITE)

@@ -8,6 +8,8 @@
 --- there is to render.
 
 local gif_sprite = require("distract.gif.sprite")
+local native_sprite = require("distract.native_sprite")
+local resample = require("distract.resample")
 
 local M = {}
 
@@ -38,10 +40,35 @@ local registered = {}
 ---@type table<string, DistractGifSource>
 local gif_sources = {}
 
+--- `.rgba` sidecars an asset's manifest points at, for the backends that can
+--- show real resolution. Kept separate from `gif_sources` and, critically, from
+--- `sprite_cache`: two backends can request different resolutions for the same
+--- asset, and a cache keyed only by asset name cannot represent that without
+--- leaking one backend's request into the other's.
+---@type table<string, DistractNativeSpriteSource>
+local native_sources = {}
+
 --- Assets whose GIF has already been reported as undecodable, for the same
 --- reason a missing asset is: a file that fails to decode fails on every draw,
 --- and it is not going to change mid-tick.
 local decode_warned = {}
+
+--- One sprite pixel is one cell wide and half a cell tall, so a 128-pixel-wide
+--- import would claim 128 columns of the editor. Imported art is fitted to this
+--- width for the backends that cannot draw it at native resolution. The aspect
+--- ratio is kept, and art already this narrow is passed through untouched --
+--- upscaling a sidecar would invent detail the file does not have.
+local TERMINAL_SPRITE_MAX_WIDTH = 32
+
+--- Sidecar frames already fitted to the terminal, keyed by asset name.
+---
+--- Separate from `sprite_cache` for the same reason `native_sources` is: the
+--- full-resolution and fitted forms of one asset are both live at once when two
+--- backends are, and a single name-keyed entry cannot hold both.
+local fitted_native_cache = {}
+
+--- Assets whose `.rgba` sidecar has already been reported as unreadable.
+local native_warned = {}
 
 --- Reported once per asset, not once per draw: an unknown asset is asked for at
 --- 30 FPS, and a notification per tick makes the editor unusable.
@@ -58,6 +85,7 @@ end
 
 local function announce_change(asset_name)
   sprite_cache[asset_name] = nil
+  fitted_native_cache[asset_name] = nil
   if change_handler then
     change_handler(asset_name)
   end
@@ -83,13 +111,24 @@ end
 ---@param manifest table|nil
 function M.bind_manifest(asset_name, manifest)
   local source = gif_sprite.source_of(manifest)
-  if gif_sprite.same_source(gif_sources[asset_name], source) then
-    return
+  local native_source = native_sprite.source_of(manifest)
+  local changed = false
+
+  if not gif_sprite.same_source(gif_sources[asset_name], source) then
+    gif_sources[asset_name] = source
+    decode_warned[asset_name] = nil
+    changed = true
   end
 
-  gif_sources[asset_name] = source
-  decode_warned[asset_name] = nil
-  announce_change(asset_name)
+  if not native_sprite.same_source(native_sources[asset_name], native_source) then
+    native_sources[asset_name] = native_source
+    native_warned[asset_name] = nil
+    changed = true
+  end
+
+  if changed then
+    announce_change(asset_name)
+  end
 end
 
 --- Forgets an asset's declared art. For tests, and for an asset being replaced.
@@ -146,6 +185,22 @@ local function warn_decode_failure(asset_name, source, error_message)
   )
 end
 
+local function warn_native_failure(asset_name, native_source, error_message)
+  if native_warned[asset_name] then
+    return
+  end
+  native_warned[asset_name] = true
+  vim.notify(
+    string.format(
+      "[Distract] Could not read native sprite '%s' for asset '%s': %s",
+      native_source.native_path,
+      asset_name,
+      error_message
+    ),
+    vim.log.levels.WARN
+  )
+end
+
 --- Decodes the GIF an asset is bound to, or nil when there is none to decode.
 local function load_gif_sprite(asset_name)
   local source = gif_sources[asset_name]
@@ -192,7 +247,10 @@ local function load_sprite(asset_name)
   -- An asset whose GIF failed to decode has already been told exactly what went
   -- wrong; "no terminal art" on top of that says less, not more.
   if not sprite then
-    if not gif_sources[asset_name] then
+    -- A sidecar-backed asset has terminal art; it just is not reached through
+    -- this chain. Warning about it would send the reader looking for a missing
+    -- registration that is not missing.
+    if not gif_sources[asset_name] and not native_sources[asset_name] then
       warn_fallback(asset_name)
     end
     sprite = require(SPRITE_MODULES.cat)
@@ -202,9 +260,83 @@ local function load_sprite(asset_name)
   return sprite
 end
 
+--- The size an imported sidecar is drawn at when the backend cannot show it at
+--- its own resolution. `nil` means it already fits and must not be touched.
+local function fitted_size(frames)
+  local source_width = #frames[1][1]
+  if source_width <= TERMINAL_SPRITE_MAX_WIDTH then
+    return nil
+  end
+  local source_height = #frames[1]
+  return {
+    width = TERMINAL_SPRITE_MAX_WIDTH,
+    height = math.max(
+      1,
+      math.floor(source_height * TERMINAL_SPRITE_MAX_WIDTH / source_width + 0.5)
+    ),
+  }
+end
+
+--- An imported asset's frames, area-averaged down to a terminal footprint.
+---
+--- A `.rgba` sidecar is the only art an imported non-GIF asset has that decodes
+--- without the compiled engine, so it is what the half-block backend draws too.
+--- Serving it at native size instead would claim 128 columns for one cat.
+---@return table|nil frames
+local function fitted_native_frames(asset_name, native_source)
+  local cached = fitted_native_cache[asset_name]
+  if cached then
+    return cached
+  end
+
+  local frames, err = native_sprite.load(native_source.native_path)
+  if not frames then
+    warn_native_failure(asset_name, native_source, err)
+    return nil
+  end
+
+  local target = fitted_size(frames)
+  if not target then
+    fitted_native_cache[asset_name] = frames
+    return frames
+  end
+
+  local fitted = {}
+  for index, matrix in ipairs(frames) do
+    fitted[index] = resample.shrink_matrix(matrix, target)
+  end
+  fitted_native_cache[asset_name] = fitted
+  return fitted
+end
+
 --- Frame matrices for an asset. Unknown assets fall back to the cat.
 --- Draws the asset on first call.
-function M.get_pixel_frames(asset_name)
+---
+--- `opts.native_resolution` is the calling backend's own capability. When it is
+--- true and the asset's manifest declared a `.rgba` sidecar, the sidecar's
+--- frames are returned instead -- resolved ahead of, never inside, the cache
+--- below, which is keyed by asset name alone and so cannot tell two backends
+--- apart.
+---@param asset_name string
+---@param opts table|nil `{ native_resolution = boolean }`
+function M.get_pixel_frames(asset_name, opts)
+  local native_source = native_sources[asset_name]
+  if native_source then
+    local frames
+    if opts and opts.native_resolution then
+      local err
+      frames, err = native_sprite.load(native_source.native_path)
+      if not frames then
+        warn_native_failure(asset_name, native_source, err)
+      end
+    else
+      frames = fitted_native_frames(asset_name, native_source)
+    end
+    if frames then
+      return frames
+    end
+  end
+
   local sprite = load_sprite(asset_name)
   if type(sprite.frames) == "function" then
     return sprite.frames()
@@ -217,8 +349,21 @@ function M.get_layout(asset_name)
   return load_sprite(asset_name).layout
 end
 
---- Canvas dimensions in pixels (not terminal cells).
+--- Canvas dimensions in sprite pixels (not terminal cells).
+---
+--- One answer per asset, deliberately, with no backend argument: this is what
+--- the engine measures boundaries, wrapping and floor anchoring against, and a
+--- per-backend answer would make one manifest describe two behaviours. An
+--- imported asset reports its *fitted* size rather than its native one for the
+--- same reason -- the native size is a fidelity detail, not a footprint.
 function M.get_dimensions(asset_name)
+  local native_source = native_sources[asset_name]
+  if native_source then
+    local frames = fitted_native_frames(asset_name, native_source)
+    if frames and frames[1] then
+      return #frames[1][1], #frames[1]
+    end
+  end
   local sprite = load_sprite(asset_name)
   return sprite.width, sprite.height
 end
@@ -240,6 +385,9 @@ end
 ---@param asset_name string
 ---@return boolean
 function M.needs_quantising(asset_name)
+  if native_sources[asset_name] then
+    return true
+  end
   return load_sprite(asset_name).quantise == true
 end
 

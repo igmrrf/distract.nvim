@@ -11,12 +11,18 @@ local SPECS = {
   "tests.external_spec",
   "tests.events_spec",
   "tests.manifests_spec",
+  "tests.builtin_assets_spec",
   "tests.plugin_commands_spec",
+  "tests.hooks_spec",
+  "tests.visibility_spec",
+  "tests.viewport_spec",
+  "tests.obstacles_spec",
   "tests.sprite_gen_spec",
   "tests.sprites_spec",
   "tests.sprite_assets_spec",
   "tests.highlights_spec",
   "tests.quantise_spec",
+  "tests.native_sprite_spec",
   "tests.gif_spec",
   "tests.gif_assets_spec",
   "tests.renderer_spec",
@@ -27,6 +33,7 @@ local SPECS = {
   "tests.review_fixes_spec",
   "tests.transparency_spec",
   "tests.physics_parity_spec",
+  "tests.sprite_parity_spec",
 }
 
 print("==================================================")

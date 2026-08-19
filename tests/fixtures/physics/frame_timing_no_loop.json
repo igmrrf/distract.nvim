@@ -1,0 +1,10 @@
+{
+  "description": "A non-looping animation holds its last frame and sets animation_finished. With no on_finish transition the state must not change, and both engines must agree on whether a finished animation leaves the world quiescent.",
+  "physics": { "target_vx": 0.0, "gravity": 0.0, "friction": 0.05, "wrap_mode": "none" },
+  "animation": { "frames": [0, 1, 2], "fps": 10.0, "loop_anim": false },
+  "spawn": { "x": 20, "y": 10, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "dt": 0.05,
+  "steps": 16
+}

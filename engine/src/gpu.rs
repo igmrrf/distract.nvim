@@ -9,7 +9,10 @@ use wgpu::util::DeviceExt;
 use winit::window::Window;
 
 use crate::atlas::Atlas;
+use crate::bounds::Bounds;
 use crate::ecs::World;
+use crate::manifest::WrapMode;
+use crate::wrap;
 
 /// A corner of the unit quad every sprite is drawn from.
 #[repr(C)]
@@ -61,6 +64,7 @@ pub fn build_instances(world: &World, atlas: &Atlas) -> Vec<SpriteInstance> {
     sorted.sort_by_key(|e| e.z_index);
 
     let (scale_x, scale_y) = (world.sprite_scale_x, world.sprite_scale_y);
+    let bounds = world.bounds();
     let mut out = Vec::with_capacity(sorted.len());
 
     for entity in sorted {
@@ -84,15 +88,29 @@ pub fn build_instances(world: &World, atlas: &Atlas) -> Vec<SpriteInstance> {
         // Depth is drawn as well as simulated: a distant sprite is smaller by
         // the same factor that damps its motion, which is the whole reason the
         // overlay can express parallax and the half-block renderer cannot.
-        out.push(SpriteInstance {
-            pos: [entity.x, entity.y],
-            size: [
-                asset.frame_w as f32 * scale_x * entity.parallax,
-                asset.frame_h as f32 * scale_y * entity.parallax,
-            ],
-            uv_min: [uv[0], uv[1]],
-            uv_max: [uv[2], uv[3]],
-        });
+        let size = [
+            asset.frame_w as f32 * scale_x * entity.parallax,
+            asset.frame_h as f32 * scale_y * entity.parallax,
+        ];
+
+        // A wrapping sprite is drawn again at each complementary position, so the
+        // half that has left one edge arrives at the other in the same frame
+        // rather than popping across a tick later. The pass is scissored to the
+        // bounds, so the part of each extra quad that falls outside is clipped.
+        let placements = if state_def.physics.wrap_mode == WrapMode::Wrap {
+            wrap::offsets((entity.x, entity.y), (size[0], size[1]), bounds)
+        } else {
+            vec![wrap::Offset { dx: 0.0, dy: 0.0 }]
+        };
+
+        for placement in placements {
+            out.push(SpriteInstance {
+                pos: [entity.x + placement.dx, entity.y + placement.dy],
+                size,
+                uv_min: [uv[0], uv[1]],
+                uv_max: [uv[2], uv[3]],
+            });
+        }
     }
 
     out
@@ -109,6 +127,9 @@ pub struct GpuRenderer {
     /// the asset set actually changes.
     pub atlas_generation: Option<u64>,
     pub max_texture_dim: u32,
+    /// The rectangle the sprite pass is clipped to, when Neovim scoped the
+    /// viewport to less than the whole window. `None` draws everywhere.
+    pub scissor: Option<[u32; 4]>,
 
     sprite_pipeline: wgpu::RenderPipeline,
     resolve_pipeline: wgpu::RenderPipeline,
@@ -389,6 +410,7 @@ impl GpuRenderer {
             width: width.max(1),
             height: height.max(1),
             atlas_generation: None,
+            scissor: None,
             max_texture_dim,
             sprite_pipeline,
             resolve_pipeline,
@@ -473,7 +495,26 @@ impl GpuRenderer {
             Some(atlas) => build_instances(world, atlas),
             None => Vec::new(),
         };
+        // A scoped viewport is the only reason to clip: without one the bounds
+        // are the window and the whole target is fair game. With one, a wrapped
+        // quad drawn at a complementary position would otherwise spill into the
+        // part of the window the scope excluded.
+        self.scissor = world.scope.map(|scope| self.clip_rect(scope));
         self.render(&instances)
+    }
+
+    /// A scope clipped to the surface, in the whole pixels a scissor needs.
+    fn clip_rect(&self, scope: Bounds) -> [u32; 4] {
+        let left = scope.left.max(0.0).min(self.width as f32);
+        let top = scope.top.max(0.0).min(self.height as f32);
+        let right = scope.right().max(left).min(self.width as f32);
+        let bottom = scope.bottom().max(top).min(self.height as f32);
+        [
+            left as u32,
+            top as u32,
+            (right - left) as u32,
+            (bottom - top) as u32,
+        ]
     }
 
     fn upload_atlas(&mut self, atlas: &Atlas) {
@@ -619,6 +660,11 @@ impl GpuRenderer {
             });
 
             if let (Some(bind_group), false) = (&self.atlas_bind_group, instances.is_empty()) {
+                if let Some([x, y, width, height]) = self.scissor {
+                    if width > 0 && height > 0 {
+                        pass.set_scissor_rect(x, y, width, height);
+                    }
+                }
                 pass.set_pipeline(&self.sprite_pipeline);
                 pass.set_bind_group(0, bind_group, &[]);
                 pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
@@ -697,6 +743,54 @@ mod tests {
         assert_eq!(
             instances[0].size,
             [cat.frame_w as f32 * 4.0, cat.frame_h as f32 * 4.0]
+        );
+    }
+
+    #[test]
+    fn a_wrapping_sprite_at_the_edge_is_drawn_at_both_edges() {
+        let mut world = world_with(&[("cat", 10.0, 20.0)]);
+        let cat_width = world.asset_manager.get("cat").unwrap().frame_w as f32;
+        // The cat's `idle` clamps and its `walk` wraps, so the state has to be
+        // the wrapping one for there to be a departing half at all.
+        world.entities[0].current_state = "walk".to_string();
+        // Straddling the right edge: `wrap` only teleports once it is entirely
+        // past, so this is a position the simulation really produces.
+        world.entities[0].x = 800.0 - cat_width / 2.0;
+
+        let atlas = Atlas::build(&world.asset_manager, 8192).unwrap();
+        let instances = build_instances(&world, &atlas);
+
+        assert_eq!(
+            instances.len(),
+            2,
+            "the departing half has to arrive at the other edge in the same frame"
+        );
+        assert_eq!(instances[0].pos[0], 800.0 - cat_width / 2.0);
+        assert_eq!(instances[1].pos[0], -cat_width / 2.0);
+        assert_eq!(instances[0].size, instances[1].size);
+        assert_eq!(instances[0].uv_min, instances[1].uv_min);
+    }
+
+    #[test]
+    fn a_clamped_sprite_is_never_drawn_twice() {
+        let mut manifest = crate::manifest::AssetManifest::default_cat();
+        manifest.name = "clamped".to_string();
+        for state in manifest.states.values_mut() {
+            state.physics.wrap_mode = WrapMode::Clamp;
+        }
+
+        let mut world = World::new(800.0, 600.0);
+        world.sprite_scale_x = 1.0;
+        world.sprite_scale_y = 1.0;
+        world
+            .spawn("clamped", Some(manifest), SpawnOptions::at(790.0, 20.0))
+            .unwrap();
+
+        let atlas = Atlas::build(&world.asset_manager, 8192).unwrap();
+        assert_eq!(
+            build_instances(&world, &atlas).len(),
+            1,
+            "only a wrapping sprite has a departing half to draw"
         );
     }
 

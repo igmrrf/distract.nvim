@@ -23,7 +23,7 @@ M.ALIASES = { "ghostty", "wezterm" }
 --- Per-pixel alpha and a resamplable placement, which is what `z` needs to mean
 --- parallax rather than draw order alone.
 ---@type DistractBackendCapabilities
-M.CAPABILITIES = { scale = true, alpha = "pixel" }
+M.CAPABILITIES = { scale = true, alpha = "pixel", native_resolution = true }
 
 --- Requests that should make this module probe the terminal.
 ---

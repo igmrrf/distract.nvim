@@ -1,0 +1,15 @@
+{
+  "description": "animation.fps wins even when the source file carries delays of its own. Same art and frame order as frame_timing_source_delays, so the two goldens differ only by which timing source was consulted; 6.25 fps is 0.16s a frame, which matches none of the file's 40/120/80/200ms. Without this the precedence is only half pinned -- fps is tested against a file that has no delays to lose to.",
+  "physics": { "target_vx": 0.0, "gravity": 0.0, "friction": 0.05, "wrap_mode": "none" },
+  "animation": { "frames": [0, 3, 1, 2], "fps": 6.25, "loop_anim": true },
+  "spritesheet": {
+    "path": "tests/fixtures/physics/frame_delays.gif",
+    "frame_width": 24,
+    "frame_height": 16
+  },
+  "spawn": { "x": 20, "y": 10, "flip_x": false },
+  "cell": { "w": 10, "h": 20 },
+  "bounds": { "columns": 120, "lines": 40 },
+  "dt": 0.013,
+  "steps": 70
+}

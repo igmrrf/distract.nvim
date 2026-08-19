@@ -2,12 +2,13 @@ local M = {}
 
 local backends = require("distract.backends")
 local position = require("distract.position")
+local viewport = require("distract.viewport")
 
 --- Built-in assets. Manifests are required on demand rather than at module
 --- load: each one pulls in its sprite module for the frame layout, and eagerly
 --- loading all three used to be paid on every Neovim start whether or not
 --- anything was ever spawned.
-local BUILTIN_ASSETS = { "cat", "crab", "sun", "cat_walking" }
+local BUILTIN_ASSETS = { "cat", "crab", "sun", "cat_walking", "gudong", "iris", "minty" }
 
 --- Loads a built-in manifest, or nil if there is no such asset.
 local function load_builtin_manifest(name)
@@ -54,9 +55,27 @@ M.config = {
   -- Ceiling on how many of those highlight groups stay defined at once. The
   -- least recently drawn asset's groups are cleared when it is reached.
   max_highlight_groups = 4096,
+  -- Hide sprites while this Neovim instance does not have focus, and show them
+  -- again when it does. The simulation keeps running either way. Set false to
+  -- keep drawing regardless, which is what a standalone desktop animation wants.
+  restrict_to_instance = true,
+  -- Overlay only: which display the overlay window opens on.
+  --
+  -- Left unset, the engine detects the display the terminal has focus on where
+  -- the platform allows it (macOS today) and warns if it cannot, because the
+  -- overlay is a separate OS window and neither Neovim nor the Lua side can see
+  -- which screen it should be on.
+  --
+  -- `monitor` is a 0-based index into the window system's display list, 0 being
+  -- the primary display. `position` is an explicit `{ x, y }` point in global
+  -- desktop coordinates and wins over `monitor`.
+  overlay = { monitor = nil, position = nil },
   -- Where entities are placed and what they stand on. See
   -- `distract.position` for the anchor and ground vocabulary.
   position = vim.deepcopy(position.DEFAULTS),
+  -- Which rectangle entities may move in, what they must not cover, and where
+  -- their surfaces sit in Neovim's float stacking. See `distract.viewport`.
+  positioning = vim.deepcopy(viewport.DEFAULTS),
   assets = lazy_assets(),
 }
 
@@ -104,6 +123,7 @@ function M.setup(opts)
   -- while keeping anything the user supplied.
   M.config.assets = setmetatable(M.config.assets or {}, getmetatable(lazy_assets()))
 
+  viewport.configure(M.config.positioning)
   backend_module(M.config.backend).setup(M.config)
   is_setup = true
 
@@ -266,6 +286,72 @@ function M.register_asset(name, spec)
   if not spec.sprites and not spec.manifest then
     error("distract.register_asset: nothing to register; pass `manifest`, `sprites`, or both")
   end
+end
+
+--- Registers a plugin against the engine's lifecycle hooks.
+---
+--- Hooks observe the simulation and request changes through the `world` handle
+--- their `on_init` receives; the entity a hook is handed is read-only. That is
+--- what keeps one plugin behaving the same way on the in-terminal backends,
+--- which simulate in Lua, and on the overlay, which simulates in its own
+--- process. See `:help distract-plugins`.
+---
+--- @param name string unique plugin name
+--- @param spec table hooks: `on_init`, `on_tick`, `on_state_change`,
+---   `on_collision`, `on_editor_event`, `on_draw`, `on_teardown`
+function M.register_plugin(name, spec)
+  require("distract.plugins").register(name, spec)
+  -- What the overlay subscribes to is derived from the registrations, so a
+  -- plugin registered after the engine started still gets its hooks called.
+  require("distract.external").sync_plugin_subscription()
+end
+
+--- Removes a plugin, running its `on_teardown` first.
+--- @param name string
+--- @return boolean removed
+function M.unregister_plugin(name)
+  local removed = require("distract.plugins").unregister(name)
+  require("distract.external").sync_plugin_subscription()
+  return removed
+end
+
+--- Registers a provider of solid platforms and hazards.
+---
+--- The provider is called with the current window and buffer on a debounced
+--- cadence — editing, scrolling and window changes — and never per tick per
+--- entity, because a Tree-sitter query per frame is a performance trap. Its
+--- rectangles are in terminal cells:
+---
+--- ```lua
+--- require("distract").register_obstacle_provider(function(win_id, buf_id)
+---   return {
+---     { x = 10, y = 15, width = 40, height = 1, type = "solid_platform" },
+---     { x = 0, y = 25, width = 80, height = 1, type = "hazard" },
+---   }
+--- end)
+--- ```
+---
+--- @param provider function `function(win_id, buf_id) -> table[]`
+--- @return integer id for `unregister_obstacle_provider`
+function M.register_obstacle_provider(provider)
+  local id = require("distract.obstacles").register_provider(provider)
+  require("distract.events").sync_obstacles()
+  return id
+end
+
+--- Removes an obstacle provider.
+--- @param id integer as returned by `register_obstacle_provider`
+--- @return boolean removed
+function M.unregister_obstacle_provider(id)
+  local removed = require("distract.obstacles").unregister_provider(id)
+  require("distract.events").sync_obstacles()
+  return removed
+end
+
+--- Names of the registered plugins, in dispatch order.
+--- @return string[]
+function M.get_plugin_names()
+  return require("distract.plugins").names()
 end
 
 function M.get_asset_names()

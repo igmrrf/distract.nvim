@@ -8,32 +8,30 @@
 use std::f32::consts::PI;
 
 use super::SpriteSet;
-use crate::sprite_gen::{self as g, Canvas, CelOrbOpts, Rgb};
+use crate::sprite_gen::{self as g, Canvas, Rgb};
 
 const W: u32 = 24;
 const H: u32 = 16;
 
-const FUR: Rgb = [238, 142, 54];
-const FUR_DARK: Rgb = [164, 76, 24];
-const FUR_LIGHT: Rgb = [255, 186, 92];
-const FUR_SPEC: Rgb = [255, 214, 140];
-const CONTOUR: Rgb = [54, 28, 22];
-const BELLY: Rgb = [254, 246, 238];
-const BELLY_DARK: Rgb = [218, 202, 190];
-const BELLY_SHADOW: Rgb = [184, 168, 156];
-const PAW: Rgb = [255, 255, 255];
-const PAW_SHADOW: Rgb = [204, 196, 192];
-const NOSE: Rgb = [255, 140, 160];
-const EAR_INNER: Rgb = [255, 172, 188];
-const EAR_SHADOW: Rgb = [216, 128, 144];
-const EAR_LIGHT: Rgb = [255, 204, 216];
-const EYE: Rgb = [28, 24, 36];
-const EYE_LIT: Rgb = [64, 224, 172];
-const WHITE: Rgb = [255, 255, 255];
-const MOUTH: Rgb = [188, 54, 72];
-const MOUTH_DARK: Rgb = [132, 28, 44];
-const ZZZ: Rgb = [176, 212, 255];
-const ZZZ_FADE: Rgb = [140, 180, 235];
+// Flat, banded palette. Mirrors `lua/distract/sprites/cat.lua`. At 24x16 a sprite
+// is 24 columns by eight half-block rows, and the five lighting terms this asset
+// used to spend across a twelve-pixel body read as noise rather than as form: the
+// cat read as a fox.
+const CONTOUR: Rgb = [40, 26, 30];
+const FUR: Rgb = [236, 146, 60];
+const FUR_DARK: Rgb = [174, 96, 34];
+const BELLY: Rgb = [252, 240, 226];
+const EAR_INNER: Rgb = [240, 150, 168];
+const NOSE: Rgb = [236, 118, 142];
+const EYE: Rgb = [32, 28, 40];
+const ZZZ: Rgb = [168, 206, 250];
+
+/// The rim is a darker fur tone rather than the near-black contour. A near-black
+/// outline is the right choice on a light page and the wrong one here: the editor
+/// background is dark, so a dark rim merges into it and the silhouette loses its
+/// edge -- the rendered cat looked like it had bites taken out of it. CONTOUR is
+/// kept for the accents that must read as holes: eyes and an open mouth.
+const RIM: Rgb = FUR_DARK;
 
 /// One cat pose.
 #[derive(Debug, Clone, Copy)]
@@ -74,144 +72,134 @@ impl Default for Pose {
     }
 }
 
+/// The cat's primary motion cue, so it is drawn thick enough to read.
+///
+/// Five segments, not six. The sixth drew nothing at all -- at `i = 6` its centre
+/// landed off the canvas's left edge with a radius under a pixel, and any sliver
+/// was already covered by the fifth.
+///
+/// Contours first, then fills, so one segment's outline cannot be painted over the
+/// next segment's body and leave a dark seam down the tail.
 fn draw_tail(c: &mut Canvas, body_cx: f32, body_cy: f32, body_rx: f32, curl: f32, tail: f32) {
-    let tail_base_x = body_cx - body_rx + 0.8;
-    let opts = CelOrbOpts {
-        shadow: Some(CONTOUR),
-        highlight: Some(FUR),
-        outline: Some(CONTOUR),
-        outline_threshold: Some(0.82),
-        ..Default::default()
-    };
-    for i in 1..=6 {
-        let t = i as f32 / 6.0;
-        let curve = (0.55 + tail * 0.45) * t * t;
-        let tx = tail_base_x - t * (4.2 - curl * 1.6);
-        let ty = body_cy - curve * (4.4 - curl * 2.6) + curl * 0.8;
-        c.cel_orb(tx, ty, 1.45 - t * 0.6, 1.45 - t * 0.6, FUR_DARK, &opts);
+    let base_x = body_cx - body_rx + 1.4;
+    let base_y = body_cy - 0.8;
+    let mut segments = [[0.0_f32; 3]; 5];
+    for index in 1..=5 {
+        let t = index as f32 / 5.0;
+        let rise = (0.5 + tail * 0.5) * t;
+        segments[index - 1] = [
+            base_x - t * (4.2 - curl * 3.0),
+            base_y - rise * (4.6 - curl * 4.2) + curl * 2.0,
+            1.7 - t * 0.2,
+        ];
+    }
+    for segment in &segments {
+        c.ellipse(segment[0], segment[1], segment[2], segment[2], RIM);
+    }
+    for segment in &segments {
+        // One pixel inside the contour, which at this radius is a plus rather
+        // than a square: a solid fill would leave the tail all outline and no fur.
+        c.ellipse(
+            segment[0],
+            segment[1],
+            segment[2] - 1.0,
+            segment[2] - 1.0,
+            FUR,
+        );
     }
 }
 
+/// Four legs in two distinguishable pairs.
+///
+/// The hind pair is short and thick under the haunch, the fore pair thinner and
+/// longer under the chest, and they swing half a cycle apart. Four identical
+/// capsules was the other half of why the silhouette read as a fox.
 fn draw_legs(c: &mut Canvas, body_cx: f32, body_cy: f32, body_ry: f32, base_y: f32, p: &Pose) {
     if p.curl >= 0.6 {
         return;
     }
-    let leg_opts = CelOrbOpts {
-        shadow: Some(FUR_DARK),
-        highlight: Some(FUR_LIGHT),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
-    let paw_opts = CelOrbOpts {
-        shadow: Some(PAW_SHADOW),
-        highlight: Some(WHITE),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
-    for (hip_x, phase) in [
-        (body_cx - 3.2, 0.5),
-        (body_cx + 3.0, 0.0),
-        (body_cx - 1.6, 0.0),
-        (body_cx + 4.4, 0.5),
+
+    let reach = 1.8 + p.stretch * 1.6;
+    // The hip sits at the body's lower edge and the foot on the floor, so the legs
+    // are drawn *below* the barrel rather than inside it. They were inside it,
+    // which is why a rendered cat had no legs at all.
+    let hip_y = body_cy + body_ry - 0.4;
+
+    for (hip_x, width, phase) in [
+        (body_cx - 3.0, 2.0_f32, 0.0_f32),
+        (body_cx - 1.4, 2.0, 0.5),
+        (body_cx + 2.0, 2.0, 0.5),
+        (body_cx + 3.4, 2.0, 0.0),
     ] {
-        let swing = ((p.leg + phase) * 2.0 * PI).sin();
-        let knee_x = hip_x + swing * (1.6 + p.stretch * 1.4);
-        let foot_y = base_y + 2.4 - p.lift * 1.2 - p.curl * 2.2;
-        let lifted =
-            (((p.leg + phase) * 2.0 * PI + PI / 2.0).sin().max(0.0)) * (0.9 + p.stretch * 0.8);
-        c.cel_limb(
-            [hip_x, body_cy + body_ry * 0.6],
-            [knee_x, foot_y - lifted],
-            1.35,
-            FUR,
-            &leg_opts,
-        );
-        c.cel_orb(knee_x, foot_y - lifted, 1.5, 1.1, PAW, &paw_opts);
+        let cycle = (p.leg + phase) * 2.0 * PI;
+        let raise = (cycle + PI * 0.5).sin().max(0.0) * (0.7 + p.lift * 1.8);
+        let foot_x = hip_x + cycle.sin() * reach;
+        let foot_y = base_y - raise;
+        let span = (foot_y - hip_y).floor().max(1.0);
+
+        let mut step = 0.0;
+        while step <= span {
+            let along = step / span;
+            c.rect(
+                (hip_x + (foot_x - hip_x) * along).floor(),
+                hip_y + step,
+                width,
+                1.0,
+                FUR_DARK,
+            );
+            step += 1.0;
+        }
+        c.rect(foot_x.floor(), foot_y.floor(), width + 1.0, 1.0, BELLY);
     }
 }
 
-fn draw_ears(c: &mut Canvas, head_cx: f32, head_cy: f32, head_r: f32, stretch: f32, mouth: f32) {
-    let lean = -stretch * 0.3 + mouth * 0.2;
-    for (ex, side) in [(head_cx - 1.8, -1.0_f32), (head_cx + 1.6, 1.0_f32)] {
-        let top_x = ex + side * 0.6 + lean * 1.2;
-        let top_y = head_cy - head_r - 2.2;
+/// Two upright ears with a gap between them.
+///
+/// Three pixels wide and three tall, contoured, with one pink pixel inside. The
+/// old pair were 2.4-pixel triangles that read as a single fuzzy line.
+fn draw_ears(c: &mut Canvas, head_cx: f32, head_cy: f32, head_r: f32, curl: f32) {
+    let tuck = curl * 1.4;
+    for ex in [head_cx - 2.2, head_cx + 1.8] {
+        let base = head_cy - head_r * 0.8 + tuck;
+        let tip = base - 2.9 + tuck;
+        c.triangle([ex - 1.4, base], [ex + 1.4, base], [ex, tip], RIM);
         c.triangle(
-            [ex - 1.2, head_cy - head_r + 0.4],
-            [ex + 1.2, head_cy - head_r + 0.4],
-            [top_x, top_y],
-            CONTOUR,
-        );
-        c.triangle(
-            [ex - 0.8, head_cy - head_r + 0.2],
-            [ex + 0.8, head_cy - head_r + 0.2],
-            [top_x, top_y + 0.4],
+            [ex - 0.9, base - 0.7],
+            [ex + 0.9, base - 0.7],
+            [ex, tip + 1.1],
             FUR,
         );
-        c.triangle(
-            [ex - 0.4, head_cy - head_r],
-            [ex + 0.4, head_cy - head_r],
-            [top_x, top_y + 0.8],
-            EAR_INNER,
-        );
-        c.set(ex, head_cy - head_r + 0.3, EAR_SHADOW);
-        c.set(ex + side * 0.3, top_y + 0.6, EAR_LIGHT);
+        c.set(ex, base - 1.5, EAR_INNER);
+    }
+}
+
+fn draw_eyes(c: &mut Canvas, head_cx: f32, head_cy: f32, eye: f32) {
+    for ex in [head_cx - 0.8, head_cx + 1.4] {
+        if eye > 0.3 {
+            c.set(ex, head_cy - 0.4, EYE);
+        } else {
+            c.set(ex, head_cy - 0.4, CONTOUR);
+            c.set(ex + 1.0, head_cy - 0.4, CONTOUR);
+        }
     }
 }
 
 fn draw_head(c: &mut Canvas, head_cx: f32, head_cy: f32, head_r: f32, p: &Pose) {
-    draw_ears(c, head_cx, head_cy, head_r, p.stretch, p.mouth);
-    let head_opts = CelOrbOpts {
-        shadow: Some(FUR_DARK),
-        highlight: Some(FUR_LIGHT),
-        outline: Some(CONTOUR),
-        rim: Some(0.2),
-        rim_color: Some(FUR_SPEC),
-        ..Default::default()
-    };
-    c.cel_orb(head_cx, head_cy, head_r, head_r * 0.94, FUR, &head_opts);
-    let belly_opts = CelOrbOpts {
-        shadow: Some(BELLY_DARK),
-        highlight: Some(WHITE),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
-    c.cel_orb(head_cx + 1.1, head_cy + 1.3, 1.7, 1.1, BELLY, &belly_opts);
-    c.set(head_cx + 0.8, head_cy + 1.6, BELLY_SHADOW);
-    for ex in [head_cx - 1.1, head_cx + 1.7] {
-        if p.eye > 0.3 {
-            c.set(ex, head_cy - 0.5, EYE);
-            c.set(ex, head_cy - 1.5, EYE_LIT);
-            c.set(ex + 0.5, head_cy - 1.5, WHITE);
-        } else {
-            c.line(ex - 1.0, head_cy - 0.8, ex + 1.0, head_cy - 0.8, CONTOUR);
-        }
-    }
-    c.set(head_cx + 1.1, head_cy + 0.7, NOSE);
-    if p.curl < 0.6 {
-        c.line(
-            head_cx + 2.2,
-            head_cy + 0.9,
-            head_cx + 4.6,
-            head_cy + 0.4,
-            BELLY_DARK,
-        );
-        c.line(
-            head_cx + 2.2,
-            head_cy + 1.5,
-            head_cx + 4.6,
-            head_cy + 2.0,
-            BELLY_DARK,
-        );
-    }
+    draw_ears(c, head_cx, head_cy, head_r, p.curl);
+    c.blob(head_cx, head_cy, head_r, head_r * 0.92, FUR, RIM);
+    // Muzzle: one light band, not a modelled snout. It is what tells the head
+    // which way it faces.
+    c.ellipse(head_cx + 1.1, head_cy + 1.2, 1.2, 0.6, BELLY);
+    c.set(head_cx + 2.0, head_cy + 0.9, NOSE);
+    draw_eyes(c, head_cx, head_cy, p.eye);
     if p.mouth > 0.04 {
         c.ellipse(
-            head_cx + 1.2,
-            head_cy + 1.7 + p.mouth * 0.5,
-            0.8 + p.mouth * 0.8,
-            0.5 + p.mouth * 1.0,
-            MOUTH,
+            head_cx + 1.4,
+            head_cy + 1.9,
+            0.6 + p.mouth * 0.7,
+            0.5 + p.mouth * 0.9,
+            CONTOUR,
         );
-        c.set(head_cx + 1.2, head_cy + 1.8 + p.mouth * 0.5, MOUTH_DARK);
     }
 }
 
@@ -219,73 +207,50 @@ fn draw_sleep(c: &mut Canvas, head_cx: f32, head_cy: f32, zzz: f32) {
     if zzz <= 0.05 {
         return;
     }
-    let rise = (zzz * 4.0).floor() as i32;
-    for i in 0..=1 {
-        let size = 2 - i;
-        let zy = head_cy as i32 - 3 - i * 2 + rise;
-        let zx = head_cx as i32 + 3 + i + (rise as f32 * 0.5) as i32;
-        let tone = if i == 0 { ZZZ } else { ZZZ_FADE };
-        c.line(zx as f32, zy as f32, (zx + size) as f32, zy as f32, tone);
-        c.line(
-            (zx + size) as f32,
-            zy as f32,
-            zx as f32,
-            (zy + size) as f32,
-            tone,
-        );
-        c.line(
-            zx as f32,
-            (zy + size) as f32,
-            (zx + size) as f32,
-            (zy + size) as f32,
-            tone,
-        );
+    let rise = (zzz * 3.0).floor();
+    for index in 0..=1 {
+        let size = 2.0 - index as f32;
+        let zy = head_cy - 4.0 - index as f32 * 2.0 + rise;
+        let zx = head_cx + 3.0 + index as f32 + rise;
+        c.line(zx, zy, zx + size, zy, ZZZ);
+        c.line(zx + size, zy, zx, zy + size, ZZZ);
+        c.line(zx, zy + size, zx + size, zy + size, ZZZ);
     }
 }
 
 pub fn draw(p: &Pose) -> Canvas {
     let mut c = Canvas::new(W, H);
-    let base_y = 12.0 - p.lift * 3.0 + p.curl * 1.5;
-    let body_cx = 10.0 + p.stretch * 0.8;
-    let body_cy = base_y - 2.6 + p.curl * 1.2;
-    let body_rx = 6.0 + p.stretch * 1.4 + p.curl * 1.0;
-    let body_ry = 3.4 - p.stretch * 0.5 - p.curl * 0.7;
+    // Laid out so the whole canvas is used: ear tips on the top row, head above
+    // the shoulder, body across the middle, paws on the floor row. An asset's
+    // cell footprint is its whole canvas, so empty rows at the bottom would float
+    // the cat above the floor it is anchored to.
+    let base_y = 15.0 - p.lift * 2.6 + p.curl * 1.2;
+    let body_cx = 9.0 + p.stretch * 0.6;
+    let body_cy = base_y - 5.4 + p.curl * 1.6;
+    let body_rx = 4.9 + p.stretch * 1.1 + p.curl * 0.9;
+    let body_ry = 2.3 - p.stretch * 0.25 - p.curl * 0.3;
 
     draw_tail(&mut c, body_cx, body_cy, body_rx, p.curl, p.tail);
     draw_legs(&mut c, body_cx, body_cy, body_ry, base_y, p);
 
-    let body_opts = CelOrbOpts {
-        shadow: Some(FUR_DARK),
-        highlight: Some(FUR_LIGHT),
-        outline: Some(CONTOUR),
-        rim: Some(0.25),
-        rim_color: Some(FUR_SPEC),
-        ..Default::default()
-    };
-    c.cel_orb(body_cx, body_cy, body_rx, body_ry, FUR, &body_opts);
-    let bib_opts = CelOrbOpts {
-        shadow: Some(BELLY_DARK),
-        highlight: Some(WHITE),
-        outline: Some(CONTOUR),
-        ..Default::default()
-    };
-    c.cel_orb(
+    // Haunch first, so the barrel's contour closes over where the two meet: a
+    // cat's rear is its most recognisable line after the ears and the tail.
+    c.blob(body_cx - body_rx * 0.6, body_cy + 0.2, 2.5, 2.5, FUR, RIM);
+    c.blob(body_cx, body_cy, body_rx, body_ry, FUR, RIM);
+    // One band, one row tall. A thicker one read as a cream stripe down a sausage
+    // rather than as a belly.
+    c.ellipse(
         body_cx + 0.4,
-        body_cy + body_ry * 0.45,
-        body_rx * 0.68,
-        body_ry * 0.44,
+        body_cy + body_ry - 1.2,
+        body_rx * 0.5,
+        0.6,
         BELLY,
-        &bib_opts,
     );
-    c.set(body_cx + 0.2, body_cy + body_ry * 0.8, BELLY_SHADOW);
-    c.set(body_cx - 1.0, body_cy - body_ry + 0.8, FUR_SPEC);
-    c.set(body_cx, body_cy - body_ry + 0.6, WHITE);
 
-    let head_cx = body_cx + body_rx * 0.92 + p.stretch * 1.0;
-    let head_cy = body_cy - 3.4 + p.head_dip * 1.6 + p.curl * 2.0;
-    let head_r = 2.9;
+    let head_cx = body_cx + body_rx * 0.92 + p.stretch * 0.9;
+    let head_cy = body_cy - 4.6 + p.head_dip * 1.6 + p.curl * 3.2;
+    draw_head(&mut c, head_cx, head_cy, 2.3, p);
 
-    draw_head(&mut c, head_cx, head_cy, head_r, p);
     if p.curl >= 0.6 {
         draw_sleep(&mut c, head_cx, head_cy, p.zzz);
     }

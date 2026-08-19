@@ -1,0 +1,43 @@
+{
+  "description": "A grounded entity walks right along two platforms at different heights and drops back to the floor past the end of the second. No gravity: which surface it stands on is resolved every frame, not fallen onto. Rows 28, 24 and the floor at 34 are three distinct y values, so a rule that ignored the higher platform cannot land on the same trajectory. The second platform starts at 45.3 rather than 44 on purpose: the entity advances exactly 2 cells per step and is 24 wide, so an edge on an even cell would put its right edge exactly on the platform's left edge, where f32 and f64 fall either side of the span test.",
+  "physics": {
+    "target_vx": 2.0,
+    "target_vy": 0.0,
+    "gravity": 0.0,
+    "friction": 0.2,
+    "wrap_mode": "none",
+    "locomotion": "grounded"
+  },
+  "spawn": {
+    "x": 4,
+    "y": 26,
+    "flip_x": false
+  },
+  "cell": {
+    "w": 10,
+    "h": 20
+  },
+  "bounds": {
+    "columns": 120,
+    "lines": 40
+  },
+  "ground_row": 34,
+  "obstacles": [
+    {
+      "x": 20,
+      "y": 28,
+      "width": 24,
+      "height": 1,
+      "type": "solid_platform"
+    },
+    {
+      "x": 45.3,
+      "y": 24,
+      "width": 23,
+      "height": 1,
+      "type": "solid_platform"
+    }
+  ],
+  "dt": 0.016666667,
+  "steps": 80
+}

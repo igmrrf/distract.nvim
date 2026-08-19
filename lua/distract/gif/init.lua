@@ -8,7 +8,7 @@
 --- exactly the code path a procedural one does.
 
 local parser = require("distract.gif.parser")
-local resample = require("distract.gif.resample")
+local resample = require("distract.resample")
 
 local M = {}
 
