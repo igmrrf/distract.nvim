@@ -175,12 +175,38 @@ apart.
 
 | Asset | Canvas | Frames | States |
 |---|---|---|---|
-| cat | 24×16 px (24×8 cells) | 29 | idle, walk, walk_fast, jump, yawn, sleep |
-| crab | 24×16 px (24×8 cells) | 25 | idle, walk, walk_fast, clip_claws, burrow, sleep |
-| sun | 16×16 px (16×8 cells) | 25 | shining, eclipse, flare, rising, setting |
+| `cat` | 24×16 px (24×8 cells) | 29 | idle, walk, walk_fast, jump, yawn, sleep |
+| `crab` | 24×16 px (24×8 cells) | 25 | idle, walk, walk_fast, clip_claws, burrow, sleep |
+| `sun` | 16×16 px (16×8 cells) | 25 | shining, eclipse, flare, rising, setting |
 
 Every one of them also has a 3D form, extruded from these same frames — see
 [2D or 3D](#-2d-or-3d).
+
+### Bundled image-backed assets
+
+Four more ship as real artwork rather than pose curves, and spawn by name the
+same way. They are not procedural, so they do not have a `draw(pose)` routine to
+extend — they are what a manifest pointing at a spritesheet looks like in
+practice.
+
+| Asset | Art | States | Licence |
+|---|---|---|---|
+| `cat_walking` | GIF, `assets/cat_walking_1.gif` | walk, idle | this repository's |
+| `gudong` | packed sheet + `.rgba` sidecar | idle, running, waving, jumping, failed, waiting, review | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| `iris` | packed sheet + `.rgba` sidecar | idle, running, waving, jumping, failed, waiting, review | MIT |
+| `minty` | packed sheet + `.rgba` sidecar | idle, running, waving, jumping, failed, waiting, review | MIT |
+
+`gudong`, `iris` and `minty` are original characters by other artists, used
+under the licence each one attached — see [`ATTRIBUTION.md`](ATTRIBUTION.md),
+which is the attribution CC BY 4.0 requires. They react to editor events out of
+the box: typing or moving sends them to `running`, going idle to `waiting`.
+
+Each ships two artifacts on purpose. The packed sheet is what the overlay
+backend draws from; the `.rgba` sidecar is the only form the in-terminal
+backends can decode, because pure Lua can read a GIF but not a PNG.
+
+`:DistractSpawn` completes on all seven names, and `:checkhealth distract`
+lists whatever is registered in your session.
 
 Frames are drawn on first use, not at startup: loading the plugin costs well
 under a millisecond whether or not you ever spawn anything.
@@ -201,6 +227,19 @@ end))
 - **Cat**: Walk, sprint on typing, jump (with parabolic gravity physics & floor collision), yawn, sleep with Zzz, sit, wake.
 - **Crab**: Sideways scuttle, snap pincers / clip claws, burrow into editor code, sleep.
 - **Sun**: Shining with pulsing corona, sine pathing, solar flares, sunrise/sunset, solar eclipses.
+
+---
+
+## 📋 Requirements
+
+- **Neovim 0.9 or newer**, with truecolor (`:set termguicolors`).
+- Nothing else for the `halfblock` and `kitty` backends — the terminal draws them.
+- The `overlay` backend needs the compiled engine binary. Install a
+  checksum-verified prebuilt one with `:DistractDownload`, or build from source
+  with `:DistractBuild` (needs a Rust toolchain). See
+  [Overlay backend](#-overlay-backend).
+
+`:checkhealth distract` reports which of these your setup satisfies.
 
 ---
 
@@ -241,7 +280,7 @@ Using [lazy.nvim](https://github.com/folke/lazy.nvim):
 | `:DistractStop` | Stop the render engine | |
 | `:DistractToggle` | Toggle the engine on / off | |
 | `:DistractBackend [name]` | View or switch active rendering backend | `halfblock`, `kitty`, `overlay` |
-| `:DistractSpawn [asset] [opts]` | Spawn an entity onto the screen | `cat`, `crab`, `sun`, or custom; `x=`, `y=`, `z=`, `anchor=`, `flip_x=` |
+| `:DistractSpawn [asset] [opts]` | Spawn an entity onto the screen | `cat`, `cat_walking`, `crab`, `gudong`, `iris`, `minty`, `sun`, or custom; `x=`, `y=`, `z=`, `anchor=`, `flip_x=` |
 | `:DistractAction <action> [target]` | Trigger a custom capability on an entity | `jump`, `yawn`, `clip`, `burrow`, `eclipse`, `rise`, `set`, `flare`, `sleep`, `wake` |
 | `:DistractClear` | Clear all active entities from the screen | |
 | `:DistractStatus` | Print active entities, states, and coordinates | |
@@ -520,9 +559,70 @@ sh /tmp/lr/bin/luacheck lua plugin tests
 
 ## 📖 Documentation
 
+Everything is reachable from the help file, which is the reference:
+
 ```vim
 :help distract
 ```
+
+`:checkhealth distract` reports what your setup can actually do — terminal
+capabilities, whether an engine binary is installed and whether one is published
+for your platform, the active backend and render mode, and the assets and
+plugins registered in your session.
+
+| Document | What it covers |
+|---|---|
+| [`doc/distract.txt`](doc/distract.txt) | The full reference: config, commands, backends, manifests, events, the Lua API |
+| [`docs/configuration.md`](docs/configuration.md) | Every configuration key, with defaults |
+| [`docs/importing-assets.md`](docs/importing-assets.md) | Turning a spritesheet or a folder of stills into an asset |
+| [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md) | What downstream plugins can be built on the Plugin API |
+| [`ATTRIBUTION.md`](ATTRIBUTION.md) | Artists and licences for the bundled pets |
+| [`CHANGELOG.md`](CHANGELOG.md) | What shipped, and why |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to propose a change |
+| [`REVIEW.md`](REVIEW.md) | Findings from the production-readiness review, and what is still open |
+
+---
+
+## ✅ Pending work
+
+`distract.nvim` is **feature locked**: no new capability outside the documented
+scope goes into core, so this is not a list of features on the way. It is the
+work that is actually outstanding, and it is deliberately short.
+
+Anything that would extend what a pet can *do* belongs in a downstream plugin
+built on the Plugin API, not here.
+
+### Core — improvements only
+
+- [ ] **Weighted random selection among several `on_event` targets.** Today
+      `on_event` maps a name to a single state on both engines, so a repeated
+      stimulus always resolves the same way. Adding weights is a manifest schema
+      change that ripples through the Rust serde types, the bundled manifests and
+      every manifest already written against the current shape, so it is held for
+      a deliberate schema revision rather than folded into a fix pass.
+- [ ] **Single-letter locals outside mathematical coordinates.** Mostly the
+      `local g = require("distract.sprite_gen")` alias each sprite module opens
+      with, which prefixes most of their drawing calls.
+- [ ] **Record the judgement on seven discarded `pcall` results.** Several are
+      legitimate best-effort teardown; each needs that stated rather than assumed.
+- [ ] **Run the headless GPU suites somewhere with an adapter.** `gpu_headless`
+      and `gpu3d_headless` skip rather than fail when no GPU is present, so a
+      green CI run does not prove the shaders compile.
+
+### Ecosystem — separate repositories, not core gaps
+
+Every core surface these need already exists; see
+[`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). None of them is a
+missing feature of this plugin.
+
+- [ ] `distract-talk` — contextual dialogue and speech bubbles
+- [ ] `distract-physics` — Tree-sitter code physics and solid platforms
+- [ ] `distract-lsp` — semantic LSP pathfinding and companion accompaniment
+- [ ] `distract-memory` — persistent episodic memory
+- [ ] `distract-wpm` — gamification, WPM momentum and streaks
+- [ ] `distract-weather` — ambient weather and particle systems
+- [ ] `distract-ai` — local LLM companion brain
+- [ ] `distract-sprite-craft` — asset generation MCP server
 
 ---
 

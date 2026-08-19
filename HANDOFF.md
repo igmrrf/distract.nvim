@@ -42,10 +42,12 @@ Any speculative extensions, domain-specific companion behaviors, or game mechani
 
 | Item | State | Notes |
 |---|---|---|
+| Release | **v0.1.0 published** | Four platform binaries, each with a `.sha256`, installable via `:DistractDownload`. |
 | Core Engine & Plugin | **Feature Locked** | All documented capabilities implemented, verified, and locked. |
 | Memory & Lifecycle | Clean | Kitty ID allocation, obstacle provider indexing, and backend teardown resolved. |
-| Test Suite | 100% Green | 557 Lua tests, 282 Rust tests passing. |
+| Test Suite | 100% Green | 557 Lua tests, 298 Rust tests passing, on Linux, macOS and Windows. |
 | Downstream ecosystem plugins | External | External companion plugins and integrations described in [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). |
+| Outstanding work | Short, listed | The checklist at the bottom of [`README.md`](README.md), with the standards detail in [`REVIEW.md`](REVIEW.md) §8. |
 
 ---
 
@@ -549,7 +551,50 @@ probe already reports. The regeneration command is in the harness header.
     free-list was added here once and was dead on arrival — nothing inserted
     into it — while reading as though exhaustion had been solved.
 
-40. **The headless GPU suites skip when there is no adapter.** `gpu3d_headless`
+40. **`macos-13` is retired, and a job asking for it queues forever.** The
+    release build sat on "Waiting for a runner to pick up this job" while every
+    other matrix entry finished, which reads exactly like flakiness and is not.
+    macos-13 was the last free Intel image; x86_64-apple-darwin is cross-built
+    from `macos-latest` now. That works because the release job only builds and
+    packages — it never runs the binary it produces, which is the one thing
+    cross-compilation could not do. The same trap applies to any label GitHub
+    retires: check `actions/runner-images` before assuming a queue is a queue.
+
+41. **`f32::exp` is not the same function on every platform.** `entity_step`
+    computes its friction lerp with it, and `expf` is not required to be
+    correctly rounded, so Apple's libm, glibc and the MSVC CRT each return their
+    own last bit. One differing ULP at the first step compounds through the
+    integration. The physics goldens are therefore compared with a bound
+    relative to each sample's magnitude rather than an absolute one — an
+    absolute bound silently tightens as a trajectory travels, which is how this
+    hid until a fixture ran out to x = 57 on Windows. `sqrt` and `powi` are
+    exact everywhere, which is why sprite parity can still demand equality;
+    `sin`, `cos` and `atan2` in `path.rs` and the crab and sun generators are
+    not, so treat any new transcendental in a parity path as a cross-platform
+    hazard.
+
+42. **`cargo test` stops at the first failing test binary**, so one green
+    platform and one red one tells you about *one* failure, not all of them.
+    Linux and Windows were failing for entirely unrelated reasons and each
+    masked whatever came after it alphabetically. Do not conclude a fix worked
+    from a single platform going green.
+
+43. **The engine must parse argv before it builds an event loop.** Building one
+    needs a window system, so with the order reversed a display-less session
+    killed the process before it could report a bad argument — no stdout, no
+    error, just a vanished engine. `argv_exit.rs` removes `DISPLAY` and
+    `WAYLAND_DISPLAY` from the child's environment so the ordering is pinned on
+    a developer's desktop and not only on a headless runner.
+
+44. **The Linux dependency install lives in one composite action**,
+    `.github/actions/linux-gui-deps`, called by lint, test-rust and
+    build-engine-release. It carries the guards that stop apt hanging a job for
+    hours: `DEBIAN_FRONTEND`, `NEEDRESTART_MODE`, and Acquire bounds without
+    which a stalled mirror hangs `apt-get update` indefinitely.
+    `DPkg::Lock::Timeout` alone does not do it — that covers the dpkg frontend
+    lock, not the network.
+
+45. **The headless GPU suites skip when there is no adapter.** `gpu3d_headless`
     and `gpu_headless` both return early rather than failing, so green on a runner
     without a GPU says nothing about whether `shader3d.wgsl` even compiles. Run
     them locally before trusting a shader change.

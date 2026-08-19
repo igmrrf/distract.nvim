@@ -34,7 +34,8 @@ CONTENTS                                                    *distract-contents*
 ==============================================================================
 1. INTRODUCTION                                         *distract-introduction*
 
-distract.nvim draws small animated companions — a cat, a crab, a sun — that
+distract.nvim draws small animated companions — a cat, a crab, a sun and four
+image-backed pets (|distract-bundled-assets|) — that
 react to what you are doing in the editor. They walk when you move, sprint when
 you type, and curl up and sleep when you stop.
 
@@ -48,8 +49,14 @@ its own art.
 
     Neovim 0.9 or newer, with truecolor (`:set termguicolors`).
 
-The |distract-overlay| backend additionally needs a Rust toolchain to build its
-engine, or a prebuilt binary. See |distract-overlay|.
+The |distract-overlay| backend additionally needs the compiled engine binary.
+Install a checksum-verified prebuilt one with |:DistractDownload|, or build it
+from source with |:DistractBuild|, which needs a Rust toolchain. See
+|distract-overlay|.
+
+Run `:checkhealth distract` to see which of these your setup satisfies, which
+backend is active, and whether a prebuilt binary is published for your
+platform.
 
 ==============================================================================
 3. SETUP                                                       *distract-setup*
@@ -138,8 +145,9 @@ render~
 
                                                      *distract-config-assets*
 assets~
-    A table of `name = manifest`. Anything set here takes precedence over the
-    built-in `cat`, `crab` and `sun`. See |distract-manifests|.
+    A table of `name = manifest`. Anything set here takes precedence over a
+    bundled asset of the same name. See |distract-manifests| and
+    |distract-bundled-assets|.
 
 ------------------------------------------------------------------------------
 4.1 POSITION                                                *distract-position*
@@ -421,7 +429,8 @@ source colour, which is the cheapest and flattest a model gets.
                         Spawn an entity. Defaults to `cat`. Completes on the
                         available asset names. `opts` are `key=value` pairs:
                         `x=`, `y=` (terminal cells), `z=` (depth),
-                        `anchor=auto|bottom|top|free` and `flip_x=true|false`.
+                        `anchor=` (auto, bottom, top, free) and `flip_x=`
+                        (true, false).
                         An unrecognised option is reported and skipped; the
                         entity still spawns. See |distract-position|. >
                             :DistractSpawn crab x=10 y=5 flip_x=true
@@ -668,6 +677,47 @@ anchor~
     An `anchor` in |distract-position| or on a single spawn overrides it. An
     anchor outside the four names above is an error at spawn rather than a
     silent fallback.
+
+------------------------------------------------------------------------------
+7.0 Bundled assets                                    *distract-bundled-assets*
+
+Seven assets ship with the plugin. `:DistractSpawn` completes on all of them,
+and `:checkhealth distract` lists whatever is registered in your session.
+
+Three are procedural — drawn from pose curves rather than stored artwork, so
+animation is smooth by construction and a new state means a new curve:
+
+    Asset      Canvas                  Frames  States ~
+    cat        24x16 px (24x8 cells)   29      idle, walk, walk_fast, jump,
+                                               yawn, sleep
+    crab       24x16 px (24x8 cells)   25      idle, walk, walk_fast,
+                                               clip_claws, burrow, sleep
+    sun        16x16 px (16x8 cells)   25      shining, eclipse, flare,
+                                               rising, setting
+
+Four are image-backed. They are what a manifest pointing at real artwork looks
+like in practice, and they have no pose curves to extend:
+
+    Asset         Art                        States ~
+    cat_walking   GIF, assets/cat_walking_1.gif
+                                             walk, idle
+    gudong        packed sheet + .rgba       idle, running, waving, jumping,
+    iris          packed sheet + .rgba       failed, waiting, review
+    minty         packed sheet + .rgba
+
+`gudong`, `iris` and `minty` are original characters by other artists, used
+under the licence each one attached — CC BY 4.0 for `gudong`, MIT for the
+other two. See `ATTRIBUTION.md` in the repository, which is the attribution
+CC BY 4.0 requires. Out of the box they react to editor events: typing or
+moving sends them to `running`, going idle to `waiting`.
+
+Each of the three ships two artifacts on purpose. The packed sheet is what the
+|distract-overlay| backend draws from; the `.rgba` sidecar is the only form the
+in-terminal backends can decode, because pure Lua can read a GIF but not a PNG.
+Removing a sidecar makes that pet fall back silently to the procedural cat.
+
+Every asset also has a 3D form, extruded from the same frames. See
+|distract-render|.
 
 ------------------------------------------------------------------------------
 7.1 Locomotion                                             *distract-locomotion*

@@ -274,6 +274,23 @@ contents are folded into this release as the two passes that produced it.
 - The manifest scaffold emitted state names as bare Lua table keys, so any name
   that is not a plain identifier — anything hyphenated, like `running-right` —
   produced a file that would not parse. Such names are now bracketed.
+- **The release build could never publish.** Three separate faults, each
+  masking the next because `cargo test` stops at the first failing test binary:
+  the engine built its winit event loop before parsing argv, so a display-less
+  Linux runner killed it before it could report a bad argument; the physics
+  goldens were compared with an absolute bound that `f32::exp` differing
+  between Apple's libm, glibc and the MSVC CRT exceeded on Windows by step 12
+  of `accel_floorless`; and the x86_64 macOS job asked for `macos-13`, a runner
+  label GitHub has retired, so it queued indefinitely. Argument parsing now
+  happens first, golden drift is bounded relative to each sample's magnitude,
+  and the x86_64 binary is cross-built from the arm64 runner.
+- **CI jobs could hang for hours.** `apt-get` ran with no non-interactive
+  guards and no acquire bounds, so a needrestart prompt or a stalled mirror
+  held a runner until the six-hour ceiling, and nothing cancelled superseded
+  runs. The dependency install is now one composite action carrying those
+  guards, every job has a timeout, and a concurrency group cancels superseded
+  runs — except on tags, where killing a release build half way through
+  publishes nothing.
 - **`:DistractDownload` installed an unverified binary.** It fetched an archive
   over the network, unpacked it and marked it executable without checking what
   it had received. The release workflow already publishes a `.sha256` beside
@@ -305,6 +322,14 @@ contents are folded into this release as the two passes that produced it.
   into it. Resetting the id range on `reset()` is the actual fix and is kept.
 
 ### Added
+- **Every GitHub Action raised to the node24 runtime.** Two were still on
+  node16 and five on node20, running only because the runner force-upgrades
+  them. Each pinned ref was checked for `runs.using: node24` and each major
+  bump checked against how this workflow uses it.
+- **`:checkhealth distract`** reports the terminal environment, whether an
+  engine binary is installed and whether one is published for this platform,
+  the active backend and render mode, live highlight groups, and registered
+  assets and plugins.
 - **GIF assets on every backend.** A manifest whose `spritesheet.path` ends in
   `.gif` is drawn per-pixel on `kitty` and `overlay` and in half-blocks in the
   terminal, with no per-backend branching. Decoding in the terminal is pure Lua

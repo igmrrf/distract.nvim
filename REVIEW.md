@@ -4,9 +4,17 @@ Every S1, S2 and S3 finding from the correctness and production-readiness
 review has been fixed. This file records what was wrong, what was done, and the
 few things deliberately left open.
 
-Verified after the work: `cargo test` — 92 unit + 6 headless GPU + 1 screenshot
-integration, all passing; `cargo clippy --all-targets -- -D warnings` clean;
-`cargo fmt --check` clean; `stylua --check` clean; Lua suite 113 passing.
+Verified after the work, and re-verified at `v0.1.0`: 298 Rust tests and 557 Lua
+tests passing; `cargo clippy --all-targets -- -D warnings` clean; `cargo fmt
+--check` clean; `stylua --check` clean; `luacheck` clean over 106 files.
+
+Counts move with every fixture. Read them from the suites rather than from here:
+
+```bash
+cargo test --manifest-path engine/Cargo.toml 2>&1 \
+  | grep -oE "^test result: ok\. [0-9]+ passed" | grep -oE "[0-9]+" | paste -sd+ - | bc
+nvim --headless --noplugin -u tests/minimal_init.lua -l tests/run_tests.lua
+```
 
 Severity, as used below:
 
@@ -399,36 +407,53 @@ For context — details in `CHANGELOG.md`.
 
 ---
 
-## 8. Rule Violations (Pending)
+## 8. Standards Compliance
 
-A recent review against the universal coding standards in `GEMINI.md` has identified several non-compliant areas across the codebase that need to be addressed:
+Re-measured at `v0.1.0`. The size-cap violations this section used to list are
+resolved; the naming and `pcall` ones are not, and are stated as what they are
+rather than as a plan.
 
-### S3 — Strict Size Caps Exceeded
-**Rule:** File <= 400 lines.
-Many core files are significantly over the size limit and require modular decomposition:
-- `engine/src/ecs.rs` (1348 lines)
-- `engine/src/manifest.rs` (1155 lines)
-- `lua/distract/engine.lua` (782 lines)
-- `engine/src/gpu.rs` (775 lines)
-- `engine/src/asset.rs` (539 lines)
-- `lua/distract/terminal_sprites.lua` (506 lines)
-- `engine/src/sprite_gen.rs` (499 lines)
-- `lua/distract/renderer.lua` (496 lines)
+### Resolved — strict size caps
 
-### S3 — Zero Explanatory Comments
-**Rule:** No explanatory comments in implementation bodies. Document the "why", never the "what".
-The codebase uses explanatory inline comments extensively (e.g. `engine/src/asset.rs`, `lua/distract/engine.lua`). Code structure and naming should convey intent instead.
+Every file under `lua/`, `plugin/` and `engine/src/` is now within the 400-line
+cap, including the eight this section previously named (`ecs.rs` at 1348 lines,
+`manifest.rs` at 1155, `engine.lua` at 782, `gpu.rs` at 775, and the rest). The
+decomposition landed across the sprite-parity and importer refactors. Verify
+rather than trust:
 
-### S2 — Swallowed Errors
-**Rule:** Never silently swallow errors or use empty catches.
-There are unhandled `pcall` operations throughout the Lua codebase that drop potential error values, for example:
-- `lua/distract/external.lua` (unhandled job stop and anonymous functions)
-- `lua/distract/renderer.lua` (unhandled API calls for extmarks and window cursor)
+```bash
+for f in $(find lua plugin engine/src -name '*.lua' -o -name '*.rs'); do
+  n=$(wc -l < "$f"); [ "$n" -gt 400 ] && printf "%5d  %s\n" "$n" "$f"
+done
+```
 
-### S3 — Single-Letter Names
-**Rule:** Variables must have descriptive names; no single-letter names except for strict math coordinates.
-While some single letters (`x`, `y`, `r`, `t`) are allowed in mathematical coordinates contexts, there are many variables violating this rule elsewhere:
-- `local p = phys.path_params or {}` in `lua/distract/engine.lua`
-- `let e = &world.entities[0];` in `engine/src/ecs.rs`
-- `local w = active_windows[entity_id]` in `lua/distract/renderer.lua`
-- `local c = g.canvas(W, H)` in `lua/distract/sprites/cat.lua`
+### Open — S3, single-letter names
+
+`GEMINI.md` permits single letters only for mathematical coordinates. Several
+locals outside that carve-out remain, among them `local w = active_windows[...]`
+in `renderer.lua`, `local p = phys.path_params or {}` in `kinematics.lua`, and
+the `local g = require("distract.sprite_gen")` alias each sprite module opens
+with. The sprite modules are the largest group and the least mechanical to
+change, because `g.` prefixes most of their drawing calls.
+
+### Open — S2, `pcall` results discarded
+
+Seven sites drop the result of a `pcall`. Not all are defects — a best-effort
+teardown that must not fail a shutdown path is a legitimate use, and
+`overlay_grid.lua`'s guarded `io.stdout:write` is deliberate — but each needs
+that judgement recorded rather than assumed:
+
+- `external.lua:354` and `:362` — shutdown send and `jobstop`
+- `renderer_overlay.lua:32` — extmark deletion
+- `renderer_float.lua:78` and `:79` — cursor placement in a foreign window
+- `highlights.lua:61` — clearing a highlight group
+- `overlay_grid.lua:63` — the `CSI 16 t` probe, documented as best effort
+
+### Open — S3, explanatory comments
+
+The standard asks for the "why", never the "what". Density has come down a long
+way, and what remains is mostly load-bearing — the parity harnesses and the
+kitty describer explain constraints that are genuinely not visible in the code.
+This is a judgement call per comment rather than a sweep, and is not tracked as
+a count.
+

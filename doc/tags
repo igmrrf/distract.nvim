@@ -13,6 +13,7 @@ distract	distract.txt	/*distract*
 distract-api	distract.txt	/*distract-api*
 distract-asset-capabilities	distract.txt	/*distract-asset-capabilities*
 distract-backends	distract.txt	/*distract-backends*
+distract-bundled-assets	distract.txt	/*distract-bundled-assets*
 distract-capabilities	distract.txt	/*distract-capabilities*
 distract-cell-size	distract.txt	/*distract-cell-size*
 distract-commands	distract.txt	/*distract-commands*
