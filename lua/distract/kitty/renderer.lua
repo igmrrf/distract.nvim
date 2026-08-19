@@ -39,12 +39,8 @@ local IDS_PER_SESSION = 512
 
 local id_base = nil
 local next_offset = 0
-local free_ids = {}
 
 local function allocate_id()
-  if #free_ids > 0 then
-    return table.remove(free_ids)
-  end
   if not id_base then
     id_base = (vim.fn.getpid() % 32767) * IDS_PER_SESSION + 1
   end
@@ -219,7 +215,9 @@ function M.reset()
   end
   placements = {}
   frames.reset()
-  free_ids = {}
+  -- Every image transmitted from this range has just been deleted, so the range
+  -- is free again. Without this a long session that resets repeatedly walks
+  -- `next_offset` into the next session's block and collides with it.
   next_offset = 0
 end
 
