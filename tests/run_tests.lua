@@ -12,6 +12,7 @@ local SPECS = {
   "tests.events_spec",
   "tests.manifests_spec",
   "tests.builtin_assets_spec",
+  "tests.spawn_characterisation_spec",
   "tests.plugin_commands_spec",
   "tests.hooks_spec",
   "tests.visibility_spec",

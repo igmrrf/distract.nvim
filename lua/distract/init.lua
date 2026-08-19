@@ -286,6 +286,12 @@ function M.register_asset(name, spec)
   if not spec.sprites and not spec.manifest then
     error("distract.register_asset: nothing to register; pass `manifest`, `sprites`, or both")
   end
+
+  -- A backend holds the snapshot of `config` it was set up with, so a manifest
+  -- registered afterwards only reaches it through another `setup`.
+  if is_setup then
+    backend_module(M.config.backend).setup(M.config)
+  end
 end
 
 --- Registers a plugin against the engine's lifecycle hooks.
