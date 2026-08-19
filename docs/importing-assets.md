@@ -3,11 +3,10 @@
 How to turn real image material — a GIF, a folder of PNG frames, or a pre-packed
 atlas — into an asset this plugin can draw, using the `import_sprite` CLI.
 
-For the design behind it, see
-[`superpowers/specs/2026-08-16-sprite-import-pipeline-design.md`](superpowers/specs/2026-08-16-sprite-import-pipeline-design.md)
-and its [atlas addendum](superpowers/specs/2026-08-19-spritesheet-atlas-import-addendum.md).
-For configuring the plugin once an asset exists, see
-[`configuration.md`](configuration.md).
+This document is the reference. `import_sprite --help` is the argument grammar,
+and `engine/tests/import_sprite.rs` is the behaviour that is actually pinned —
+if this file and those disagree, they win. For configuring the plugin once an
+asset exists, see [`configuration.md`](configuration.md).
 
 ---
 

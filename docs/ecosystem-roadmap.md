@@ -6,8 +6,8 @@ repository* built on top of them. Nothing here adds a file under `lua/distract/`
 
 - **What this plugin does** — [`README.md`](../README.md) and `:help distract`.
 - **What was built and why** — [`CHANGELOG.md`](../CHANGELOG.md).
-- **The design of what shipped** — [`superpowers/specs/`](superpowers/specs/)
-  and [`superpowers/plans/`](superpowers/plans/).
+- **The design of what shipped** — [`../doc/distract.txt`](../doc/distract.txt),
+  which is the reference for every contract these plugins build against.
 - **Open in-repo work** — [`HANDOFF.md`](../HANDOFF.md).
 
 Working reference plugins for both extension surfaces are in

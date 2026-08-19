@@ -579,7 +579,7 @@ plugins registered in your session.
 | [`ATTRIBUTION.md`](ATTRIBUTION.md) | Artists and licences for the bundled pets |
 | [`CHANGELOG.md`](CHANGELOG.md) | What shipped, and why |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to propose a change |
-| [`REVIEW.md`](REVIEW.md) | Findings from the production-readiness review, and what is still open |
+| [`HANDOFF.md`](HANDOFF.md) | Traps that cost time, the parity harnesses, and standards compliance |
 
 ---
 

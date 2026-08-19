@@ -1,7 +1,9 @@
---- Regressions for the findings in REVIEW.md.
+--- Regressions for the findings of the production-readiness review.
 ---
 --- Each test names the behaviour that was wrong, so a future change that
---- reintroduces it fails here rather than in someone's editor.
+--- reintroduces it fails here rather than in someone's editor. These
+--- assertions are the durable record of that review; the prose write-up it
+--- came with is in `git log -- REVIEW.md`.
 
 require("tests.test_harness")
 

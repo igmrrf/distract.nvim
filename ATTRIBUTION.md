@@ -8,9 +8,8 @@ Source: [`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex
 a community gallery of original Codex pet characters. Every other pet in that
 gallery, and every pet under `assets/codex_pets/` in this repository, is
 either fan art of an existing character or has no stated redistribution
-licence — neither is bundled here. See
-[`docs/superpowers/plans/2026-08-19-full-feature-completion.md`](docs/superpowers/plans/2026-08-19-full-feature-completion.md)
-for how these three were selected.
+licence — neither is bundled here. How these three were picked out of 198 is
+the licence test set out below.
 
 | Asset | Character | Artist | Licence |
 |---|---|---|---|

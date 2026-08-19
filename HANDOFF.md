@@ -7,22 +7,32 @@ This file holds **only** open work and the traps that cost time. It is
 deliberately not a record of what shipped:
 
 - **What was built and why** — [`CHANGELOG.md`](CHANGELOG.md).
+- **What the contracts are** — [`doc/distract.txt`](doc/distract.txt), which is
+  the reference rather than a summary of one. The unit contract is
+  `:help distract-units`, the backend capability split is
+  `:help distract-capabilities`, and manifests are `:help distract-manifests`.
 - **What downstream repositories could be built on this** —
   [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). None of it is a
   missing feature of this plugin; every core surface it needs exists.
-- **The decisions the feature pass took** —
-  [`docs/superpowers/plans/2026-08-19-full-feature-completion.md`](docs/superpowers/plans/2026-08-19-full-feature-completion.md).
-  Its decision 1 ("2D is the contract, 3D is not built") is **superseded** by
-  [`docs/superpowers/plans/2026-08-19-voxel-3d-rendering.md`](docs/superpowers/plans/2026-08-19-voxel-3d-rendering.md),
-  which explains how 3D was built without doing the two things that decision was
-  right to refuse: forking a backend off the manifest contract, and making anyone
-  author an asset twice.
-- **What the design says** —
-  [`docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md`](docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md),
-  including the unit contract and the backend/renderer split. Where this file and
-  the spec disagree, the spec wins.
 - **How to use the import pipeline** — [`docs/importing-assets.md`](docs/importing-assets.md),
   configuration in [`docs/configuration.md`](docs/configuration.md).
+- **What is still outstanding** — the checklist at the bottom of
+  [`README.md`](README.md), and "Standards compliance" below.
+
+The design specs and implementation plans this file used to defer to are
+deleted. They described work that is now shipped and tested, and a plan kept
+past its execution is a second, staler description of the code — the spec this
+file once said "wins" had been superseded by the tests and the help file long
+before it was removed. Everything from them that survives contact with the
+current code is in this file, in `doc/distract.txt`, or in the parity harnesses,
+which are the only description of the engines' agreement that cannot go stale
+without failing. `git log -- docs/superpowers/` has them if a decision ever needs
+its original argument.
+
+One decision is worth restating rather than leaving in history: **3D was added
+without forking a backend off the manifest contract and without making anyone
+author an asset twice.** An earlier pass had refused 3D on exactly those two
+grounds, and they remain the constraints any future rendering mode has to meet.
 
 ## Feature Lock Policy
 
@@ -47,7 +57,7 @@ Any speculative extensions, domain-specific companion behaviors, or game mechani
 | Memory & Lifecycle | Clean | Kitty ID allocation, obstacle provider indexing, and backend teardown resolved. |
 | Test Suite | 100% Green | 557 Lua tests, 298 Rust tests passing, on Linux, macOS and Windows. |
 | Downstream ecosystem plugins | External | External companion plugins and integrations described in [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). |
-| Outstanding work | Short, listed | The checklist at the bottom of [`README.md`](README.md), with the standards detail in [`REVIEW.md`](REVIEW.md) §8. |
+| Outstanding work | Short, listed | The checklist at the bottom of [`README.md`](README.md); the standards detail is below. |
 
 ---
 
@@ -598,6 +608,43 @@ probe already reports. The regeneration command is in the harness header.
     and `gpu_headless` both return early rather than failing, so green on a runner
     without a GPU says nothing about whether `shader3d.wgsl` even compiles. Run
     them locally before trusting a shader change.
+
+---
+
+## Standards compliance
+
+Re-measured at `v0.1.0`, against the rules in [`CLAUDE.md`](CLAUDE.md). Stated
+as what it is rather than as a plan; the user-facing summary is the checklist at
+the bottom of [`README.md`](README.md).
+
+**Resolved — size caps.** Every file under `lua/`, `plugin/` and `engine/src/`
+is within the 400-line cap, including the eight that once broke it worst
+(`ecs.rs` at 1348 lines, `manifest.rs` at 1155, `engine.lua` at 782, `gpu.rs` at
+775). Re-measure rather than trust this line:
+
+```bash
+for f in $(find lua plugin engine/src -name '*.lua' -o -name '*.rs'); do
+  n=$(wc -l < "$f"); [ "$n" -gt 400 ] && printf "%5d  %s\n" "$n" "$f"
+done
+```
+
+**Open — single-letter locals.** Permitted only for mathematical coordinates.
+The largest group is the `local g = require("distract.sprite_gen")` alias each
+sprite module opens with, which prefixes most of their drawing calls; also
+`local w = active_windows[...]` in `renderer.lua` and `local p = phys.path_params`
+in `kinematics.lua`.
+
+**Open — seven discarded `pcall` results.** Not all are defects. A best-effort
+teardown that must not fail a shutdown path is legitimate, and
+`overlay_grid.lua:63`'s guarded `io.stdout:write` is deliberate. Each needs that
+judgement recorded rather than assumed: `external.lua:354` and `:362`,
+`renderer_overlay.lua:32`, `renderer_float.lua:78` and `:79`,
+`highlights.lua:61`, `overlay_grid.lua:63`.
+
+**Open — comment density.** The rule asks for the "why", never the "what".
+What remains is mostly load-bearing: the parity harnesses and the kitty
+describer explain constraints genuinely invisible in the code. A judgement per
+comment, not a sweep, and not tracked as a count.
 
 ---
 

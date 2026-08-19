@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+Nothing yet. `distract.nvim` is feature locked, so changes here are
+improvements — performance, reliability, cross-platform hardening, bug fixes
+and tests. See the pending-work checklist at the bottom of `README.md`.
+
+---
+
 ## [0.1.0] - 2026-08-19
 
 First tagged release. The `0.1.0` and `0.2.0` headings that previously appeared
@@ -33,12 +41,11 @@ contents are folded into this release as the two passes that produced it.
   emitted where the neighbour that would hide it is transparent, so a solid frame
   costs two quads a pixel plus its silhouette.
 
-  This supersedes the "2D is the contract, 3D is not built" decision in
-  `docs/superpowers/plans/2026-08-19-full-feature-completion.md`. The reasoning
-  that decision gave — that 3D must not fork a backend off the manifest contract,
-  and must not mean authoring every asset twice —  is what the design is built to
-  satisfy rather than to ignore, and
-  `docs/superpowers/plans/2026-08-19-voxel-3d-rendering.md` records how.
+  This supersedes an earlier decision that "2D is the contract, 3D is not
+  built". The reasoning that decision gave — that 3D must not fork a backend off
+  the manifest contract, and must not mean authoring every asset twice — is what
+  this design satisfies rather than ignores, and those two remain the constraints
+  any future rendering mode has to meet.
 
   - **Nothing about the simulation changes.** Placement, floors, obstacles,
     wrapping and an asset's cell footprint are identical in both modes: a model is

@@ -70,11 +70,11 @@ nvim --headless -u NONE \
    - `feat: add dog pet manifest`
    - `fix: resolve window resizing race condition`
    - `docs: update setup configuration in README`
-5. **Update [CHANGELOG.md](file:///Users/igmrrf/Desktop/packages/distract.nvim/CHANGELOG.md)** under the `[Unreleased]` section.
+5. **Update [CHANGELOG.md](CHANGELOG.md)** under the `[Unreleased]` section.
 6. **Submit a Pull Request** describing your changes and link any relevant issues.
 
 ---
 
 ## 💬 Code of Conduct
 
-Please review our [Code of Conduct](file:///Users/igmrrf/Desktop/packages/distract.nvim/CODE_OF_CONDUCT.md) before participating in discussions or submitting contributions.
+Please review our [Code of Conduct](CODE_OF_CONDUCT.md) before participating in discussions or submitting contributions.

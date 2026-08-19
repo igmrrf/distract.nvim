@@ -224,11 +224,11 @@ describe("distract.kitty frames", function()
     end
   end)
 
-  -- Pins the assumption that this module and `protocol.lua` are resolution-
-  -- agnostic (spec:
-  -- docs/superpowers/specs/2026-08-16-sprite-import-pipeline-design.md § 3.4).
-  -- If this needs a code change to pass, the placement or transmission math
-  -- assumed a cell-grid-sized frame somewhere -- fix it there, not here.
+  -- Pins the assumption that this module and `protocol.lua` are
+  -- resolution-agnostic: a frame's pixel dimensions must not reach the encoding,
+  -- only its cell footprint. If this needs a code change to pass, the placement
+  -- or transmission math assumed a cell-grid-sized frame somewhere -- fix it
+  -- there, not here.
   it("encodes a native-resolution frame the same way as a cell-grid one", function()
     local sources = require("distract.sprite_sources")
     local native_sprite = require("distract.native_sprite")
