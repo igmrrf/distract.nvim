@@ -10,6 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Background sliced warmup worker** (`distract.warmup`). A non-blocking background
+  coroutine worker running on 16ms timer intervals with an 8ms budget per slice
+  that incrementally decodes GIF frames (via `opts.on_frame`) and warms 3D voxel
+  poses on `bind_manifest`. Eliminates the first-draw main-thread hitch for GIF
+  and dense 3D imported models. Added unit suite `tests/warmup_spec.lua`.
+- **Extracted sprite parity comparator** (`engine/src/sprite_parity.rs`). Exported
+  from `engine/src/lib.rs` (§2.7 on the ecosystem roadmap), allowing downstream
+  tools and external test suites to reuse exact tolerance assertions and dump
+  formatting without reimplementing comparator rules.
 - **A 3D render mode, on every backend.** `render.mode = "3d"` (or
   `:DistractRender 3d`) draws every entity as a voxel model instead of a flat
   sprite. There is no second set of 3D assets and no mesh format: every asset

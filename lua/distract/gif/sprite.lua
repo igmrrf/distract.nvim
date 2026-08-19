@@ -48,11 +48,14 @@ end
 
 --- Decodes a source into a drawable sprite set.
 ---@param source DistractGifSource
+---@param opts table|nil
 ---@return table|nil sprite, string|nil error_message
-function M.build(source)
+function M.build(source, opts)
+  opts = opts or {}
   local decoded, err = gif.decode(asset_path.resolve(source.path), {
     target_width = source.width,
     target_height = source.height,
+    on_frame = opts.on_frame,
   })
   if not decoded then
     return nil, err

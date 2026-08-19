@@ -33,41 +33,14 @@ local viewport = require("distract.viewport")
 --- half a character cell, so it always asks for the cell-grid art rather than a
 --- manifest's native-resolution sidecar. Hoisted rather than built per call:
 --- this runs once per entity per tick.
----@type table
-local HALFBLOCK_CAPABILITY = { native_resolution = false }
+local renderer_float = require("distract.renderer_float")
+local renderer_overlay = require("distract.renderer_overlay")
 
---- entity_id -> { buf, win, row, col, width, height, sig, marks }
 local active_windows = {}
 
-local overlay_ns = api.nvim_create_namespace("distract_sprite_overlay")
-
---- Namespace the buffer-overlay extmarks live in.
-function M.overlay_namespace()
-  return overlay_ns
-end
-
---- Highlight group a sprite window uses for `Normal`.
----
---- `NormalFloat` is wrong for a sprite: most colourschemes give it a background
---- of its own, so every sprite dragged a visible rectangle of that colour
---- around the screen. `bg = "NONE"` lets the terminal's own background through,
---- which is as close to transparent as a float can get.
-local BACKGROUND_GROUP = "DistractSpriteNormal"
-local background_defined = false
-
-function M.background_group()
-  if not background_defined then
-    api.nvim_set_hl(0, BACKGROUND_GROUP, { bg = "NONE", fg = "NONE" })
-    background_defined = true
-  end
-  return BACKGROUND_GROUP
-end
-
---- Re-declares the sprite background, after a colourscheme has cleared it.
-function M.refresh_highlights()
-  background_defined = false
-  M.background_group()
-end
+M.overlay_namespace = renderer_overlay.overlay_namespace
+M.background_group = renderer_float.background_group
+M.refresh_highlights = renderer_float.refresh_highlights
 
 --- One entity's current picture, in whatever form its backend produced it.
 ---
@@ -178,33 +151,11 @@ local function own_windows()
   return ignored
 end
 
---- Whether drawing this entity would cover something the user is working in.
----
---- A sprite over an LSP hover, a completion menu or a terminal split is worse
---- than no sprite, so the frame is skipped for that entity rather than drawn
---- underneath where it would still repaint over the text.
----@return boolean
-function M.is_occluding(entity, surface, bounds, blocked)
-  if #blocked == 0 then
-    return false
-  end
-  local geom = placement.resolve({
-    x = entity.x,
-    y = entity.y,
-    width = surface.width,
-    height = surface.height,
-    bounds = bounds,
-    wrap = wraps_at_the_edge(entity),
-  })
-  for _, slice in ipairs(geom.slices) do
-    for _, rect in ipairs(blocked) do
-      if viewport.overlaps(slice, rect) then
-        return true
-      end
-    end
-  end
-  return false
-end
+local renderer_surface = require("distract.renderer_surface")
+
+M.is_occluding = renderer_surface.is_occluding
+M.resolve_pixel_frame = renderer_surface.resolve_pixel_frame
+M.resolve_flip = renderer_surface.resolve_flip
 
 --- Draws all entities in terminal mode using the selected backend
 function M.draw(entities, backend)
@@ -214,13 +165,7 @@ function M.draw(entities, backend)
   end
 
   local bounds = viewport.bounds()
-
-  -- Where the editor's text is, so sprite rows can be drawn onto it instead of
-  -- over it. Rebuilt only when the layout moved.
   screen_map.sync()
-
-  -- What a sprite must not cover, measured once for the frame. The sprites' own
-  -- floats are excluded, or every sprite would block itself.
   local blocked = viewport.blocking_rects(own_windows())
 
   local live_ids = {}
@@ -230,195 +175,15 @@ function M.draw(entities, backend)
     if surface and not M.is_occluding(entity, surface, bounds, blocked) then
       M.place_surface(entity, surface, bounds)
     else
-      -- Nothing renderable for this frame; drop anything we still hold rather
-      -- than asking nvim_open_win for a zero-sized window.
       M.close_window(entity.id)
     end
   end
 
-  -- Clean up windows for despawned entities
   for id, _ in pairs(active_windows) do
     if not live_ids[id] then
       M.close_window(id)
     end
   end
-end
-
---- Resolves which pixel frame to draw for an entity.
----
---- `entity.frame_idx` is the entity's position within the current state's
---- animation, not a sheet index. The manifest's `animation.frames` list maps
---- that position onto a 0-based sheet frame, so both have to be applied:
---- without the mapping a sleeping cat draws its idle art and the sun's eclipse
---- draws its shining art.
----
---- Returns a 1-based index into the asset's pixel frame table.
-function M.resolve_pixel_frame(entity, frame_count)
-  if not frame_count or frame_count < 1 then
-    return 1
-  end
-
-  local manifest = entity.manifest
-  local state_def = manifest and manifest.states and manifest.states[entity.current_state]
-  local frames = state_def and state_def.animation and state_def.animation.frames
-
-  if not frames or #frames == 0 then
-    return 1
-  end
-
-  local position = ((math.max(1, entity.frame_idx or 1) - 1) % #frames) + 1
-  local sheet_idx = frames[position] or 0
-
-  -- Manifest frame indices are 0-based; pixel frame tables are 1-based.
-  return (sheet_idx % frame_count) + 1
-end
-
---- Whether an entity's art should be drawn mirrored.
----
---- `entity.flip_x` is which way the entity is heading; `animation.flip_x` is
---- whether the art for this state was authored facing the other way. They
---- combine, exactly as the overlay's `build_instances` combines them, so a
---- state whose art already faces left is not mirrored twice.
-function M.resolve_flip(entity)
-  local manifest = entity.manifest
-  local state_def = manifest and manifest.states and manifest.states[entity.current_state]
-  local anim_flip = state_def and state_def.animation and state_def.animation.flip_x or false
-  local entity_flip = entity.flip_x or false
-  return entity_flip ~= anim_flip
-end
-
---- Removes an entity's overlay extmarks.
-local function slice_signature(geom)
-  local parts = { geom.overlay_limit }
-  for _, slice in ipairs(geom.slices) do
-    table.insert(
-      parts,
-      table.concat(
-        { slice.row, slice.col, slice.width, slice.height, slice.src_row, slice.src_col },
-        ","
-      )
-    )
-  end
-  return table.concat(parts, "|")
-end
-
-local function windows_are_valid(entry)
-  for _, slice in ipairs(entry.slices or {}) do
-    if slice.win and not api.nvim_win_is_valid(slice.win) then
-      return false
-    end
-  end
-  return true
-end
-
-local function clear_overlay(entry)
-  if not entry or not entry.marks then
-    return
-  end
-  for _, mark in ipairs(entry.marks) do
-    if api.nvim_buf_is_valid(mark[1]) then
-      pcall(api.nvim_buf_del_extmark, mark[1], overlay_ns, mark[2])
-    end
-  end
-  entry.marks = nil
-end
-
---- Draws sprite rows 0..`limit`-1 as overlay virtual text on the buffer lines
---- underneath them. Returns the extmarks placed.
-local function draw_overlay_rows(rows, row, col, limit)
-  local marks = {}
-  for r = 0, limit - 1 do
-    local slot = screen_map.slot(row + r)
-    for _, run in ipairs(rows[r] or {}) do
-      -- `virt_text_win_col` is measured from the window's first *text* column,
-      -- so the gutter has to come out of the screen column. Unlike
-      -- `virt_text_pos = "overlay"` it does not need the underlying line to be
-      -- long enough to reach that column.
-      local ok, id = pcall(api.nvim_buf_set_extmark, slot.buf, overlay_ns, slot.lnum - 1, 0, {
-        virt_text = run.chunks,
-        virt_text_win_col = col + run.col - slot.text_left,
-        hl_mode = "combine",
-        priority = 200,
-        ephemeral = false,
-      })
-      if ok then
-        marks[#marks + 1] = { slot.buf, id }
-      end
-    end
-  end
-  return marks
-end
-
---- Places one float showing one slice of a surface.
----
---- The float shows the whole frame buffer, scrolled so the slice's first row and
---- column are its top-left. That is what lets every entity keep sharing one
---- buffer per frame instead of needing one per (frame, split point) — and it is
---- what makes a wrapped sprite's departing half free: it is the same buffer at a
---- different scroll offset.
----@param slice DistractSlice
-local function place_float(entity, previous, surface_buf, slice)
-  local win = previous and previous.win
-  if not win or not api.nvim_win_is_valid(win) then
-    win = api.nvim_open_win(surface_buf, false, {
-      relative = "editor",
-      width = slice.width,
-      height = slice.height,
-      row = slice.row,
-      col = slice.col,
-      style = "minimal",
-      border = "none",
-      focusable = false,
-      noautocmd = true,
-      zindex = (entity.z_index or 0) + viewport.z_index_offset(),
-    })
-    api.nvim_set_option_value("winblend", 0, { win = win })
-    api.nvim_set_option_value("wrap", false, { win = win })
-    api.nvim_set_option_value(
-      "winhighlight",
-      "Normal:" .. M.background_group() .. ",NormalNC:" .. M.background_group(),
-      { win = win }
-    )
-  elseif
-    previous.row ~= slice.row
-    or previous.col ~= slice.col
-    or previous.width ~= slice.width
-    or previous.height ~= slice.height
-  then
-    -- Only reposition when something actually moved. This call forces a full
-    -- redraw, so making it unconditionally cost a redraw per entity per tick.
-    api.nvim_win_set_config(win, {
-      relative = "editor",
-      row = slice.row,
-      col = slice.col,
-      width = slice.width,
-      height = slice.height,
-    })
-  end
-
-  -- Show a different picture by showing a different buffer.
-  if not previous or previous.buf ~= surface_buf then
-    api.nvim_win_set_buf(win, surface_buf)
-  end
-
-  -- Scroll to the slice's own corner of the surface.
-  if
-    not previous
-    or previous.buf ~= surface_buf
-    or previous.src_row ~= slice.src_row
-    or previous.src_col ~= slice.src_col
-  then
-    pcall(api.nvim_win_set_cursor, win, { slice.src_row + 1, 0 })
-    pcall(api.nvim_win_call, win, function()
-      vim.fn.winrestview({
-        topline = slice.src_row + 1,
-        lnum = slice.src_row + 1,
-        leftcol = slice.src_col,
-      })
-    end)
-  end
-
-  return win
 end
 
 --- Places one entity's surface, splitting it between buffer text and a float.
@@ -439,7 +204,7 @@ function M.place_surface(entity, surface, bounds)
     width = surface.width,
     height = surface.height,
     bounds = bounds,
-    wrap = wraps_at_the_edge(entity),
+    wrap = renderer_surface.wraps_at_the_edge(entity),
   })
 
   if #geom.slices == 0 then
@@ -449,21 +214,27 @@ function M.place_surface(entity, surface, bounds)
 
   -- Nothing below is worth redoing unless the picture, the placement, or the
   -- editor layout under it has changed. An idle pet costs no API calls.
-  local sig = table.concat({ surface.key, slice_signature(geom), screen_map.version() }, ":")
+  local sig =
+    table.concat({ surface.key, renderer_overlay.slice_signature(geom), screen_map.version() }, ":")
 
   local entry = active_windows[entity.id]
-  if entry and entry.sig == sig and windows_are_valid(entry) then
+  if entry and entry.sig == sig and renderer_float.windows_are_valid(entry) then
     return
   end
 
   local previous = entry
   if previous then
-    clear_overlay(previous)
+    renderer_overlay.clear_overlay(previous)
   end
 
   local marks = nil
   if geom.overlay_limit > 0 then
-    marks = draw_overlay_rows(surface.runs() or {}, geom.row, geom.col, geom.overlay_limit)
+    marks = renderer_overlay.draw_overlay_rows(
+      surface.runs() or {},
+      geom.row,
+      geom.col,
+      geom.overlay_limit
+    )
   end
 
   -- The primary slice's float covers whatever the buffer overlay could not, and
@@ -486,7 +257,7 @@ function M.place_surface(entity, surface, bounds)
   local previous_wins = (previous and previous.slices) or {}
   local placed = {}
   for index, slice in ipairs(float_slices) do
-    local win = place_float(entity, previous_wins[index], surface.buf, slice)
+    local win = renderer_float.place_float(entity, previous_wins[index], surface.buf, slice)
     placed[index] = vim.tbl_extend("force", slice, { win = win, buf = surface.buf })
   end
 
@@ -515,45 +286,14 @@ function M.place_surface(entity, surface, bounds)
   }
 end
 
---- The half-block surface: two sprite pixel rows stacked into one cell.
----
---- The buffer for a frame is built once, with its highlights already in it, and
---- shared by every entity showing that frame. Advancing the animation is then
---- one `nvim_win_set_buf` rather than a rewrite of every coloured cell, which
---- is also why the buffer handle is a sound cache key.
----@param entity table
----@return DistractFrameSurface|nil
-local function halfblock_surface(entity)
-  local frame_count = #sprites.get_pixel_frames(entity.asset_name, HALFBLOCK_CAPABILITY)
-  local frame_idx = M.resolve_pixel_frame(entity, frame_count)
-  local flip_x = M.resolve_flip(entity)
-
-  local frame_buf, sprite_w, sprite_h =
-    sprites.get_frame_buffer(entity.asset_name, frame_idx, flip_x)
-
-  if not frame_buf or sprite_w < 1 or sprite_h < 1 then
-    return nil
-  end
-
-  return {
-    key = frame_buf,
-    buf = frame_buf,
-    width = sprite_w,
-    height = sprite_h,
-    runs = function()
-      return sprites.get_frame_runs(entity.asset_name, frame_idx, flip_x)
-    end,
-  }
-end
-
-M.register_backend("halfblock", halfblock_surface, function()
+M.register_backend("halfblock", renderer_surface.halfblock_surface, function()
   sprites.reset_cache()
 end)
 
 function M.close_window(entity_id)
   local w = active_windows[entity_id]
   if w then
-    clear_overlay(w)
+    renderer_overlay.clear_overlay(w)
     for _, slice in ipairs(w.slices or {}) do
       if slice.win and api.nvim_win_is_valid(slice.win) then
         api.nvim_win_close(slice.win, true)

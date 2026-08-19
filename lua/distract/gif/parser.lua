@@ -231,9 +231,11 @@ end
 --- rather than left as a separate block for the caller to re-associate.
 ---@param bytes string
 ---@param screen table from `read_header`
----@param max_frames integer
+---@param opts table `{ max_frames = integer, on_frame = fun(count: integer)|nil }`
 ---@return table[]|nil images, string|nil error_message
-function M.read_images(bytes, screen, max_frames)
+function M.read_images(bytes, screen, opts)
+  local max_frames = opts.max_frames
+  local on_frame = opts.on_frame
   local images = {}
   local offset = screen.offset
   local control = nil
@@ -270,6 +272,9 @@ function M.read_images(bytes, screen, max_frames)
       offset = next_offset
       if #images > max_frames then
         return nil, string.format("GIF has more than %d frames", max_frames)
+      end
+      if on_frame then
+        on_frame(#images)
       end
     else
       return nil, string.format("unexpected GIF block marker 0x%02X", marker)

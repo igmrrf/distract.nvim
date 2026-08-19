@@ -2,15 +2,14 @@
 
 local M = {}
 
-local asset_path = require("distract.asset_path")
 local engine_binary = require("distract.engine_binary")
+local locomotion = require("distract.locomotion")
 local overlay_grid = require("distract.overlay_grid")
 local overlay_plugins = require("distract.overlay_plugins")
 local overlay_report = require("distract.overlay_report")
-local viewport = require("distract.viewport")
+local overlay_spawn = require("distract.overlay_spawn")
 local plugins = require("distract.plugins")
-local locomotion = require("distract.locomotion")
-local position = require("distract.position")
+local viewport = require("distract.viewport")
 
 --- The cadence a plugin that only wants events subscribes at, in milliseconds.
 --- The engine clamps anything slower.
@@ -32,37 +31,13 @@ function M.is_running()
   return job_id ~= nil and job_id > 0
 end
 
+local overlay_spawn = require("distract.overlay_spawn")
+
 --- Where a compiled engine binary may live, and how to build one.
 M.binary_candidates = engine_binary.candidates
 M.build_command = engine_binary.build_command
 M.build = engine_binary.build
-
-function M.overlay_args(overlay)
-  if type(overlay) ~= "table" then
-    return {}
-  end
-
-  local point = overlay.position
-  if point ~= nil then
-    if type(point) ~= "table" or type(point.x) ~= "number" or type(point.y) ~= "number" then
-      return nil, "overlay.position must be { x = <number>, y = <number> }"
-    end
-    return {
-      "--overlay-position",
-      string.format("%d,%d", math.floor(point.x), math.floor(point.y)),
-    }
-  end
-
-  local monitor = overlay.monitor
-  if monitor ~= nil then
-    if type(monitor) ~= "number" or monitor < 0 or monitor ~= math.floor(monitor) then
-      return nil, "overlay.monitor must be a non-negative whole number (0 is the primary display)"
-    end
-    return { "--overlay-monitor", tostring(monitor) }
-  end
-
-  return {}
-end
+M.overlay_args = overlay_spawn.overlay_args
 
 function M.start()
   if M.is_running() then
@@ -224,15 +199,8 @@ function M.spawn(entity_name, opts)
   opts = opts or {}
   local asset = config.assets and config.assets[entity_name]
 
-  local manifest_payload = nil
-  local abs_path = nil
-
   if asset then
-    -- Checked before it goes on the wire. The overlay validates it too, but a
-    -- refusal that arrives back through the IPC error path is not the clean
-    -- message the terminal backend gives, and one manifest should be refused
-    -- with the same words whichever renderer is running.
-    local violation = require("distract.locomotion").validate(asset)
+    local violation = locomotion.validate(asset)
     if violation then
       vim.notify(
         string.format("[Distract] Cannot spawn '%s': %s.", entity_name, violation),
@@ -240,73 +208,17 @@ function M.spawn(entity_name, opts)
       )
       return
     end
-
-    -- Deep copy asset manifest
-    manifest_payload = vim.deepcopy(asset)
-    if manifest_payload.spritesheet then
-      if next(manifest_payload.spritesheet) == nil or not manifest_payload.spritesheet.path then
-        manifest_payload.spritesheet = nil
-      else
-        manifest_payload.spritesheet.path = asset_path.resolve(manifest_payload.spritesheet.path)
-        abs_path = manifest_payload.spritesheet.path
-      end
-    end
   end
 
-  -- Spawn coordinates are terminal cells on both backends. The overlay
-  -- positions in physical pixels, so they are converted here rather than left
-  -- for the caller: `spawn { x = 40 }` used to mean column 40 in the terminal
-  -- and pixel 40 — roughly column 4 — on the overlay.
   local cell_w, cell_h = M.cell_size()
   local placement = M.resolve_placement(asset, opts)
-
-  send_or_start({
-    command = "Spawn",
-    entity_type = entity_name,
-    path = abs_path,
-    manifest = manifest_payload,
-    x = placement.x and (placement.x * cell_w) or nil,
-    y = placement.y and (placement.y * cell_h) or nil,
-    z = placement.z,
-    parallax = placement.parallax,
-    anchor = placement.anchor,
-    flip_x = opts.flip_x or false,
-  })
+  local command =
+    overlay_spawn.build_spawn_command(entity_name, asset, opts, placement, cell_w, cell_h)
+  send_or_start(command)
 end
 
---- Resolves a spawn's placement into what the engine needs to be told.
----
---- Anchors are resolved to a concrete name here rather than sent as `auto`,
---- because deciding `auto` needs the manifest's locomotion class. The vertical
---- arithmetic stays on the engine's side: it knows the sprite's frame height in
---- pixels, and the floor it was pushed covers the rest.
----@param asset table|nil the manifest, when one is registered
----@param opts table per-spawn options
----@return table `{ x, y, z, parallax, anchor }`; positions in cells
 function M.resolve_placement(asset, opts)
-  local settings = position.settings(config.position, opts)
-  local manifest = asset or {}
-  local initial_def = manifest.states and manifest.states[manifest.initial_state]
-  local anchor = position.effective_anchor(
-    settings.anchor,
-    position.manifest_anchor(asset),
-    locomotion.locomotion_for(manifest, initial_def)
-  )
-
-  local x, y, z = opts.x, opts.y, opts.z
-  if type(anchor) == "table" then
-    x, y, z = x or anchor.x, y or anchor.y, z or anchor.z
-    anchor = nil
-  end
-
-  return {
-    x = x,
-    y = y,
-    z = z,
-    parallax = position.parallax_for(z, settings, "overlay"),
-    -- An explicit position leaves nothing for an anchor to decide.
-    anchor = (x == nil or y == nil) and anchor or nil,
-  }
+  return overlay_spawn.resolve_placement(config.position, asset, opts)
 end
 
 function M.trigger_action(action_name, target)

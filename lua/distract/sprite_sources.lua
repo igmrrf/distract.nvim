@@ -9,7 +9,6 @@
 
 local gif_sprite = require("distract.gif.sprite")
 local native_sprite = require("distract.native_sprite")
-local resample = require("distract.resample")
 
 local M = {}
 
@@ -107,8 +106,22 @@ end
 ---
 --- Rebinding the same source is a no-op, which matters because a spawn re-reads
 --- the manifest and would otherwise throw away a decoded animation every time.
----@param asset_name string
----@param manifest table|nil
+local function warm_gif_asset(asset_name, source)
+  if not source then
+    return
+  end
+  require("distract.warmup").request("gif:" .. asset_name, function()
+    local sprite = gif_sprite.build(source, {
+      on_frame = function()
+        coroutine.yield()
+      end,
+    })
+    if sprite and not sprite_cache[asset_name] then
+      sprite_cache[asset_name] = sprite
+    end
+  end)
+end
+
 function M.bind_manifest(asset_name, manifest)
   local source = gif_sprite.source_of(manifest)
   local native_source = native_sprite.source_of(manifest)
@@ -118,6 +131,7 @@ function M.bind_manifest(asset_name, manifest)
     gif_sources[asset_name] = source
     decode_warned[asset_name] = nil
     changed = true
+    warm_gif_asset(asset_name, source)
   end
 
   if not native_sprite.same_source(native_sources[asset_name], native_source) then
@@ -260,53 +274,21 @@ local function load_sprite(asset_name)
   return sprite
 end
 
---- The size an imported sidecar is drawn at when the backend cannot show it at
---- its own resolution. `nil` means it already fits and must not be touched.
-local function fitted_size(frames)
-  local source_width = #frames[1][1]
-  if source_width <= TERMINAL_SPRITE_MAX_WIDTH then
-    return nil
-  end
-  local source_height = #frames[1]
-  return {
-    width = TERMINAL_SPRITE_MAX_WIDTH,
-    height = math.max(
-      1,
-      math.floor(source_height * TERMINAL_SPRITE_MAX_WIDTH / source_width + 0.5)
-    ),
-  }
-end
-
---- An imported asset's frames, area-averaged down to a terminal footprint.
----
---- A `.rgba` sidecar is the only art an imported non-GIF asset has that decodes
---- without the compiled engine, so it is what the half-block backend draws too.
---- Serving it at native size instead would claim 128 columns for one cat.
----@return table|nil frames
 local function fitted_native_frames(asset_name, native_source)
   local cached = fitted_native_cache[asset_name]
   if cached then
     return cached
   end
 
-  local frames, err = native_sprite.load(native_source.native_path)
+  local frames, err =
+    native_sprite.load_fitted(native_source.native_path, TERMINAL_SPRITE_MAX_WIDTH)
   if not frames then
     warn_native_failure(asset_name, native_source, err)
     return nil
   end
 
-  local target = fitted_size(frames)
-  if not target then
-    fitted_native_cache[asset_name] = frames
-    return frames
-  end
-
-  local fitted = {}
-  for index, matrix in ipairs(frames) do
-    fitted[index] = resample.shrink_matrix(matrix, target)
-  end
-  fitted_native_cache[asset_name] = fitted
-  return fitted
+  fitted_native_cache[asset_name] = frames
+  return frames
 end
 
 --- Frame matrices for an asset. Unknown assets fall back to the cat.

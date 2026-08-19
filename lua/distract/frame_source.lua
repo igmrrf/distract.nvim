@@ -63,6 +63,26 @@ function M.is_voxel(asset_name)
   })
 end
 
+--- Warms up 3D voxel poses in background slices.
+---@param asset_name string
+function M.warm_voxel_asset(asset_name)
+  if not M.is_voxel(asset_name) then
+    return
+  end
+  require("distract.warmup").request("voxel:" .. asset_name, function()
+    local frames = sources.get_pixel_frames(asset_name, CELL_GRID)
+    if not frames then
+      return
+    end
+    for frame_index = 1, #frames do
+      for _, flip_x in ipairs({ false, true }) do
+        raster3d.matrix(asset_name, frame_index, flip_x)
+        coroutine.yield()
+      end
+    end
+  end)
+end
+
 --- Records an asset's declared art, and the render mode its manifest pins.
 ---@param asset_name string
 ---@param manifest table|nil
@@ -73,6 +93,9 @@ function M.bind_manifest(asset_name, manifest)
     announce(asset_name)
   end
   sources.bind_manifest(asset_name, manifest)
+  if M.is_voxel(asset_name) then
+    M.warm_voxel_asset(asset_name)
+  end
 end
 
 --- The pixels one frame of an asset is drawn from, ready to render.

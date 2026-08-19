@@ -148,7 +148,18 @@ end
 --- Disposal relates one frame to the next, so it is applied here rather than in
 --- the parser: the method on image N says what to do to the canvas *after* it
 --- has been shown, which only the frame that follows it can act on.
-local function compose(images, screen, target)
+--- Draws every image onto the shared canvas in order, honouring disposal, and
+--- resamples each composed frame to the target size.
+---
+--- `opts.on_frame` is called once per composed frame. It exists so a caller
+--- running inside a coroutine can yield here: composing a 32-frame 1920x1080
+--- GIF costs ~220ms, which is thirteen dropped frames if it happens in one go
+--- on the main loop.
+---@param images table[]
+---@param screen table
+---@param opts table `{ target = table, on_frame = fun(index: integer)|nil }`
+local function compose(images, screen, opts)
+  local target, on_frame = opts.target, opts.on_frame
   local cell_count = screen.width * screen.height
   local canvas = new_canvas(cell_count)
   local frames = {}
@@ -172,6 +183,9 @@ local function compose(images, screen, target)
       delay_ms = image.delay_ms,
     }
     pending_disposal = { method = image.disposal, image = image }
+    if on_frame then
+      on_frame(#frames)
+    end
   end
 
   return frames
@@ -202,7 +216,8 @@ function M.decode_bytes(bytes, opts)
     return nil, target_err
   end
 
-  local images, images_err = parser.read_images(bytes, screen, M.MAX_FRAMES)
+  local images, images_err =
+    parser.read_images(bytes, screen, { max_frames = M.MAX_FRAMES, on_frame = opts.on_frame })
   if not images then
     return nil, images_err
   end
@@ -213,7 +228,7 @@ function M.decode_bytes(bytes, opts)
   return {
     width = target.width,
     height = target.height,
-    frames = compose(images, screen, target),
+    frames = compose(images, screen, { target = target, on_frame = opts.on_frame }),
   }
 end
 

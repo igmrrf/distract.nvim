@@ -32,6 +32,7 @@ pub mod shading;
 pub mod spawn;
 pub mod sprite_draw;
 pub mod sprite_gen;
+pub mod sprite_parity;
 pub mod sprites;
 pub mod spritesheet;
 pub mod state_machine;
