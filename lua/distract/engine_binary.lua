@@ -107,13 +107,121 @@ function M.build(on_success)
   end
 end
 
---- The engine's argv for a display choice, or `nil, err` if the config is wrong.
----
---- Validated here rather than trusted: an unparseable value reaching the engine
---- would be rejected there, after the window had already opened somewhere, which
---- is the silent-misplacement failure this whole path exists to prevent.
----@param overlay table|nil `config.overlay`
----@return string[]|nil args
----@return string|nil error_message
+local download_job = nil
+
+function M.detect_platform_artifact()
+  local system_info = vim.uv.os_uname()
+  local system_name = system_info.sysname:lower()
+  local machine_arch = system_info.machine:lower()
+
+  if system_name == "darwin" then
+    if machine_arch == "arm64" or machine_arch == "aarch64" then
+      return "distract-engine-macos-aarch64.tar.gz"
+    else
+      return "distract-engine-macos-x86_64.tar.gz"
+    end
+  elseif system_name == "linux" then
+    if machine_arch == "x86_64" or machine_arch == "amd64" then
+      return "distract-engine-linux-x86_64.tar.gz"
+    end
+  elseif system_name:find("windows") or system_name:find("mingw") then
+    return "distract-engine-windows-x86_64.zip"
+  end
+  return nil
+end
+
+function M.download(on_success)
+  if download_job then
+    vim.notify("[Distract] Engine download already in progress.", vim.log.levels.INFO)
+    return
+  end
+
+  local artifact = M.detect_platform_artifact()
+  if not artifact then
+    vim.notify(
+      string.format(
+        "[Distract] No prebuilt binary for platform '%s %s'. Please build with :DistractBuild",
+        vim.uv.os_uname().sysname,
+        vim.uv.os_uname().machine
+      ),
+      vim.log.levels.ERROR
+    )
+    return
+  end
+
+  local root = plugin_root()
+  local target_dir = root .. "/engine/bin"
+  vim.fn.mkdir(target_dir, "p")
+
+  local release_url =
+    string.format("https://github.com/igmrrf/distract.nvim/releases/latest/download/%s", artifact)
+  local destination_archive = string.format("%s/%s", target_dir, artifact)
+
+  vim.notify(
+    string.format("[Distract] Downloading prebuilt engine:\n  %s", release_url),
+    vim.log.levels.INFO
+  )
+
+  local download_command
+  if vim.fn.executable("curl") == 1 then
+    download_command = { "curl", "-sSL", "-o", destination_archive, release_url }
+  elseif vim.fn.executable("wget") == 1 then
+    download_command = { "wget", "-q", "-O", destination_archive, release_url }
+  else
+    vim.notify("[Distract] Neither curl nor wget was found on PATH.", vim.log.levels.ERROR)
+    return
+  end
+
+  download_job = vim.fn.jobstart(download_command, {
+    on_exit = function(_, download_exit_code)
+      download_job = nil
+      if download_exit_code ~= 0 then
+        pcall(vim.fn.delete, destination_archive)
+        vim.notify(
+          string.format(
+            "[Distract] Failed to download prebuilt binary (exit code %d).",
+            download_exit_code
+          ),
+          vim.log.levels.ERROR
+        )
+        return
+      end
+
+      local unpack_command = { "tar", "-xf", destination_archive, "-C", target_dir }
+      vim.fn.jobstart(unpack_command, {
+        on_exit = function(_, unpack_exit_code)
+          pcall(vim.fn.delete, destination_archive)
+          if unpack_exit_code == 0 then
+            local installed_binary = target_dir .. "/distract-engine" .. exe_suffix()
+            if vim.fn.has("win32") ~= 1 then
+              pcall(vim.fn.setfperm, installed_binary, "rwxr-xr-x")
+            end
+            vim.notify(
+              "[Distract] Engine binary successfully downloaded and installed to engine/bin/.",
+              vim.log.levels.INFO
+            )
+            if on_success then
+              on_success()
+            end
+          else
+            vim.notify(
+              string.format(
+                "[Distract] Failed to unpack archive %s (exit code %d).",
+                artifact,
+                unpack_exit_code
+              ),
+              vim.log.levels.ERROR
+            )
+          end
+        end,
+      })
+    end,
+  })
+
+  if download_job <= 0 then
+    download_job = nil
+    vim.notify("[Distract] Failed to launch download job.", vim.log.levels.ERROR)
+  end
+end
 
 return M

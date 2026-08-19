@@ -144,6 +144,28 @@ describe("distract.obstacles providers", function()
     assert.is_false(obstacles.unregister_provider(id))
     obstacles.reset()
   end)
+
+  it("preserves other provider registrations when an earlier one is unregistered", function()
+    obstacles.reset()
+    local first_id = obstacles.register_provider(function()
+      return { platform(0, 10, 20) }
+    end)
+    local second_id = obstacles.register_provider(function()
+      return { platform(50, 10, 20) }
+    end)
+    assert.are_equal(2, obstacles.provider_count())
+
+    assert.is_true(obstacles.unregister_provider(first_id))
+    assert.are_equal(1, obstacles.provider_count())
+
+    local collected_rectangles = obstacles.collect()
+    assert.are_equal(1, #collected_rectangles)
+    assert.are_equal(50, collected_rectangles[1].x)
+
+    assert.is_true(obstacles.unregister_provider(second_id))
+    assert.are_equal(0, obstacles.provider_count())
+    obstacles.reset()
+  end)
 end)
 
 describe("distract.obstacles geometry", function()

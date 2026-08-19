@@ -604,4 +604,32 @@ describe("distract.kitty drawing", function()
     backends.reset()
     vim.o.termguicolors = truecolor
   end)
+
+  it("restarts id allocation from the beginning of the range after reset", function()
+    local truecolor = vim.o.termguicolors
+    vim.o.termguicolors = true
+    detect.override(true)
+    kitty.setup()
+
+    writer.set_writer(function()
+      return true
+    end)
+
+    kitty_renderer.surface(entity())
+    local first_batch_ids = kitty_renderer.transmitted_ids()
+
+    kitty_renderer.reset()
+
+    kitty_renderer.surface(entity())
+    local second_batch_ids = kitty_renderer.transmitted_ids()
+
+    writer.reset_writer()
+
+    assert.are_equal(#first_batch_ids, #second_batch_ids)
+    assert.are.same(first_batch_ids, second_batch_ids)
+
+    kitty.reset()
+    backends.reset()
+    vim.o.termguicolors = truecolor
+  end)
 end)

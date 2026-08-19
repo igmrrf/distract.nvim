@@ -39,8 +39,12 @@ local IDS_PER_SESSION = 512
 
 local id_base = nil
 local next_offset = 0
+local free_ids = {}
 
 local function allocate_id()
+  if #free_ids > 0 then
+    return table.remove(free_ids)
+  end
   if not id_base then
     id_base = (vim.fn.getpid() % 32767) * IDS_PER_SESSION + 1
   end
@@ -215,6 +219,8 @@ function M.reset()
   end
   placements = {}
   frames.reset()
+  free_ids = {}
+  next_offset = 0
 end
 
 --- Image ids currently transmitted, for tests and diagnostics.

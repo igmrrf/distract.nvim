@@ -186,7 +186,18 @@ function M.start()
 end
 
 function M.stop()
-  backend_module(M.config.backend).stop()
+  local was_overlay_running = require("distract.external").is_running()
+  local was_engine_running = require("distract.engine").is_running()
+  if was_overlay_running then
+    require("distract.external").stop()
+  end
+  if was_engine_running then
+    require("distract.engine").stop()
+  end
+  if not was_overlay_running and not was_engine_running then
+    backend_module(M.config.backend).stop()
+  end
+  require("distract.warmup").reset()
   require("distract.events").teardown()
 end
 
@@ -218,8 +229,13 @@ function M.status()
 end
 
 --- Builds the overlay engine binary asynchronously.
-function M.build()
-  require("distract.external").build()
+function M.build(on_success)
+  require("distract.engine_binary").build(on_success)
+end
+
+--- Downloads the prebuilt overlay engine binary from GitHub releases.
+function M.download(on_success)
+  require("distract.engine_binary").download(on_success)
 end
 
 --- Registers a custom asset: its manifest, its terminal art, or both.

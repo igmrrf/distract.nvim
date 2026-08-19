@@ -24,13 +24,27 @@ deliberately not a record of what shipped:
 - **How to use the import pipeline** — [`docs/importing-assets.md`](docs/importing-assets.md),
   configuration in [`docs/configuration.md`](docs/configuration.md).
 
+## Feature Lock Policy
+
+**`distract.nvim` is officially FEATURE LOCKED.**
+
+No new features outside the documented scope and specifications may be added. All future contributions and changes are strictly limited to **improvements**:
+- Performance, frame budget, and memory leak optimizations.
+- Reliability, resource cleanup, and lifecycle safety fixes.
+- Cross-platform compatibility hardening and driver fallbacks.
+- Bug fixes, parity regressions, and test suite additions.
+
+Any speculative extensions, domain-specific companion behaviors, or game mechanics belong in **external downstream plugins** via the Plugin API (`require("distract").register_plugin`), not in core.
+
 ---
 
-## Pending
+## Status
 
 | Item | State | Notes |
 |---|---|---|
-| Upstream PR and release packaging | Ready | Pushed to `feature/final`; opening PR and publishing binary releases are maintainer actions. |
+| Core Engine & Plugin | **Feature Locked** | All documented capabilities implemented, verified, and locked. |
+| Memory & Lifecycle | Clean | Kitty ID allocation, obstacle provider indexing, and backend teardown resolved. |
+| Test Suite | 100% Green | 543 Lua tests, 282 Rust tests passing. |
 | Downstream ecosystem plugins | External | External companion plugins and integrations described in [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). |
 
 ---

@@ -99,13 +99,13 @@ function M.step(entities, dt, bounds, set_entity_state, sprite_cell_size)
 
   if despawned then
     local kept = {}
-    for _, e in ipairs(entities) do
-      if e.is_active then
-        table.insert(kept, e)
+    for _, entity in ipairs(entities) do
+      if entity.is_active then
+        table.insert(kept, entity)
       else
-        renderer.close_window(e.id)
+        renderer.close_window(entity.id)
         vim.notify(
-          string.format("[Distract] Despawned entity #%d (left the screen)", e.id),
+          string.format("[Distract] Despawned entity #%d (left the screen)", entity.id),
           vim.log.levels.INFO
         )
       end
@@ -127,16 +127,16 @@ function M.format_status(entities, backend)
       backend
     ),
   }
-  for _, ent in ipairs(entities) do
+  for _, entity in ipairs(entities) do
     table.insert(
       lines,
       string.format(
         "  • #%d %s (state: %s, pos: %.0f, %.0f)",
-        ent.id,
-        ent.asset_name,
-        ent.current_state,
-        ent.x,
-        ent.y
+        entity.id,
+        entity.asset_name,
+        entity.current_state,
+        entity.x,
+        entity.y
       )
     )
   end

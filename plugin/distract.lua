@@ -173,6 +173,10 @@ vim.api.nvim_create_user_command("DistractBuild", function()
   distract().build()
 end, { desc = "Build the overlay engine binary in the background" })
 
+vim.api.nvim_create_user_command("DistractDownload", function()
+  distract().download()
+end, { desc = "Download prebuilt overlay engine binary from GitHub releases" })
+
 --- Fields `:DistractRender` accepts as `key=value`, and how to read each one.
 local RENDER_OPTIONS = {
   mode = tostring,

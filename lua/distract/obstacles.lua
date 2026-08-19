@@ -25,6 +25,7 @@ local KINDS = { [M.SOLID_PLATFORM] = true, [M.HAZARD] = true }
 --- `obstacles::MAX_OBSTACLES`.
 local MAX_OBSTACLES = 128
 
+local next_provider_id = 0
 local providers = {}
 
 --- The rectangles last collected, in cells.
@@ -42,25 +43,31 @@ function M.register_provider(provider)
   if type(provider) ~= "function" then
     error("distract.register_obstacle_provider: provider must be a function")
   end
-  table.insert(providers, provider)
-  return #providers
+  next_provider_id = next_provider_id + 1
+  providers[next_provider_id] = provider
+  return next_provider_id
 end
 
-function M.unregister_provider(id)
-  if providers[id] == nil then
+function M.unregister_provider(provider_id)
+  if provider_id == nil or providers[provider_id] == nil then
     return false
   end
-  table.remove(providers, id)
+  providers[provider_id] = nil
   return true
 end
 
 function M.provider_count()
-  return #providers
+  local total_providers = 0
+  for _ in pairs(providers) do
+    total_providers = total_providers + 1
+  end
+  return total_providers
 end
 
 --- For tests, and for a full plugin reload.
 function M.reset()
   providers = {}
+  next_provider_id = 0
   collected = {}
   has_warned_about_cap = false
 end
@@ -107,11 +114,18 @@ function M.collect(context)
   local buf = context.buf or vim.api.nvim_win_get_buf(win)
 
   local accepted = {}
-  for index, provider in ipairs(providers) do
+  local provider_ids = {}
+  for provider_id in pairs(providers) do
+    table.insert(provider_ids, provider_id)
+  end
+  table.sort(provider_ids)
+
+  for _, provider_id in ipairs(provider_ids) do
+    local provider = providers[provider_id]
     local ok, result = pcall(provider, win, buf)
     if not ok then
       vim.notify(
-        string.format("[Distract] Obstacle provider #%d failed: %s", index, tostring(result)),
+        string.format("[Distract] Obstacle provider #%d failed: %s", provider_id, tostring(result)),
         vim.log.levels.WARN
       )
     else
@@ -127,7 +141,7 @@ function M.collect(context)
           })
         else
           vim.notify(
-            string.format("[Distract] Obstacle provider #%d: %s", index, reason),
+            string.format("[Distract] Obstacle provider #%d: %s", provider_id, reason),
             vim.log.levels.WARN
           )
         end

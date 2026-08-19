@@ -38,6 +38,7 @@ local SPECS = {
   "tests.render_3d_spec",
   "tests.voxel_parity_spec",
   "tests.warmup_spec",
+  "tests.health_spec",
 }
 
 print("==================================================")

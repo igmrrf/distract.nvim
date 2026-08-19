@@ -1,5 +1,6 @@
 # Repository Coding Standards
 
+- **Feature Locked:** No adding features outside the scope of documented features. Only improvements (performance, memory, bug fixes, reliability, testing) are permitted.
 - **Zero Explanatory Comments:** Write self-documenting code.
 - **Fail Fast & Explicitly:** Never swallow errors or use empty catches.
 - **Strict Size Caps:** File <= 400 lines, Component/Struct <= 150 lines, Function <= 60 lines.
@@ -7,6 +8,7 @@
 
 # Universal Coding Rules & Engineering Standards
 
+- **Feature lock is absolute.** Core features are sealed to the documented contracts. New behaviors belong in external plugins.
 - **No explanatory comments.** Write code that reads on its own.
 - **No backwards-compatibility shims in application logic.** Migrations, versioned schemas, and routing layers handle compatibility—not runtime `if`-branches.
 - **Fail fast and explicitly.** Never silently swallow errors or fall back to ambiguous default values.
