@@ -4,7 +4,7 @@
 -- pet walks along, and every closed fold becomes one too. Walk off the end of one
 -- and the pet drops to the next surface under it.
 --
--- This is `future.md` §5.4 in the smallest form that works. A real
+-- This is `docs/ecosystem-roadmap.md` §2.4 in the smallest form that works. A real
 -- `distract-physics` would use a Tree-sitter query rather than a pattern; the
 -- surface it registers through is exactly the one used here.
 --

@@ -132,7 +132,7 @@ fn main() -> ExitCode {
     };
 
     let mut world = World::new(viewport.width, viewport.height);
-    if let Err(err) = gpu_renderer.sync_atlas(&world) {
+    if let Err(err) = gpu_renderer.sync_assets(&world) {
         emit_error("ATLAS_FAILED", err);
         return ExitCode::FAILURE;
     }

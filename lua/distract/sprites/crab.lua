@@ -22,11 +22,7 @@ local ZZZ = { 176, 212, 255 }
 -- call still names the part of the crab it is drawing.
 local SHELL_SPEC = SHELL_LIGHT
 local SHELL_GROOVE = SHELL_DARK
-local CLAW_DARK = SHELL_DARK
-local CLAW_LIGHT = SHELL_LIGHT
-local LEG = SHELL_DARK
 local LEG_DARK = SHELL_DARK
-local LEG_LIGHT = SHELL
 local WHITE = EYE_WHITE
 local SPARKLE = CLAW_TOOTH
 local ZZZ_FADE = ZZZ
@@ -37,7 +33,7 @@ local ZZZ_FADE = ZZZ
 -- the closed-eye line, which must read as holes.
 local RIM = SHELL_DARK
 
-local sin, cos, pi, floor, max = math.sin, math.cos, math.pi, math.floor, math.max
+local sin, pi, floor, max = math.sin, math.pi, math.floor, math.max
 
 local function draw_legs(c, cx, cy, shell_ry, leg, sink)
   if sink >= 0.75 then

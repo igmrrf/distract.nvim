@@ -12,6 +12,7 @@ local SPECS = {
   "tests.events_spec",
   "tests.manifests_spec",
   "tests.builtin_assets_spec",
+  "tests.spawn_characterisation_spec",
   "tests.plugin_commands_spec",
   "tests.hooks_spec",
   "tests.visibility_spec",
@@ -34,6 +35,9 @@ local SPECS = {
   "tests.transparency_spec",
   "tests.physics_parity_spec",
   "tests.sprite_parity_spec",
+  "tests.render_3d_spec",
+  "tests.voxel_parity_spec",
+  "tests.warmup_spec",
 }
 
 print("==================================================")

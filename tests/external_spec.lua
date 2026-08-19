@@ -35,7 +35,9 @@ describe("distract.external IPC message handling", function()
     assert.has_no.errors(function()
       external.handle_ipc_message('{"status":"status_report","count":0,"entities":[]}')
       external.handle_ipc_message(
-        '{"status":"status_report","count":2,"entities":[{"id":1,"asset_name":"cat","state":"walk","x":100.0,"y":50.0},{"id":2,"asset_name":"sun","state":"shining","x":400.0,"y":100.0}]}'
+        '{"status":"status_report","count":2,"entities":['
+          .. '{"id":1,"asset_name":"cat","state":"walk","x":100.0,"y":50.0},'
+          .. '{"id":2,"asset_name":"sun","state":"shining","x":400.0,"y":100.0}]}'
       )
     end)
   end)
@@ -86,8 +88,6 @@ end)
 -- would come back through the IPC error path rather than as the clean refusal
 -- the terminal backend gives. One manifest, one message, either backend.
 describe("distract.external capability gating", function()
-  local external = require("distract.external")
-
   it("refuses a manifest that breaks its own capabilities before sending it", function()
     external.setup({
       cell_width = 10,
@@ -139,8 +139,6 @@ describe("distract.external capability gating", function()
 end)
 
 describe("distract.external spawn coordinates", function()
-  local external = require("distract.external")
-
   it("converts spawn coordinates from terminal cells to overlay pixels", function()
     external.setup({ cell_width = 10, cell_height = 20 })
 
@@ -192,7 +190,6 @@ end)
 -- The overlay is told where the floor is rather than working it out: only the
 -- editor can see `cmdheight`, the statusline and where the buffer text ends.
 describe("distract.external placement", function()
-  local external = require("distract.external")
   local position = require("distract.position")
 
   local function configured(position_config)
@@ -327,8 +324,6 @@ describe("the spritesheet path the overlay is sent", function()
 end)
 
 describe("overlay display placement arguments", function()
-  local external = require("distract.external")
-
   it("passes nothing when no display is configured", function()
     assert.are.same({}, external.overlay_args(nil))
     assert.are.same({}, external.overlay_args({}))

@@ -14,22 +14,18 @@
 --- This is a line-by-line port of `engine/src/sprite_gen.rs`; the two must be
 --- kept in parity by hand, since nothing enforces it at compile time.
 
+local shading = require("distract.shading")
+
 local M = {}
 
 local floor, sqrt, max, min = math.floor, math.sqrt, math.max, math.min
 local abs = math.abs
 
---- Default key light: above, slightly to the entity's left, angled toward the
---- viewer. Shared by every asset so they look lit by the same source.
-M.DEFAULT_LIGHT = { -0.5, -0.62, 0.6 }
-
---- Bayer 4x4 ordered dithering matrix normalised to -0.5 .. 0.5.
-local BAYER_4X4 = {
-  { -0.46875, 0.03125, -0.34375, 0.15625 },
-  { 0.28125, -0.21875, 0.40625, -0.09375 },
-  { -0.28125, 0.21875, -0.40625, 0.09375 },
-  { 0.46875, -0.03125, 0.34375, -0.15625 },
-}
+M.DEFAULT_LIGHT = shading.DEFAULT_LIGHT
+M.shade = shading.shade
+M.mix = shading.mix
+M.dither = shading.dither
+M.ease = shading.ease
 
 --- Creates a `w` x `h` fully transparent canvas.
 function M.canvas(w, h)
@@ -79,35 +75,6 @@ function M.to_matrix(c)
     matrix[y] = row
   end
   return matrix
-end
-
-local function clamp8(v)
-  return max(0, min(255, floor(v + 0.5)))
-end
-
---- Darkens (`amount` < 0) or lightens (`amount` > 0) a colour. `amount` is
---- clamped to -1..1, where -1 is black and 1 is white.
-function M.shade(color, amount)
-  amount = max(-1, min(1, amount))
-  if amount < 0 then
-    local factor = 1 + amount
-    return { clamp8(color[1] * factor), clamp8(color[2] * factor), clamp8(color[3] * factor) }
-  end
-  return {
-    clamp8(color[1] + (255 - color[1]) * amount),
-    clamp8(color[2] + (255 - color[2]) * amount),
-    clamp8(color[3] + (255 - color[3]) * amount),
-  }
-end
-
---- Linear interpolation between two colours, `t` in 0..1.
-function M.mix(a, b, t)
-  t = max(0, min(1, t))
-  return {
-    clamp8(a[1] + (b[1] - a[1]) * t),
-    clamp8(a[2] + (b[2] - a[2]) * t),
-    clamp8(a[3] + (b[3] - a[3]) * t),
-  }
 end
 
 --- Axis-aligned filled rectangle. Clips to the canvas.
@@ -191,21 +158,7 @@ function M.line(c, x0, y0, x1, y1, color)
   end
 end
 
-local function normalize(v)
-  local len = sqrt(v[1] * v[1] + v[2] * v[2] + v[3] * v[3])
-  if len == 0 then
-    return { 0, 0, 1 }
-  end
-  return { v[1] / len, v[2] / len, v[3] / len }
-end
-
---- Retrieves the Bayer dither offset for integer screen coordinate (x, y).
-function M.dither(x, y, strength)
-  strength = strength or 0.12
-  local xi = (floor(x) % 4) + 1
-  local yi = (floor(y) % 4) + 1
-  return BAYER_4X4[yi][xi] * strength
-end
+local normalize = shading.normalize
 
 --- Shaded ellipse, lit as a continuous hemisphere with multi-point lighting.
 ---
@@ -433,13 +386,6 @@ function M.render_poses(poses, draw_fn)
     frames[i] = M.to_matrix(draw_fn(pose))
   end
   return frames
-end
-
---- Smooth ease in/out over 0..1, for pose curves that should not start or stop
---- abruptly.
-function M.ease(t)
-  t = max(0, min(1, t))
-  return t * t * (3 - 2 * t)
 end
 
 return M

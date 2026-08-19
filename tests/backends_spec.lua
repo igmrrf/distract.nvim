@@ -24,9 +24,9 @@ describe("distract ASCII backend removal", function()
 
   it("advertises exactly the truecolor and GPU backends", function()
     distract.setup()
-    local backends = distract.get_available_backends()
-    table.sort(backends)
-    assert.are.same({ "halfblock", "overlay" }, backends)
+    local available = distract.get_available_backends()
+    table.sort(available)
+    assert.are.same({ "halfblock", "overlay" }, available)
   end)
 
   it("resolves a legacy float request to the truecolor renderer", function()

@@ -1,83 +1,11 @@
 local M = {}
 
 local backends = require("distract.backends")
-local position = require("distract.position")
+local config_module = require("distract.config")
+local render = require("distract.render")
 local viewport = require("distract.viewport")
 
---- Built-in assets. Manifests are required on demand rather than at module
---- load: each one pulls in its sprite module for the frame layout, and eagerly
---- loading all three used to be paid on every Neovim start whether or not
---- anything was ever spawned.
-local BUILTIN_ASSETS = { "cat", "crab", "sun", "cat_walking", "gudong", "iris", "minty" }
-
---- Loads a built-in manifest, or nil if there is no such asset.
-local function load_builtin_manifest(name)
-  local ok, manifest = pcall(require, "distract.manifests." .. name)
-  if ok then
-    return manifest
-  end
-  return nil
-end
-
---- `config.assets` resolves built-in manifests on first access. A user-supplied
---- manifest set on the table directly always wins, because `__index` is only
---- consulted for absent keys.
-local function lazy_assets()
-  return setmetatable({}, {
-    __index = function(t, name)
-      if not vim.tbl_contains(BUILTIN_ASSETS, name) then
-        return nil
-      end
-      local manifest = load_builtin_manifest(name)
-      rawset(t, name, manifest)
-      return manifest
-    end,
-  })
-end
-
-M.config = {
-  -- 'halfblock' (in-terminal truecolor), 'kitty' (graphics protocol) or
-  -- 'overlay' (GPU window). Left unset, the best backend this terminal can
-  -- actually draw is chosen; see `default_backend`.
-  backend = nil,
-  fps = 30,
-  idle_timeout_ms = 5000,
-  debounce_ms = 50,
-  -- Overlay only: terminal cell size in physical pixels. Leave unset to use the
-  -- terminal's own report where available, otherwise a 10x20 default.
-  -- See `:help distract-overlay`.
-  cell_width = nil,
-  cell_height = nil,
-  -- Half-block only: imported art (a manifest pointing at a GIF) is reduced to
-  -- this many colours before it is drawn, because every distinct colour pair
-  -- becomes a Neovim highlight group.
-  max_sprite_colours = 128,
-  -- Ceiling on how many of those highlight groups stay defined at once. The
-  -- least recently drawn asset's groups are cleared when it is reached.
-  max_highlight_groups = 4096,
-  -- Hide sprites while this Neovim instance does not have focus, and show them
-  -- again when it does. The simulation keeps running either way. Set false to
-  -- keep drawing regardless, which is what a standalone desktop animation wants.
-  restrict_to_instance = true,
-  -- Overlay only: which display the overlay window opens on.
-  --
-  -- Left unset, the engine detects the display the terminal has focus on where
-  -- the platform allows it (macOS today) and warns if it cannot, because the
-  -- overlay is a separate OS window and neither Neovim nor the Lua side can see
-  -- which screen it should be on.
-  --
-  -- `monitor` is a 0-based index into the window system's display list, 0 being
-  -- the primary display. `position` is an explicit `{ x, y }` point in global
-  -- desktop coordinates and wins over `monitor`.
-  overlay = { monitor = nil, position = nil },
-  -- Where entities are placed and what they stand on. See
-  -- `distract.position` for the anchor and ground vocabulary.
-  position = vim.deepcopy(position.DEFAULTS),
-  -- Which rectangle entities may move in, what they must not cover, and where
-  -- their surfaces sit in Neovim's float stacking. See `distract.viewport`.
-  positioning = vim.deepcopy(viewport.DEFAULTS),
-  assets = lazy_assets(),
-}
+M.config = config_module.defaults()
 
 local is_setup = false
 local group = vim.api.nvim_create_augroup("Distract", { clear = true })
@@ -121,9 +49,13 @@ function M.setup(opts)
   M.config.backend = backends.resolve(M.config.backend or default_backend())
   -- `tbl_deep_extend` copies into a plain table, so re-attach the lazy loader
   -- while keeping anything the user supplied.
-  M.config.assets = setmetatable(M.config.assets or {}, getmetatable(lazy_assets()))
+  M.config.assets = setmetatable(M.config.assets or {}, getmetatable(config_module.lazy_assets()))
 
   viewport.configure(M.config.positioning)
+  -- Validated before the backend is set up, because a backend takes a snapshot of
+  -- the config and an unvalidated mode would reach the renderer as a typo.
+  M.config.render = render.settings(M.config.render)
+  require("distract.terminal_sprites").configure_render(M.config.render)
   backend_module(M.config.backend).setup(M.config)
   is_setup = true
 
@@ -172,6 +104,36 @@ end
 ---
 --- Entities do not migrate: the two backends keep separate worlds. That is
 --- reported rather than left for the user to discover.
+--- Switches the render mode, or changes any part of the render settings.
+---
+--- Applies live on every backend: the terminal renderers drop their rasterised
+--- frames and the overlay is sent the new settings, so nothing has to be
+--- respawned. A model faces the viewer at a yaw of zero and covers exactly the
+--- pixels its sprite does, so turning 3D on never moves a pet.
+---
+--- @param opts table|string a `render` config table, or a mode name ("2d"/"3d")
+function M.set_render(opts)
+  if type(opts) == "string" then
+    opts = { mode = opts }
+  end
+  local merged = vim.tbl_deep_extend("force", vim.deepcopy(M.config.render), opts or {})
+  M.config.render = render.settings(merged)
+
+  require("distract.terminal_sprites").configure_render(M.config.render)
+  require("distract.external").sync_render(M.config.render)
+  -- The settled pose already painted was painted in the old mode, and quiescence
+  -- would otherwise suppress the frame that corrects it.
+  require("distract.plugins").mark_dirty()
+
+  return M.config.render
+end
+
+--- The render settings in force.
+--- @return table
+function M.get_render()
+  return vim.deepcopy(M.config.render)
+end
+
 function M.set_backend(backend_name)
   admit_conditional_backends(backend_name)
   local norm = backends.resolve(backend_name)
@@ -286,6 +248,12 @@ function M.register_asset(name, spec)
   if not spec.sprites and not spec.manifest then
     error("distract.register_asset: nothing to register; pass `manifest`, `sprites`, or both")
   end
+
+  -- A backend holds the snapshot of `config` it was set up with, so a manifest
+  -- registered afterwards only reaches it through another `setup`.
+  if is_setup then
+    backend_module(M.config.backend).setup(M.config)
+  end
 end
 
 --- Registers a plugin against the engine's lifecycle hooks.
@@ -363,7 +331,7 @@ function M.get_asset_names()
       table.insert(names, name)
     end
   end
-  for _, name in ipairs(BUILTIN_ASSETS) do
+  for _, name in ipairs(config_module.BUILTIN_ASSETS) do
     push(name)
   end
   -- `pairs` only sees assets that have been materialised or user-supplied,

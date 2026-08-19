@@ -8,6 +8,7 @@
 --- reader never needs to be more than byte arithmetic.
 
 local asset_path = require("distract.asset_path")
+local resample = require("distract.resample")
 
 local M = {}
 
@@ -129,6 +130,34 @@ function M.load(path)
   local frames = decode_frames(bytes, header.width, header.height, header.count)
   cache[path] = frames
   return frames
+end
+
+local function fitted_size(frames, max_width)
+  local source_width = #frames[1][1]
+  if source_width <= max_width then
+    return nil
+  end
+  local source_height = #frames[1]
+  return {
+    width = max_width,
+    height = math.max(1, math.floor(source_height * max_width / source_width + 0.5)),
+  }
+end
+
+function M.load_fitted(path, max_width)
+  local frames, err = M.load(path)
+  if not frames then
+    return nil, err
+  end
+  local target = fitted_size(frames, max_width or 32)
+  if not target then
+    return frames
+  end
+  local fitted = {}
+  for index, matrix in ipairs(frames) do
+    fitted[index] = resample.shrink_matrix(matrix, target)
+  end
+  return fitted
 end
 
 --- Drops every decoded sidecar. For tests, and for an asset being replaced.

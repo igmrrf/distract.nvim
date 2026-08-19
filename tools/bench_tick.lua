@@ -1,7 +1,7 @@
 -- What one tick costs in the in-terminal engine, at the scale a particle system
 -- would want.
 --
--- `future.md` §5.5 gates ambient weather on this: the engine was built for three
+-- `docs/ecosystem-roadmap.md` §2.5 gates ambient weather on this: the engine was built for three
 -- entities and rain wants hundreds. `engine/tests/tick_budget.rs` answers it for
 -- the overlay; this answers it for the backend most people actually run, where
 -- stepping and drawing have very different costs — the step is arithmetic, the

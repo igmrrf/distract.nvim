@@ -172,3 +172,104 @@ end, { desc = "Toggle Distract render engine" })
 vim.api.nvim_create_user_command("DistractBuild", function()
   distract().build()
 end, { desc = "Build the overlay engine binary in the background" })
+
+--- Fields `:DistractRender` accepts as `key=value`, and how to read each one.
+local RENDER_OPTIONS = {
+  mode = tostring,
+  yaw = tonumber,
+  fov = tonumber,
+  depth = tonumber,
+  slab = tonumber,
+  ambient = tonumber,
+}
+
+--- Where each option lands in the `render` config table.
+local function render_config_for(key, value)
+  if key == "mode" then
+    return { mode = value }
+  elseif key == "yaw" then
+    return { yaw_degrees = value }
+  elseif key == "fov" then
+    return { fov_y_degrees = value }
+  elseif key == "depth" then
+    return { depth_per_unit = value }
+  elseif key == "slab" then
+    return { voxel_depth = value }
+  end
+  return { light = { ambient = value } }
+end
+
+vim.api.nvim_create_user_command("DistractRender", function(opts)
+  local args = vim.split(vim.trim(opts.args or ""), "%s+", { trimempty = true })
+  if #args == 0 then
+    local settings = distract().get_render()
+    vim.notify(
+      string.format(
+        "[Distract] Render mode: '%s'\n"
+          .. "  camera: %.0f° vertical, %.3f depth per z unit\n"
+          .. "  model: turned %.0f°, %d voxels thick, fitted to %d wide\n"
+          .. "  light: ambient %.2f",
+        settings.mode,
+        settings.fov_y_degrees,
+        settings.depth_per_unit,
+        settings.yaw_degrees,
+        settings.voxel_depth,
+        settings.voxel_max_width,
+        settings.light.ambient
+      ),
+      vim.log.levels.INFO
+    )
+    return
+  end
+
+  local changes = {}
+  for _, argument in ipairs(args) do
+    local key, raw = argument:match("^(%w+)=(.+)$")
+    if not key then
+      -- A bare `2d` or `3d` is the whole point of the command; anything else
+      -- would be a silent no-op, which is worse than a message.
+      key, raw = "mode", argument
+    end
+    local reader = RENDER_OPTIONS[key]
+    if not reader then
+      vim.notify(
+        string.format(
+          "[Distract] Unknown render option '%s'. Accepts: %s",
+          key,
+          table.concat(vim.tbl_keys(RENDER_OPTIONS), ", ")
+        ),
+        vim.log.levels.ERROR
+      )
+      return
+    end
+    local value = reader(raw)
+    if value == nil then
+      vim.notify(
+        string.format("[Distract] render %s needs a number, got '%s'", key, raw),
+        vim.log.levels.ERROR
+      )
+      return
+    end
+    changes = vim.tbl_deep_extend("force", changes, render_config_for(key, value))
+  end
+
+  local ok, err = pcall(distract().set_render, changes)
+  if not ok then
+    vim.notify("[Distract] " .. tostring(err), vim.log.levels.ERROR)
+    return
+  end
+  vim.notify(
+    string.format("[Distract] Render mode: '%s'", distract().get_render().mode),
+    vim.log.levels.INFO
+  )
+end, {
+  nargs = "*",
+  desc = "View or change how Distract draws: 2d, 3d, or key=value (yaw, fov, depth, slab, ambient)",
+  complete = function(_, line)
+    local parts = vim.split(line, "%s+")
+    if #parts <= 2 then
+      return { "2d", "3d", "yaw=", "fov=", "depth=", "slab=", "ambient=" }
+    end
+    return {}
+  end,
+})

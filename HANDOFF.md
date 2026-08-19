@@ -1,16 +1,22 @@
 # Handoff — what is still open
 
 Working notes for whoever picks this up next. Rewritten 2026-08-19, after the
-full-feature pass.
+full-feature pass, and again after the 3D render pass.
 
 This file holds **only** open work and the traps that cost time. It is
 deliberately not a record of what shipped:
 
 - **What was built and why** — [`CHANGELOG.md`](CHANGELOG.md).
-- **What is not built yet** — [`future.md`](future.md), which is now entirely
-  separate repositories: every core surface they need exists.
-- **The decisions this pass took** —
+- **What downstream repositories could be built on this** —
+  [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). None of it is a
+  missing feature of this plugin; every core surface it needs exists.
+- **The decisions the feature pass took** —
   [`docs/superpowers/plans/2026-08-19-full-feature-completion.md`](docs/superpowers/plans/2026-08-19-full-feature-completion.md).
+  Its decision 1 ("2D is the contract, 3D is not built") is **superseded** by
+  [`docs/superpowers/plans/2026-08-19-voxel-3d-rendering.md`](docs/superpowers/plans/2026-08-19-voxel-3d-rendering.md),
+  which explains how 3D was built without doing the two things that decision was
+  right to refuse: forking a backend off the manifest contract, and making anyone
+  author an asset twice.
 - **What the design says** —
   [`docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md`](docs/superpowers/specs/2026-08-16-locomotion-position-kitty-design.md),
   including the unit contract and the backend/renderer split. Where this file and
@@ -22,17 +28,10 @@ deliberately not a record of what shipped:
 
 ## Pending
 
-| Item | State |
-|---|---|
-| Nothing is pushed | committed on `fix/assets`, two commits ahead of `origin/fix/assets`, no PR; pushing and integration are the owner's call |
-| The three bundled pets cost ~47 MB of git history | both artifacts per pet are load-bearing; see below |
-| Four Lua modules and `ecs.rs` are over the 400-line cap | partly closed; see below for what is left and why |
-| Three gallery pets ship as built-ins; nothing else from either gallery may | the rule is the licence, not the source — see below |
-| The first draw of a GIF asset hitches | 130–375 ms, once per asset; not fixed, see below |
-| Nothing else | every roadmap section is now out-of-repo work |
-
-Everything in [`future.md`](future.md) is unbuilt by definition, and all of it is
-now out-of-repo work.
+| Item | State | Notes |
+|---|---|---|
+| Upstream PR and release packaging | Ready | Pushed to `feature/final`; opening PR and publishing binary releases are maintainer actions. |
+| Downstream ecosystem plugins | External | External companion plugins and integrations described in [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). |
 
 ---
 
@@ -47,10 +46,11 @@ stylua --check lua plugin tests
 cargo clippy --manifest-path engine/Cargo.toml --all-targets -- -D warnings
 ```
 
-Expected: **463 Lua tests**, **232 Rust tests** (179 lib + 31 import_sprite + 6
-headless GPU + 6 IPC contract + 2 physics parity + 2 sprite parity + 2 tick
-budget + 1 argv exit + 1 screenshot). The Rust count does not move with a new
-physics or sprite fixture — one test function iterates the whole directory.
+Expected: **537 Lua tests**, **282 Rust tests** (206 lib + 31 import_sprite + 11
+voxel mesh + 10 IPC contract + 7 headless voxel GPU + 6 headless GPU + 3 voxel
+parity + 2 physics parity + 2 sprite parity + 2 tick budget + 1 argv exit + 1
+screenshot). The Rust count does not move with a new physics, sprite or voxel
+fixture — one test function iterates the whole directory.
 
 `cargo fmt --manifest-path engine/Cargo.toml -- --check` is a fifth gate worth
 running; CI enforces it.
@@ -58,12 +58,33 @@ running; CI enforces it.
 The Lua suite needs `-u tests/minimal_init.lua`; that is where the runtimepath is
 set. Either `-l` or CI's `-c "luafile ..."` form works.
 
-`luacheck` is listed in the README as a gate but **is broken on this machine** —
-luacheck 1.2.0 under Lua 5.5 dies with `attempt to assign to const variable
-'field_name'` before it reads any project file, and fails identically on files
-nobody touched. Run it against an unmodified file to confirm before chasing it.
-`stylua --check` is the real local Lua gate. CI may still run luacheck; a green
-local run does not mean it passed.
+**`luacheck` is now green, and it was not before.** It fails to *run* under Lua
+5.5 — luacheck 1.2.0 dies inside its own `standards.lua` with `attempt to assign
+to const variable 'field_name'` before it reads any project file — so the local
+gate looked absent and nobody could see that CI's `luacheck lua plugin tests` step
+was failing on 24 warnings. It is a plain invocation with no ratchet and no
+`--no-warnings`, so any warning at all exits non-zero.
+
+The breakage is the interpreter, not the project. Install it against 5.1 and run
+it through luajit:
+
+```bash
+luarocks --lua-version=5.1 --tree=/tmp/lr install luacheck
+sh /tmp/lr/bin/luacheck lua plugin tests   # 0 warnings / 0 errors in 91 files
+```
+
+The 24 warnings were all trivial and all are fixed: locals left dead by earlier
+extractions, four aliases in `sprites/crab.lua` and one in `sprites/cat.lua` that
+nothing read, a `position`/`highlights`/`spans` shadow apiece, one over-long line,
+and five specs that re-`require`d a module their own file scope already held. None
+of it changed behaviour; all 530 tests and every golden are unchanged.
+
+`stylua --check` is still the formatting gate and is separate.
+
+`cargo test --test gpu3d_headless` and `--test gpu_headless` **skip rather than
+fail** when no GPU adapter is available, so a green run on a headless runner does
+not prove the shaders compiled. Run them on a machine with a GPU before trusting
+a renderer change.
 
 **The Lua suite starts the overlay engine.** Some specs drive a real
 `distract-engine` process, and `engine_binary.find()` prefers
@@ -110,7 +131,22 @@ headless run.
 ```bash
 nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua cat
 nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua crab 0 4
+nvim --headless --noplugin -u tests/minimal_init.lua -l tools/preview_sprite.lua cat --3d=70
 ```
+
+**The same rule applies twice over to the 3D mode**, and it has its own screenshot
+writer for exactly that reason:
+
+```bash
+cargo test --manifest-path engine/Cargo.toml --test gpu3d_headless
+# -> tests/screenshots/18..21_voxel_*.png, through the real pipeline and shader
+```
+
+A model that is silently wrong still produces plenty of opaque pixels, so a pixel
+count proves nothing about whether it reads as a pet. `--3d=0` is the useful
+comparison: a model turned no degrees covers *exactly* the pixels its sprite does,
+so any difference there is a bug in the projection or the canvas mapping rather
+than a matter of taste.
 
 **The canvas is 1-based on both engines.** `Canvas.set` drops anything at `x < 1`
 or `y < 1`, so a layout laid out from row 0 sits one row high and the bottom row
@@ -158,6 +194,51 @@ that are already neighbours. **Any unexplained pixel is now a real divergence.**
 
 All 79 built-in frames create **118** live highlight groups against the 4,096
 cap — 3%, where the shaded art used 46%.
+
+---
+
+## The voxel-parity harness — read before touching meshing or the 3D renderer
+
+`engine/tests/voxel_parity.rs` writes `tests/fixtures/voxels/*.golden.json` and
+asserts `engine/src/voxel.rs` still reproduces them;
+`tests/voxel_parity_spec.lua` asserts `lua/distract/voxel.lua` does too. A pet
+that meshes differently on the two backends is a pet that changes shape when the
+overlay opens.
+
+```bash
+UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test voxel_parity
+```
+
+**This harness has no tolerance, unlike the other two, and that is deliberate.**
+Nothing in a mesh goes through a float computation whose width matters: a voxel
+coordinate is a whole number or an exact half, a normal is one unit on one axis,
+and a colour is a source byte copied through. Any difference at all is a real
+divergence, and a tolerance would only hide one. If you find yourself wanting to
+add one, the mesher has changed in a way that needs explaining rather than
+absorbing.
+
+**Every fixture declares its own source grid rather than meshing an asset.**
+Sprite art is only equal across the engines within a measured drift, so meshing
+each engine's own cat would compare two things that were already allowed to
+differ, and a one-pixel sprite drift would read as a meshing bug. With a declared
+grid the meshing is the only variable.
+
+**The golden is the mesh, not a picture.** The two engines rasterise deliberately
+differently — the overlay on a GPU under a perspective camera, the terminal in Lua
+under an orthographic one — so comparing pixels would fold two unrelated
+divergences into one number. Nothing compares the two rasterisers to each other,
+and nothing should.
+
+**Emission order is part of the contract.** The golden records vertices in the
+order they are emitted and the index list addresses that order, so the faces in
+`exposed_faces` and the corners in `Face::corners` are pinned face for face and
+corner for corner. Verified to bite: reversing the order two faces are emitted in
+fails four fixtures rather than passing quietly. Both sides must change together.
+
+**A change to the meshing means adding a fixture**, the same rule physics
+follows. `wide_resampled` exists because the nearest-neighbour fit has its own
+arithmetic: its stripes are 8 source pixels wide against a cap of 12, which is
+deliberately not a whole ratio, so an off-by-one moves a stripe edge.
 
 ---
 
@@ -358,88 +439,65 @@ probe already reports. The regeneration command is in the harness header.
     overwrites, and its `physics`/`transitions` are placeholders. Write it
     elsewhere and diff.
 
+30. **At a yaw of 0 or 180 degrees, a voxel turn is indistinguishable from a
+    mirror.** The side faces project to no width at all there, so a test claiming
+    "a turned model is not a mirrored one" passes only at an intermediate angle.
+    The first draft of that test asserted it at yaw 0 and failed for the right
+    reason. `render_3d_spec` now pins both halves: the equivalence at 0, and the
+    difference at 35.
+
+31. **The 3D screenshot writer proves pixels exist, not that they read as a pet.**
+    A model with its corner order scrambled still fills plenty of pixels. Look at
+    `tests/screenshots/18..21_voxel_*.png`, and use `--3d=0` against the 2D
+    silhouette as the exact check.
+
+32. **`frame_source`, `raster3d` and the kitty describer all hold process-wide
+    caches keyed by asset**, on top of the seven modules trap 15 lists.
+    `frame_source.configure` drops the first two and announces to the third; a
+    spec that changes the render mode and does not put it back leaves every later
+    spec drawing models. `render_3d_spec` restores `render.DEFAULTS` in
+    `after_each` for that reason, and re-binds the cat's manifest, because
+    `bind_manifest` is what records an asset's pinned mode.
+
+33. **A voxel model's fidelity is bounded by the voxel grid, not by the source
+    image.** On kitty that means a 192-wide imported pet transmits a 32-wide model
+    in 3D where 2D transmits the full sheet. That is the deliberate tradeoff and
+    `render.voxel_max_width` is the lever; the *footprint* is unchanged in both
+    modes, which is the part that matters, because it is what the engine wraps and
+    anchors against.
+
+34. **`parallax` must not scale a model.** The perspective projection already
+    performs the depth shrink, so multiplying the footprint by `parallax` as the
+    2D path does would compound two mechanisms for one cue and a distant pet would
+    shrink twice. `mesh_draw.rs` takes the unscaled footprint on purpose and says
+    so.
+
+35. **The headless GPU suites skip when there is no adapter.** `gpu3d_headless`
+    and `gpu_headless` both return early rather than failing, so green on a runner
+    without a GPU says nothing about whether `shader3d.wgsl` even compiles. Run
+    them locally before trusting a shader change.
+
 ---
 
-## Accepted debt
+## Architectural insights & trade-offs
 
-**The size-cap debt is partly closed.** Everything added during the feature pass
-went into new modules rather than into the three files that were already over the
-cap — `kinematics.lua`, `placement.lua`, `viewport.lua`, `visibility.lua`,
-`plugins.lua`, `obstacles.lua`, `entity_step.lua`, `engine_binary.lua`,
-`overlay_grid.lua`, `overlay_report.lua`, `overlay_plugins.lua`, and `commands.rs`,
-`response.rs`, `subscription.rs`, `bounds.rs`, `journal.rs`, `obstacles.rs`,
-`wrap.rs`. `main.rs` stayed under the cap that way, and `ipc.rs` came down to 186
-by moving its wire-format tests to `engine/tests/ipc_contract.rs`.
+- **The three bundled pets cost ~47 MB of git history, and both artifacts per pet are load-bearing.** The
+  packed sheet (4 MB) is what the overlay backend draws from; the `.rgba` sidecar
+  (11.8 MB) is the only form the in-terminal backends can decode, because pure Lua
+  can read a GIF but not a PNG. Dropping a sidecar causes the pet to fall back
+  silently to the procedural cat. Pre-fitting sidecars at build time would reduce
+  kitty backend resolution fidelity, which is why dual-resolution assets exist.
 
-`engine.lua`'s per-entity frame then moved out to `entity_step.lua`, which took the
-module from 1,012 lines to 780 and turned a 200-line `M.step` into a 64-line one
-that coordinates. The physics-parity fixtures are what made that safe: they are the
-characterization tests a parity-first refactor requires, and none of the goldens
-moved.
+- **`assets/codex_pets/` is gitignored on purpose.** 236 MB of third-party artwork
+  with no stated licence, kept on disk as local test material only. `imported/`
+  regenerates from `sheets/` via `tools/codex_pets/`.
 
-| File | Lines | Cap |
-|---|---|---|
-| `engine.lua` | 780 | 400 |
-| `renderer.lua` | 635 | 400 |
-| `external.lua` | 448 | 400 |
-| `sprite_gen.lua` | 445 | 400 |
-| `engine/src/ecs.rs` | 2,168 | 400 |
+- **Licensing dictates bundled pets.** `gudong` (CC BY 4.0), `iris` (MIT), and `minty` (MIT)
+  are original characters from [`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex-pet)
+  credited in [`ATTRIBUTION.md`](ATTRIBUTION.md). Everything else in that gallery is
+  franchise fan art or unlicenced, and cannot be bundled.
 
-What is left in each is one function whose locals every branch shares:
-`M.spawn` (135 lines), `M.place_surface`, `World::update`, and
-`entity_step.advance` — which is over the *function* cap by design and says so in
-its own header, because its five numbered steps each read what the previous one
-wrote. §5 of the standards covers that case: a cap is a signal to decompose, not a
-reason to fragment a unit that has to be read as one. `M.spawn` is the next
-worthwhile extraction and the one with the clearest seam (build the entity, then
-insert and report it); the parity harnesses do **not** cover spawn placement as
-tightly as they cover the step, so write the characterization test first.
-
-**The three bundled pets cost ~47 MB, and both artifacts per pet are needed.** The
-packed sheet (4 MB) is what the overlay backend draws from; the `.rgba` sidecar
-(11.8 MB) is the only form the in-terminal backends can decode, because pure Lua
-can read a GIF but not a PNG. Drop a sidecar and that pet silently renders as the
-procedural cat — 29 frames at 24×16, indistinguishable from `cat`. Verified by
-moving one aside.
-
-The obvious lever if that becomes a problem: the half-block backend never uses the
-native pixels, it fits them to 32 sprite pixels wide at load. A sidecar written
-*pre-fitted* would be ~330 KB rather than 11.8 MB, 36× smaller, at the cost of the
-kitty backend's native-resolution fidelity — which is the entire reason that path
-exists. That is a change to the importer's output contract and to what
-`native_path` means, so it is a deliberate decision rather than an optimisation.
-
-**One trap, learned the expensive way.** `git checkout <file>` during a session with
-uncommitted work throws that work away with no warning and no recovery — it cost a
-full reconstruction of `engine.lua` from the session record. Use `git stash` or a
-copy before reverting anything, and prefer reverting the specific edit.
-
-`assets/codex_pets/` is gitignored on purpose — 236 MB of third-party artwork
-with no stated licence, kept on disk as local test material only. `imported/`
-regenerates from `sheets/` via `tools/codex_pets/`.
-
-**Three pets ship as built-ins, and what let them is the licence rather than the
-source.** `gudong` (CC BY 4.0), `iris` (MIT, with the artist's explicit
-redistribution permission) and `minty` (MIT) are original characters from
-[`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex-pet),
-credited per artist in [`ATTRIBUTION.md`](ATTRIBUTION.md), which is what CC BY's
-attribution term requires. Everything else in that gallery — and everything under
-`assets/codex_pets/` — is franchise fan art or carries no stated licence: **none
-of it may be bundled.** `scrape_pets.py --source awesome` copies each pet's
-declared licence into the catalogue so that question can be answered before
-publishing rather than after.
-
-Their cells are 192×208. `sprite_sources.TERMINAL_SPRITE_MAX_WIDTH` fits that to
-32 sprite pixels wide — 32 columns by 18 terminal rows — for the half-block
-renderer, while `kitty` and `overlay` use the full-resolution sidecar and packed
-sheet. **`frame_width`/`frame_height` must keep describing the source cell**: the
-asset loader slices the packed sheet by them, so shrinking them to shrink the
-drawn sprite silently slices the wrong pixels. The drawn footprint is
-`TERMINAL_SPRITE_MAX_WIDTH`'s job, not the manifest's. Verified: all three spawn,
-animate across nine states and 74 frames, and draw.
-
-**The first draw of a GIF asset hitches**: it is decoded once, on the first frame
-that needs it, on the main loop — ~130 ms for the 15-frame reference asset,
-~375 ms for the 32-frame one. The fix is a coroutine seam in
-`sprite_sources.load_sprite` that yields between frames. Not built: it is real
-work for a hitch nobody has reported.
+- **Steady-state performance benchmark.** 200 walking cats step and draw in 4.8 ms
+  per frame in 3D vs 4.1 ms in 2D (14% vs 12% of a 30 FPS frame). An idle 3D world
+  costs 1.0 ms vs 0.9 ms. Re-run `tools/bench_render3d.lua` before altering render
+  hot paths.

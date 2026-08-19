@@ -1,8 +1,9 @@
 local M = {}
 
 local frame_buffers = require("distract.frame_buffers")
+local frame_source = require("distract.frame_source")
 local highlights = require("distract.highlights")
-local quantise = require("distract.quantise")
+local raster3d = require("distract.raster3d")
 local sources = require("distract.sprite_sources")
 
 --- How many colours imported art is reduced to before it is drawn in
@@ -47,17 +48,23 @@ function M.configure(opts)
   highlights.configure({ max_groups = opts.max_highlight_groups })
 end
 
---- This module renders into half-block cells, so its own frame lookups ask for
---- the cell-grid art rather than a manifest's native-resolution sidecar.
---- Hoisted rather than built per call: this runs once per cache miss per frame.
----@type table
-local HALFBLOCK_CAPABILITY = { native_resolution = false }
-
---- Which art an asset has is `distract.sprite_sources`' answer; this module
---- re-exports it so a caller asking for a frame and a caller asking what to
+--- Which art an asset has, and which pixels a frame is drawn from, are
+--- `distract.sprite_sources`' and `distract.frame_source`'s answers; this module
+--- re-exports both so a caller asking for a frame and a caller asking what to
 --- draw it from talk to one place.
+M.pixel_matrix = function(asset_name, frame_idx, flip_x)
+  return frame_source.matrix(asset_name, frame_idx, {
+    flip_x = flip_x,
+    max_colours = max_sprite_colours,
+  })
+end
+M.mirror_matrix = frame_source.mirror_matrix
+M.is_voxel = frame_source.is_voxel
+M.bind_manifest = frame_source.bind_manifest
+M.configure_render = frame_source.configure
+M.on_render_change = frame_source.on_change
+
 M.has_sprite = sources.has_sprite
-M.bind_manifest = sources.bind_manifest
 M.unbind_manifest = sources.unbind_manifest
 M.register = sources.register
 M.get_pixel_frames = sources.get_pixel_frames
@@ -71,19 +78,6 @@ M.frame_delay_ms = sources.frame_delay_ms
 local UPPER_HALF = "\u{2580}"
 local LOWER_HALF = "\u{2584}"
 
---- Widest row in the matrix. Rows are expected to be uniform, but a custom
---- matrix may be ragged; padding to the maximum keeps every rendered line
---- rectangular so the float window width stays correct.
-local function matrix_width(pixel_rows)
-  local width = 0
-  for _, row in ipairs(pixel_rows) do
-    if #row > width then
-      width = #row
-    end
-  end
-  return width
-end
-
 --- Converts a pixel matrix into half-block strings plus extmark highlight spans.
 ---
 --- `owner` is the asset the colours belong to, which is what bounds the
@@ -94,8 +88,8 @@ end
 --- byte offset `col` and byte length `len` (suitable for `nvim_buf_set_extmark`).
 function M.render_halfblock_frame(pixel_rows, owner)
   local lines = {}
-  local highlights = {}
-  local width = matrix_width(pixel_rows)
+  local spans = {}
+  local width = frame_source.matrix_width(pixel_rows)
 
   for r = 1, #pixel_rows, 2 do
     local top_row = pixel_rows[r] or {}
@@ -125,7 +119,7 @@ function M.render_halfblock_frame(pixel_rows, owner)
       end
 
       if hl then
-        table.insert(highlights, { row = row_idx, col = byte_col, len = #glyph, hl = hl })
+        table.insert(spans, { row = row_idx, col = byte_col, len = #glyph, hl = hl })
       end
       table.insert(line_chars, glyph)
       byte_col = byte_col + #glyph
@@ -134,26 +128,7 @@ function M.render_halfblock_frame(pixel_rows, owner)
     table.insert(lines, table.concat(line_chars))
   end
 
-  return lines, highlights, width, #lines
-end
-
---- Mirrors a pixel matrix horizontally.
----
---- Rows are padded to the matrix width first. A ragged row reversed in place
---- would shift its pixels left by however many columns it was short, which
---- moves a mirrored sprite's art relative to its own bounding box.
-function M.mirror_matrix(pixel_rows)
-  local width = matrix_width(pixel_rows)
-  local out = {}
-  for r = 1, #pixel_rows do
-    local row = pixel_rows[r]
-    local flipped = {}
-    for c = 1, width do
-      flipped[c] = row[width - c + 1] or false
-    end
-    out[r] = flipped
-  end
-  return out
+  return lines, spans, width, #lines
 end
 
 -- Rendering a frame depends only on `(asset, frame index, facing)`, and the
@@ -182,19 +157,12 @@ function M.get_rendered_frame(asset_name, frame_idx, flip_x)
 
   local entry = by_facing[frame_idx]
   if not entry then
-    local frames = M.get_pixel_frames(asset_name, HALFBLOCK_CAPABILITY)
-    local matrix = frames[frame_idx] or frames[1]
+    local matrix = M.pixel_matrix(asset_name, frame_idx, flip_x)
     if not matrix then
       return {}, {}, 0, 0
     end
-    if flip_x then
-      matrix = M.mirror_matrix(matrix)
-    end
-    if sources.needs_quantising(asset_name) then
-      matrix = quantise.reduce(matrix, max_sprite_colours)
-    end
-    local lines, highlights, w, h = M.render_halfblock_frame(matrix, asset_name)
-    entry = { lines = lines, highlights = highlights, width = w, height = h }
+    local lines, spans, width, height = M.render_halfblock_frame(matrix, asset_name)
+    entry = { lines = lines, highlights = spans, width = width, height = height }
     by_facing[frame_idx] = entry
   end
 
@@ -220,9 +188,9 @@ end
 ---
 --- Adjacent cells sharing a highlight are merged into one chunk, so a row is
 --- typically one or two extmarks rather than one per cell.
-local function build_runs(lines, highlights)
+local function build_runs(lines, highlight_spans)
   local by_row = {}
-  for _, hl in ipairs(highlights) do
+  for _, hl in ipairs(highlight_spans) do
     local row = by_row[hl.row]
     if not row then
       row = {}
@@ -289,11 +257,11 @@ function M.get_frame_runs(asset_name, frame_idx, flip_x)
 
   local entry = by_facing[frame_idx]
   if not entry then
-    local lines, highlights, w, h = M.get_rendered_frame(asset_name, frame_idx, flip_x)
-    if w < 1 or h < 1 then
+    local lines, spans, width, height = M.get_rendered_frame(asset_name, frame_idx, flip_x)
+    if width < 1 or height < 1 then
       return nil
     end
-    entry = { rows = build_runs(lines, highlights), width = w, height = h }
+    entry = { rows = build_runs(lines, spans), width = width, height = height }
     by_facing[frame_idx] = entry
   end
 
@@ -347,6 +315,12 @@ end)
 -- Art that changed is art that has to be re-rendered; the frames cached here
 -- are keyed by asset name and say nothing about where the pixels came from.
 sources.on_change(function(asset_name)
+  M.reset_cache(asset_name)
+  raster3d.reset(asset_name)
+end)
+
+-- So is art whose render mode, camera or light changed. `nil` means every asset.
+frame_source.on_change(function(asset_name)
   M.reset_cache(asset_name)
 end)
 

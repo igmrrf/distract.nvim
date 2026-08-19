@@ -133,7 +133,7 @@ impl Compositor {
     pub fn render_world(world: &World, frame: &mut [u8], win_w: u32, win_h: u32) {
         Self::clear(frame);
 
-        let mut sorted: Vec<&crate::ecs::Entity> =
+        let mut sorted: Vec<&crate::entity::Entity> =
             world.entities.iter().filter(|e| e.is_active).collect();
         sorted.sort_by_key(|e| e.z_index);
 
