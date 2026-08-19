@@ -31,8 +31,6 @@ function M.is_running()
   return job_id ~= nil and job_id > 0
 end
 
-local overlay_spawn = require("distract.overlay_spawn")
-
 --- Where a compiled engine binary may live, and how to build one.
 M.binary_candidates = engine_binary.candidates
 M.build_command = engine_binary.build_command

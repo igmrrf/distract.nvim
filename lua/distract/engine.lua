@@ -102,9 +102,6 @@ function M.stop()
   quiescent_drawn = false
 end
 
---- How close two floors must be to count as the same one, in cells.
-local FLOOR_MATCH_EPSILON_CELLS = 1e-6
-
 --- The floor entities were last placed against, in cells.
 ---
 --- Held so a screen that changes shape can re-seat what was standing on the old

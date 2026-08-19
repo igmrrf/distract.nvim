@@ -126,18 +126,6 @@ function M.supports(backend)
   return BACKEND_SURFACE[backend] ~= nil
 end
 
---- Whether this entity's current state wraps at the edge.
----
---- Only a wrapping entity is sliced: every other boundary mode keeps the sprite
---- inside the bounds, so there is never a departing half to draw.
-local function wraps_at_the_edge(entity)
-  local states = entity.manifest and entity.manifest.states
-  local state_def = states and states[entity.current_state]
-  local physics = state_def and state_def.physics
-  -- `wrap` is the default when a state declares no mode, matching `engine.lua`.
-  return physics == nil or (physics.wrap_mode or "wrap") == "wrap"
-end
-
 --- The floats this renderer owns, so they are not mistaken for someone else's.
 local function own_windows()
   local ignored = {}
