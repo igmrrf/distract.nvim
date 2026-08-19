@@ -3,6 +3,7 @@
 pub mod asset;
 pub mod atlas;
 pub mod bounds;
+pub mod camera;
 pub mod commands;
 pub mod compositor;
 pub mod ecs;
@@ -10,6 +11,7 @@ pub mod gpu;
 pub mod ipc;
 pub mod journal;
 pub mod manifest;
+pub mod meshbook;
 pub mod obstacles;
 pub mod overlay_placement;
 pub mod platform;
@@ -18,6 +20,7 @@ pub mod spawn;
 pub mod sprite_gen;
 pub mod sprites;
 pub mod subscription;
+pub mod voxel;
 pub mod wrap;
 
 #[cfg(target_os = "macos")]
