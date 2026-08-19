@@ -215,7 +215,13 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact_name: distract-engine-linux-x86_64.tar.gz
             bin_name: distract-engine
-          - os: macos-13
+          # Cross-built from the arm64 runner rather than on an Intel one.
+          # macos-13 was the last free Intel image and GitHub retired it, so a
+          # job asking for that label waits for a runner that will never come —
+          # it queued indefinitely while every other build finished. The Apple
+          # SDK is universal and this job only builds and packages, never runs
+          # the binary it produces, so nothing here needs an Intel host.
+          - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: distract-engine-macos-x86_64.tar.gz
             bin_name: distract-engine
