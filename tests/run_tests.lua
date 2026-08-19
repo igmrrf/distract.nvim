@@ -35,6 +35,7 @@ local SPECS = {
   "tests.transparency_spec",
   "tests.physics_parity_spec",
   "tests.sprite_parity_spec",
+  "tests.render_3d_spec",
   "tests.voxel_parity_spec",
 }
 
