@@ -1,6 +1,7 @@
 #![allow(unexpected_cfgs)]
 
 pub mod asset;
+pub mod asset_decode;
 pub mod atlas;
 pub mod bounds;
 pub mod camera;
@@ -27,6 +28,7 @@ pub mod physics_config;
 pub mod platform;
 pub mod render;
 pub mod response;
+pub mod shading;
 pub mod spawn;
 pub mod sprite_draw;
 pub mod sprite_gen;
