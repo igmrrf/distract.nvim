@@ -212,7 +212,7 @@ fn spawn(request: SpawnRequest, ctx: &mut CommandContext<'_>) {
         Err(err) => return emit_error("SPAWN_FAILED", err),
     };
 
-    if let Err(err) = ctx.renderer.sync_atlas(ctx.world) {
+    if let Err(err) = ctx.renderer.sync_assets(ctx.world) {
         return emit_error("ATLAS_FAILED", err);
     }
 

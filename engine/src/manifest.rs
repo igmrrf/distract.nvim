@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::render::RenderMode;
 use crate::sprites;
 
 /// Bounding wrap mode when an entity hits the edge of the viewport.
@@ -471,6 +472,13 @@ pub struct AssetManifest {
     /// true of all of them.
     #[serde(default)]
     pub locomotion: Option<String>,
+    /// How this asset is drawn, overriding the configured render mode.
+    ///
+    /// An asset that only reads as a flat overlay -- a speech bubble, a UI badge
+    /// -- says so here, and keeps saying it in a 3D session. `None` follows the
+    /// configuration.
+    #[serde(default)]
+    pub render: Option<RenderMode>,
 }
 
 /// What an asset declares it is allowed to do.
@@ -729,6 +737,7 @@ impl AssetManifest {
                 locomotion: Some(vec![GROUNDED.to_string(), BALLISTIC.to_string()]),
             },
             locomotion: Some(GROUNDED.to_string()),
+            render: None,
         }
     }
 
@@ -961,6 +970,7 @@ impl AssetManifest {
                 locomotion: Some(vec![GROUNDED.to_string()]),
             },
             locomotion: Some(GROUNDED.to_string()),
+            render: None,
         }
     }
 
@@ -1147,6 +1157,7 @@ impl AssetManifest {
                 locomotion: Some(vec![OMNIDIRECTIONAL.to_string()]),
             },
             locomotion: Some(OMNIDIRECTIONAL.to_string()),
+            render: None,
         }
     }
 }

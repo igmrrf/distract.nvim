@@ -11,7 +11,9 @@ use winit::window::Window;
 use crate::atlas::Atlas;
 use crate::bounds::Bounds;
 use crate::ecs::World;
+use crate::gpu3d::{self, MeshPipeline, PassTarget};
 use crate::manifest::WrapMode;
+use crate::mesh_draw::MeshFrame;
 use crate::wrap;
 
 /// A corner of the unit quad every sprite is drawn from.
@@ -152,6 +154,14 @@ pub struct GpuRenderer {
     /// swapchain in the surface's own alpha convention.
     scene_texture: wgpu::Texture,
     scene_bind_group: wgpu::BindGroup,
+
+    /// The voxel pass, and what it depth-tests against.
+    mesh: MeshPipeline,
+    depth_texture: wgpu::Texture,
+    /// This frame's mesh work, built in `render_world` and recorded in `render`.
+    /// Held the same way and for the same reason `scissor` is: `render` is one
+    /// pass-recording path and both passes need what the world said.
+    mesh_frame: MeshFrame,
 }
 
 impl GpuRenderer {
@@ -402,6 +412,9 @@ impl GpuRenderer {
             height,
         );
 
+        let mesh = MeshPipeline::new(&device, SCENE_FORMAT)?;
+        let depth_texture = gpu3d::create_depth_texture(&device, width, height);
+
         Ok(Self {
             surface,
             device,
@@ -426,6 +439,9 @@ impl GpuRenderer {
             atlas: None,
             scene_texture,
             scene_bind_group,
+            mesh,
+            depth_texture,
+            mesh_frame: MeshFrame::default(),
         })
     }
 
@@ -473,9 +489,14 @@ impl GpuRenderer {
         (texture, bind_group)
     }
 
-    /// Uploads a new sprite atlas. Cheap to call: it returns immediately when
-    /// the asset set has not changed since the last upload.
-    pub fn sync_atlas(&mut self, world: &World) -> Result<(), String> {
+    /// Uploads whatever the current asset set needs: the sprite atlas always, and
+    /// the voxel meshes when something is drawn as a model.
+    ///
+    /// Cheap to call: each half returns immediately when nothing it depends on has
+    /// changed since its last upload.
+    pub fn sync_assets(&mut self, world: &World) -> Result<(), String> {
+        self.mesh.sync(&self.device, world)?;
+
         let generation = world.asset_manager.generation();
         if self.atlas_generation == Some(generation) && self.atlas_bind_group.is_some() {
             return Ok(());
@@ -495,6 +516,10 @@ impl GpuRenderer {
             Some(atlas) => build_instances(world, atlas),
             None => Vec::new(),
         };
+        let camera = world.render.camera(self.width as f32, self.height as f32);
+        self.mesh_frame = self
+            .mesh
+            .prepare((&self.device, &self.queue), world, &camera);
         // A scoped viewport is the only reason to clip: without one the bounds
         // are the window and the whole target is fair game. With one, a wrapped
         // quad drawn at a complementary position would otherwise spill into the
@@ -597,6 +622,8 @@ impl GpuRenderer {
             }),
         );
 
+        self.depth_texture = gpu3d::create_depth_texture(&self.device, new_width, new_height);
+
         let (texture, bind_group) = Self::create_scene_target(
             &self.device,
             &self.bind_group_layout,
@@ -644,7 +671,23 @@ impl GpuRenderer {
                 label: Some("Render Encoder"),
             });
 
-        // Pass 1: composite sprites.
+        // Pass 1: voxel models, depth-tested. First, so the flat pass draws over
+        // them: a sprite in a 3D session is deliberately flat furniture.
+        let depth_view = self
+            .depth_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.mesh.record(
+            PassTarget {
+                encoder: &mut encoder,
+                colour: &scene_view,
+                depth: &depth_view,
+                scissor: self.scissor,
+            },
+            &self.mesh_frame,
+        );
+
+        // Pass 2: composite sprites, loading whatever the mesh pass left rather
+        // than clearing it away.
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Sprite Pass"),
@@ -652,7 +695,11 @@ impl GpuRenderer {
                     view: &scene_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        load: if self.mesh_frame.is_empty() {
+                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+                        } else {
+                            wgpu::LoadOp::Load
+                        },
                         store: true,
                     },
                 })],
@@ -674,7 +721,7 @@ impl GpuRenderer {
             }
         }
 
-        // Pass 2: hand the composited scene to the swapchain in the alpha
+        // Pass 3: hand the composited scene to the swapchain in the alpha
         // convention the surface asked for.
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

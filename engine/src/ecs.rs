@@ -5,6 +5,7 @@ use crate::journal::{self, Journal, WorldEvent};
 use crate::manifest;
 use crate::manifest::{AssetManifest, PhysicsConfig, WrapMode};
 use crate::obstacles::{self, Footprint, Obstacle, PushDirection};
+use crate::render::RenderSettings;
 use crate::spawn::{Anchor, EntitySeed, SpawnOptions};
 
 /// Default terminal cell size in physical pixels.
@@ -330,6 +331,10 @@ pub struct World {
     /// behaviour every entity had before floors existed: it stands where it
     /// spawned.
     pub ground_y: Option<f32>,
+    /// How the renderer draws, pushed from Neovim. Held here rather than in the
+    /// renderer because the terminal backends read the same block and because a
+    /// world snapshot has to be able to say what mode it was drawn in.
+    pub render: RenderSettings,
     rng: Rng,
 }
 
@@ -353,6 +358,7 @@ impl World {
             cell_h: DEFAULT_CELL_H,
             sprite_scale_x: DEFAULT_CELL_W,
             sprite_scale_y: DEFAULT_CELL_H / 2.0,
+            render: RenderSettings::default(),
             focus_x: None,
             focus_y: None,
             ground_y: None,
