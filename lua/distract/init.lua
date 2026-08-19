@@ -233,9 +233,9 @@ function M.build(on_success)
   require("distract.engine_binary").build(on_success)
 end
 
---- Downloads the prebuilt overlay engine binary from GitHub releases.
+--- Downloads, checksum-verifies and installs the prebuilt overlay engine.
 function M.download(on_success)
-  require("distract.engine_binary").download(on_success)
+  require("distract.engine_download").download(on_success)
 end
 
 --- Registers a custom asset: its manifest, its terminal art, or both.
