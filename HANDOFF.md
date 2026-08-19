@@ -24,7 +24,8 @@ deliberately not a record of what shipped:
 
 | Item | State |
 |---|---|
-| Nothing is pushed | `fix/assets` is ahead of `origin/fix/assets`, no PR; integration is the owner's call |
+| Nothing is pushed | committed on `fix/assets`, two commits ahead of `origin/fix/assets`, no PR; pushing and integration are the owner's call |
+| The three bundled pets cost ~47 MB of git history | both artifacts per pet are load-bearing; see below |
 | Four Lua modules and `ecs.rs` are over the 400-line cap | partly closed; see below for what is left and why |
 | Three gallery pets ship as built-ins; nothing else from either gallery may | the rule is the licence, not the source — see below |
 | The first draw of a GIF asset hitches | 130–375 ms, once per asset; not fixed, see below |
@@ -393,6 +394,20 @@ reason to fragment a unit that has to be read as one. `M.spawn` is the next
 worthwhile extraction and the one with the clearest seam (build the entity, then
 insert and report it); the parity harnesses do **not** cover spawn placement as
 tightly as they cover the step, so write the characterization test first.
+
+**The three bundled pets cost ~47 MB, and both artifacts per pet are needed.** The
+packed sheet (4 MB) is what the overlay backend draws from; the `.rgba` sidecar
+(11.8 MB) is the only form the in-terminal backends can decode, because pure Lua
+can read a GIF but not a PNG. Drop a sidecar and that pet silently renders as the
+procedural cat — 29 frames at 24×16, indistinguishable from `cat`. Verified by
+moving one aside.
+
+The obvious lever if that becomes a problem: the half-block backend never uses the
+native pixels, it fits them to 32 sprite pixels wide at load. A sidecar written
+*pre-fitted* would be ~330 KB rather than 11.8 MB, 36× smaller, at the cost of the
+kitty backend's native-resolution fidelity — which is the entire reason that path
+exists. That is a change to the importer's output contract and to what
+`native_path` means, so it is a deliberate decision rather than an optimisation.
 
 **One trap, learned the expensive way.** `git checkout <file>` during a session with
 uncommitted work throws that work away with no warning and no recovery — it cost a
