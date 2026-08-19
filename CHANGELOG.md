@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.1.0] - 2026-08-19
+
+First tagged release. The `0.1.0` and `0.2.0` headings that previously appeared
+below were written before any tag existed and never pointed at one; their
+contents are folded into this release as the two passes that produced it.
 
 ### Added
 - **Background sliced warmup worker** (`distract.warmup`). A non-blocking background
@@ -270,6 +274,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The manifest scaffold emitted state names as bare Lua table keys, so any name
   that is not a plain identifier — anything hyphenated, like `running-right` —
   produced a file that would not parse. Such names are now bracketed.
+- **`:DistractDownload` installed an unverified binary.** It fetched an archive
+  over the network, unpacked it and marked it executable without checking what
+  it had received. The release workflow already publishes a `.sha256` beside
+  every artifact, so the archive is now hashed and compared before anything is
+  unpacked, with no flag to skip the check. `curl` also gains `-f`: without it a
+  404 writes GitHub's error page into the archive and the failure surfaces as a
+  confusing `tar` error.
+- **Download failures could hang silently.** `jobstart` returns a non-positive
+  id when the binary is missing and then never fires `on_exit`, so a missing
+  `tar` left the chain waiting with nothing reported. Every step now checks
+  `executable()` and the `jobstart` return, a `chmod` refusal is reported rather
+  than swallowed by `pcall`, tar's exit code is no longer taken as proof the
+  binary arrived, and the in-progress lock is released on every path out.
+- **A GIF warm-up cancelled by `stop()` never came back.** `warmup.reset()`
+  drops the queue without running it, and the warm-up was gated on the asset's
+  source having changed — so a restart re-read the same manifest, saw no change,
+  and left the first draw to decode the whole GIF synchronously. The gate is now
+  whether the cache is cold.
+- **`:checkhealth distract` errored on Neovim 0.9**, which spells the health
+  reporters `report_start` rather than `start` — before reaching its own "older
+  than 0.10" warning. `warmup.lua` indexed `vim.uv`, which is nil on 0.9, for
+  the same reason. Both now match the `vim.uv or vim.loop` convention the rest
+  of the plugin already followed.
+- **An obstacle provider's id was its list index**, so unregistering one shifted
+  every later provider's id onto a different provider. Ids are now stable.
+- **The `luacheck` gate had gone red again** on four locals left dead by earlier
+  extractions. CI runs it with no ratchet, so one unused local fails the build.
+- A kitty free-list claimed to recycle image ids while nothing ever inserted
+  into it. Resetting the id range on `reset()` is the actual fix and is kept.
 
 ### Added
 - **GIF assets on every backend.** A manifest whose `spritesheet.path` ends in
@@ -435,9 +468,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.2.0] - earlier review pass
+### The multi-backend rendering pass
 
-### Added
+#### Added
 - **Multi-Backend Rendering Architecture**:
   - `halfblock` (Default): High-fidelity in-terminal 24-bit Truecolor pixel-art renderer using Unicode half-blocks (`▀` / `▄`) and native Neovim floating windows with zero external OS window overlays.
   - `overlay`: Hardware-accelerated WGPU transparent desktop overlay window.
@@ -451,7 +484,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `:DistractBackend [name]` with dynamic shell autocompletion for live backend switching.
   - Enhanced `:DistractToggle` to support both in-terminal and external overlay engines.
 
-### Fixed
+#### Fixed
 - **Half-block renderer was non-functional.** Transparent pixel-matrix cells used `nil`, which truncated every sprite row at the first hole, so `#lines[1]` was `0` and `nvim_open_win` raised `Invalid 'width'` on every tick at 30 FPS with no error handling.
 - Extmark highlight columns were character indices rather than byte offsets; each half-block glyph is 3 bytes, so all colour landed in the first few cells and `end_col` split codepoints.
 - `animation.frames` was ignored by the in-terminal renderer, which indexed art by animation position instead of sheet index — a sleeping cat drew its idle art and the sun's eclipse drew its shining art.
@@ -459,12 +492,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Repeated render failures now stop the engine and report once instead of looping at the frame rate.
 - The overlay compositor silently skipped drawing when a manifest frame index exceeded the loaded sheet, rendering the entity invisible; it now wraps.
 
-### Changed
+#### Changed
 - **Sprites are generated procedurally** by `distract.sprite_gen` and `distract.sprites.*` instead of being stored as hand-authored pixel matrices. States are pose curves, so animation is smooth by construction; volume comes from a lit-hemisphere shading model with rim and specular terms. Frame counts went from 4 per asset to 29 (cat), 25 (crab), 25 (sun), giving every state its own art.
 - Manifests reference the generated `layout` table rather than hand-written frame indices, so the two cannot drift apart.
 - Sun `rising`, `setting` and `eclipse` are one-shot transitions rather than looping animations, which previously snapped back to the start pose.
 
-### Removed
+#### Removed
 - The ASCII `float` backend and all text-art sprite data. `float`/`ascii` resolve to `halfblock` with a warning.
 - The `kitty` backend is no longer advertised — the graphics protocol was never implemented, and selecting it silently rendered plain ASCII. The alias resolves to `halfblock` with a warning.
 - Dead `lua/distract/pets/cat.lua`, which nothing referenced.
@@ -474,9 +507,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.1.0] - 2026-08-15
+### The initial engine and plugin
 
-### Added
+#### Added
 - **Core Engine & Architecture**:
   - Rust background rendering engine with fixed 60 FPS delta-time tick loop via `winit`.
   - Porter-Duff alpha compositing for transparent sprite overlays.
