@@ -40,6 +40,18 @@ const MAX_FRAME_SECONDS: f32 = 0.1;
 fn main() -> ExitCode {
     let _ = env_logger::try_init();
 
+    // Before the event loop, not after. Building one needs a window system, so
+    // on a headless Linux session it fails before a bad argument could ever be
+    // reported -- the engine died silently on exactly the input this reporting
+    // exists for. Nothing in argument parsing needs a display.
+    let configured = match overlay_placement::from_args(std::env::args().skip(1)) {
+        Ok(configured) => configured,
+        Err(message) => {
+            emit_error("INVALID_ARGUMENT", message);
+            return ExitCode::FAILURE;
+        }
+    };
+
     #[cfg(target_os = "macos")]
     let event_loop = {
         use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
@@ -72,14 +84,6 @@ fn main() -> ExitCode {
         }
         let _ = proxy.send_event(IpcCommand::Shutdown);
     });
-
-    let configured = match overlay_placement::from_args(std::env::args().skip(1)) {
-        Ok(configured) => configured,
-        Err(message) => {
-            emit_error("INVALID_ARGUMENT", message);
-            return ExitCode::FAILURE;
-        }
-    };
 
     // Which display, and therefore how large. Both come from the same monitor so
     // the overlay cannot be sized for one screen and positioned on another.
