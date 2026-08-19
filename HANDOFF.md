@@ -28,16 +28,10 @@ deliberately not a record of what shipped:
 
 ## Pending
 
-There are **0 open in-repo implementation items** or unaddressed defects. All feature requirements, performance mitigations (background warmup system), size-cap modular decompositions, and roadmap extractions (§2.7) are complete.
-
-| Area | Status | Notes |
+| Item | State | Notes |
 |---|---|---|
-| In-repo features & bugfixes | **Complete** | All planned features and modular test suites pass (537 Lua / 282 Rust). |
-| Background warmup system | **Complete** | Sliced coroutine warmup in `distract.warmup` resolves GIF/3D first-draw hitches. |
-| Size caps | **Complete** | All Lua and Rust modules are $\le$ 400 lines. |
-| Sprite parity comparator | **Complete** | Extracted to `engine/src/sprite_parity.rs` and exported in `lib.rs`. |
-| Downstream roadmap | **External** | Sections in `docs/ecosystem-roadmap.md` describe downstream repos / integrations. |
-| Git branch status | **Local** | Clean on `feature/final`; pushing/PR is at repository owner discretion. |
+| Upstream PR and release packaging | Ready | Pushed to `feature/final`; opening PR and publishing binary releases are maintainer actions. |
+| Downstream ecosystem plugins | External | External companion plugins and integrations described in [`docs/ecosystem-roadmap.md`](docs/ecosystem-roadmap.md). |
 
 ---
 
@@ -485,47 +479,25 @@ probe already reports. The regeneration command is in the harness header.
 
 ---
 
-## Accepted debt
+## Architectural insights & trade-offs
 
-**The size-cap debt is partly closed.** Everything added during the feature pass
-went into new modules rather than into the three files that were already over the
-cap — `kinematics.lua`, `placement.lua`, `viewport.lua`, `visibility.lua`,
-`plugins.lua`, `obstacles.lua`, `entity_step.lua`, `engine_binary.lua`,
-`overlay_grid.lua`, `overlay_report.lua`, `overlay_plugins.lua`, and `commands.rs`,
-`response.rs`, `subscription.rs`, `bounds.rs`, `journal.rs`, `obstacles.rs`,
-`wrap.rs`. `main.rs` stayed under the cap that way, and `ipc.rs` came down to 186
-by moving its wire-format tests to `engine/tests/ipc_contract.rs`.
+- **The three bundled pets cost ~47 MB of git history, and both artifacts per pet are load-bearing.** The
+  packed sheet (4 MB) is what the overlay backend draws from; the `.rgba` sidecar
+  (11.8 MB) is the only form the in-terminal backends can decode, because pure Lua
+  can read a GIF but not a PNG. Dropping a sidecar causes the pet to fall back
+  silently to the procedural cat. Pre-fitting sidecars at build time would reduce
+  kitty backend resolution fidelity, which is why dual-resolution assets exist.
 
-`engine.lua`'s per-entity frame then moved out to `entity_step.lua`, which took the
-module from 1,012 lines to 780 and turned a 200-line `M.step` into a 64-line one
-that coordinates. `M.spawn` followed it into `entity_spawn.lua`, taking the module
-to 675. The physics-parity fixtures are what made the first safe;
-`tests/spawn_characterisation_spec.lua` was written first for the second, because
-the fixtures cover the step and barely touch the spawn. None of the goldens moved
-for either.
+- **`assets/codex_pets/` is gitignored on purpose.** 236 MB of third-party artwork
+  with no stated licence, kept on disk as local test material only. `imported/`
+  regenerates from `sheets/` via `tools/codex_pets/`.
 
-The 3D pass added `camera.rs`, `voxel.rs`, `meshbook.rs`, `render.rs`,
-`mesh_draw.rs`, `gpu3d.rs`, `render.lua`, `voxel.lua`, `raster3d.lua` and
-`frame_source.lua` — all under the cap, and `voxel.rs` is under it because its
-tests moved to `engine/tests/voxel_mesh.rs`, the same move `ipc.rs` made.
-`terminal_sprites.lua` went 83 lines over during that pass and came back to 327 by
-extracting `frame_source.lua`.
+- **Licensing dictates bundled pets.** `gudong` (CC BY 4.0), `iris` (MIT), and `minty` (MIT)
+  are original characters from [`legeling/awesome-codex-pet`](https://github.com/legeling/awesome-codex-pet)
+  credited in [`ATTRIBUTION.md`](ATTRIBUTION.md). Everything else in that gallery is
+  franchise fan art or unlicenced, and cannot be bundled.
 
-| File | Lines | Cap | Status |
-|---|---|---|---|
-| `engine.lua` | 373 | 400 | Closed (decomposed into `engine_world.lua`, `engine_actions.lua`, `engine_quiescence.lua`) |
-| `renderer.lua` | 375 | 400 | Closed (decomposed into `renderer_float.lua`, `renderer_overlay.lua`, `renderer_surface.lua`) |
-| `external.lua` | 374 | 400 | Closed (decomposed into `overlay_spawn.lua`) |
-| `sprite_gen.lua` | 391 | 400 | Closed (decomposed into `shading.lua`) |
-| `init.lua` | 364 | 400 | Closed (decomposed into `config.lua`) |
-| `sprite_sources.lua` | 376 | 400 | Closed (decomposed into `native_sprite.lua`) |
-| `engine/src/gpu.rs` | 392 | 400 | Closed (under cap) |
-| `engine/src/manifest.rs` | 241 | 400 | Closed (under cap) |
-| `engine/src/ecs.rs` | 398 | 400 | Closed (under cap) |
-
-**Background Warmup System**: Built in `lua/distract/warmup.lua`. Slices GIF decoding (via `on_frame` callback) and 3D voxel pose warming into 8ms slices run on 16ms background intervals without hitching the main thread. Dedicated spec in `tests/warmup_spec.lua` (7 tests).
-
-The steady-state cost is what actually matters and it is small: 200 walking cats
-step and draw in 4.8 ms a frame in 3D against 4.1 ms in 2D, 14% of a 30 FPS frame
-against 12%. An idle 3D world costs 1.0 ms against 0.9 ms. Re-run the benchmark
-before assuming that still holds.
+- **Steady-state performance benchmark.** 200 walking cats step and draw in 4.8 ms
+  per frame in 3D vs 4.1 ms in 2D (14% vs 12% of a 30 FPS frame). An idle 3D world
+  costs 1.0 ms vs 0.9 ms. Re-run `tools/bench_render3d.lua` before altering render
+  hot paths.
