@@ -10,6 +10,14 @@ on:
 permissions:
   contents: write
 
+# A newer push to the same branch makes the older run's answer irrelevant, and
+# leaving it queued starves the runner pool — several were still going an hour
+# later. Tag refs are exempt: cancelling a release build half way through
+# publishes nothing and leaves the tag looking broken.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   # =========================================================================
   # 0. Lint and format gates
@@ -17,6 +25,7 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,9 +41,16 @@ jobs:
           workspaces: engine
 
       - name: Install Linux GUI/Winit build dependencies
+        env:
+          # needrestart prompts for which services to restart once a package
+          # lands, and a prompt on a runner nobody can answer hangs the job
+          # until the six-hour ceiling. apt itself waits forever for a lock the
+          # runner's own unattended-upgrades timer may be holding.
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get update -o DPkg::Lock::Timeout=300
+          sudo apt-get install -y -o DPkg::Lock::Timeout=300 \
             libxcb-render0-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
@@ -81,6 +97,7 @@ jobs:
   test-lua:
     name: Lua Tests (Neovim)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -111,6 +128,7 @@ jobs:
   test-rust:
     name: Rust Tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -127,9 +145,16 @@ jobs:
 
       - name: Install Linux GUI/Winit build dependencies
         if: runner.os == 'Linux'
+        env:
+          # needrestart prompts for which services to restart once a package
+          # lands, and a prompt on a runner nobody can answer hangs the job
+          # until the six-hour ceiling. apt itself waits forever for a lock the
+          # runner's own unattended-upgrades timer may be holding.
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get update -o DPkg::Lock::Timeout=300
+          sudo apt-get install -y -o DPkg::Lock::Timeout=300 \
             libxcb-render0-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
@@ -163,6 +188,7 @@ jobs:
   # =========================================================================
   build-engine-release:
     name: Build Binary (${{ matrix.target }})
+    timeout-minutes: 45
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [lint, test-lua, test-rust]
     runs-on: ${{ matrix.os }}
@@ -192,9 +218,16 @@ jobs:
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
+        env:
+          # needrestart prompts for which services to restart once a package
+          # lands, and a prompt on a runner nobody can answer hangs the job
+          # until the six-hour ceiling. apt itself waits forever for a lock the
+          # runner's own unattended-upgrades timer may be holding.
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get update -o DPkg::Lock::Timeout=300
+          sudo apt-get install -y -o DPkg::Lock::Timeout=300 \
             libxcb-render0-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
@@ -245,6 +278,7 @@ jobs:
   # =========================================================================
   publish-release:
     name: Publish GitHub Release
+    timeout-minutes: 15
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build-engine-release]
     runs-on: ubuntu-latest
