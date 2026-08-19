@@ -16,6 +16,8 @@
 
 local M = {}
 
+local uv = vim.uv or vim.loop
+
 --- How long one slice may run before yielding the main loop back.
 ---
 --- Under a 60 FPS frame with room to spare for the tick and the draw that share
@@ -43,9 +45,9 @@ end
 
 --- Resumes jobs until the slice budget is spent or the queue empties.
 local function run_slice()
-  local deadline = vim.uv.hrtime() + SLICE_BUDGET_MS * 1e6
+  local deadline = uv.hrtime() + SLICE_BUDGET_MS * 1e6
 
-  while #queue > 0 and vim.uv.hrtime() < deadline do
+  while #queue > 0 and uv.hrtime() < deadline do
     local job = queue[1]
     local ok, err = coroutine.resume(job.thread)
 
@@ -74,7 +76,7 @@ local function ensure_timer()
   if timer then
     return
   end
-  timer = vim.uv.new_timer()
+  timer = uv.new_timer()
   timer:start(
     SLICE_INTERVAL_MS,
     SLICE_INTERVAL_MS,

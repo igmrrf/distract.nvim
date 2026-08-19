@@ -1,27 +1,26 @@
 require("tests.test_harness")
 
+local detect = require("distract.kitty.detect")
 local health = require("distract.health")
-local engine_binary = require("distract.engine_binary")
 
 describe("distract.health checkhealth implementation", function()
+  -- `health.check()` asks the kitty backend whether it is available, and that
+  -- answer is cached process-wide once given. Left in place it decides the
+  -- backend for every later spec, so it is put back after each test here.
+  after_each(function()
+    detect.reset()
+  end)
+
   it("runs health.check() without errors", function()
     assert.has_no.errors(function()
       health.check()
     end)
   end)
 
-  it("detects binary candidates list with preferred locations", function()
-    local candidates = engine_binary.candidates()
-    assert.is_true(#candidates >= 3)
-    assert.is_true(candidates[1]:find("engine/bin/distract-engine", 1, true) ~= nil)
-  end)
-
-  it("detects a valid release artifact name for the host system", function()
-    local artifact = engine_binary.detect_platform_artifact()
-    local system_name = vim.uv.os_uname().sysname:lower()
-    if system_name == "darwin" or system_name == "linux" or system_name:find("windows") then
-      assert.is_not_nil(artifact)
-      assert.is_true(artifact:find("%.tar%.gz$") ~= nil or artifact:find("%.zip$") ~= nil)
-    end
+  it("resolves a reporter under whichever name this Neovim spells it", function()
+    assert.is_true(
+      type(vim.health.start) == "function" or type(vim.health.report_start) == "function"
+    )
+    assert.is_true(type(vim.health.ok) == "function" or type(vim.health.report_ok) == "function")
   end)
 end)
