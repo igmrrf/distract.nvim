@@ -409,6 +409,15 @@ describe("native-resolution frames as a fourth art source", function()
     file:close()
   end
 
+  --- Writes a single opaque `{9, 9, 9}` frame wider than a terminal footprint,
+  --- so the backends that cannot draw native resolution have something to fit.
+  local function write_wide_sidecar(path, width, height)
+    local file = io.open(path, "wb")
+    file:write("DRGB" .. string.char(1) .. u32(width) .. u32(height) .. u32(1))
+    file:write(string.rep(string.char(9, 9, 9, 255), width * height))
+    file:close()
+  end
+
   --- Runs `fn` with `vim.notify` silenced: an asset bound to art that does not
   --- resolve reports itself, and that report is not what these tests are about.
   local function quietly(fn)
@@ -438,7 +447,7 @@ describe("native-resolution frames as a fourth art source", function()
     end)
   end)
 
-  it("returns native frames only when native_resolution is requested", function()
+  it("serves native resolution to the backend that can draw it", function()
     quietly(function()
       local fixture_path = vim.fn.tempname() .. ".rgba"
       write_sidecar(fixture_path)
@@ -453,32 +462,99 @@ describe("native-resolution frames as a fourth art source", function()
       local standard_frames = sources.get_pixel_frames("native_test_with_native")
 
       assert.are.same({ 9, 9, 9 }, native_frames[1][1][1])
-      assert.are_not_equal(native_frames, standard_frames)
+      -- Already within a terminal footprint, so both forms are the sidecar's
+      -- own pixels. The point here is that neither is the fallback cat.
+      assert.are.same({ 9, 9, 9 }, standard_frames[1][1][1])
 
       sources.unbind_manifest("native_test_with_native")
       os.remove(fixture_path)
     end)
   end)
 
-  it("never serves halfblock native frames, whichever backend asked first", function()
+  it("fits an oversized sidecar to a terminal footprint for halfblock", function()
     quietly(function()
       local fixture_path = vim.fn.tempname() .. ".rgba"
-      write_sidecar(fixture_path)
+      write_wide_sidecar(fixture_path, 64, 32)
+
+      sources.bind_manifest(
+        "native_test_fitted",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      local fitted = sources.get_pixel_frames("native_test_fitted")
+
+      assert.are_equal(32, #fitted[1][1], "64 sprite pixels wide must fit to 32 columns")
+      assert.are_equal(16, #fitted[1], "the aspect ratio must survive the fit")
+      assert.are.same({ 9, 9, 9 }, fitted[1][1][1])
+
+      sources.unbind_manifest("native_test_fitted")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("keeps the two footprints apart, whichever backend asked first", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_wide_sidecar(fixture_path, 64, 32)
 
       sources.bind_manifest(
         "native_test_order",
         { spritesheet = { path = "x.png", native_path = fixture_path } }
       )
 
-      sources.get_pixel_frames("native_test_order", { native_resolution = true })
-      local halfblock_frames = sources.get_pixel_frames("native_test_order")
+      local native_first =
+        sources.get_pixel_frames("native_test_order", { native_resolution = true })
+      local halfblock_second = sources.get_pixel_frames("native_test_order")
 
-      assert.is_true(
-        #halfblock_frames[1] > 1,
-        "halfblock must get the fallback art, not the 1x1 native frame"
+      assert.are_equal(64, #native_first[1][1], "the native request must keep full width")
+      assert.are_equal(
+        32,
+        #halfblock_second[1][1],
+        "a name-keyed cache must not serve halfblock the native form"
       )
 
       sources.unbind_manifest("native_test_order")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("reports the fitted footprint as the asset's one dimension", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_wide_sidecar(fixture_path, 128, 72)
+
+      sources.bind_manifest(
+        "native_test_dimensions",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      local width, height = sources.get_dimensions("native_test_dimensions")
+
+      -- Not 128x72 and not the fallback cat's 24x16. This is what
+      -- `engine.sprite_cell_size` measures wrapping and floor anchoring against,
+      -- so it has to be the size the art is actually drawn at.
+      assert.are_equal(32, width)
+      assert.are_equal(18, height)
+
+      sources.unbind_manifest("native_test_dimensions")
+      os.remove(fixture_path)
+    end)
+  end)
+
+  it("quantises sidecar art, which the highlight-group cap depends on", function()
+    quietly(function()
+      local fixture_path = vim.fn.tempname() .. ".rgba"
+      write_wide_sidecar(fixture_path, 64, 32)
+
+      sources.bind_manifest(
+        "native_test_quantise",
+        { spritesheet = { path = "x.png", native_path = fixture_path } }
+      )
+
+      assert.is_true(sources.needs_quantising("native_test_quantise"))
+
+      sources.unbind_manifest("native_test_quantise")
+      assert.is_false(sources.needs_quantising("native_test_quantise"))
       os.remove(fixture_path)
     end)
   end)

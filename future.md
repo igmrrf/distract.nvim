@@ -153,12 +153,14 @@ contour, 2–3 tone bands. Recognisable at a glance without overwhelming editor 
 
 **Scope:** every asset, existing and future. Not the cat alone.
 
-**Blocked on an art-parity harness.** The same art exists twice
-(`lua/distract/sprites/*.lua`, `engine/src/sprites/*.rs`) with no automated parity
-test between them; `engine/tests/parity_dump.rs` is `#[ignore]` and dumps geometry,
-not colour. Three assets × two implementations is six files that drift the moment
-one is touched. Build `validate_sprite_parity` first — §5.7 also names it as an
-MCP tool, so build it as a library function and wrap it there.
+**No longer blocked — the harness landed 2026-08-19.**
+`engine/tests/sprite_parity.rs` generates per-asset pixel goldens into
+`tests/fixtures/sprites/`; `tests/sprite_parity_spec.lua` asserts the Lua
+generators reproduce them within measured drift budgets, and both pin canvas size,
+frame count and the state-to-frame layout. Regenerate with `UPDATE_GOLDEN=1 cargo
+test --manifest-path engine/Cargo.toml --test sprite_parity`. The tolerance rules,
+the budgets and two open art findings are in `HANDOFF.md` under "The art-parity
+harness".
 
 **Secondary win:** 1,909 global highlight groups exist for the three built-in
 assets. A quantised palette should cut that by roughly 40×.
@@ -241,7 +243,7 @@ assets. A quantised palette should cut that by roughly 40×.
 - **Hard parts:** four corners need four quads — test the corner first. The
   renderer already splits vertically between the extmark overlay and the float, so
   a horizontally-wrapped sprite can need both, twice; `M.place_surface` is where
-  this lands and `renderer.lua` is already 501 lines, so budget the extraction.
+  this lands and `renderer.lua` is already 508 lines, so budget the extraction.
   Kitty must revisit its deliberate no-placement-ids decision, since one image now
   genuinely appears twice at the same scale. Parallax scales the footprint, so the
   split point is computed on the scaled size, not the manifest's.
@@ -379,7 +381,12 @@ Tooling for agents and developers building procedural sprites. Depends on §3's
 harness.
 
 - `create_sprite_asset` — generate pose curves, shading parameters, a manifest.
-- `validate_sprite_parity` — **wraps §3's harness; does not reimplement it.**
+- `validate_sprite_parity` — **wraps §3's harness; does not reimplement it.** The
+  harness lives in the two test suites today, mirroring how physics parity is
+  arranged. The comparison contract an MCP tool must honour is the golden format
+  in `tests/fixtures/sprites/` plus the two tolerance rules and per-asset budgets
+  documented in `HANDOFF.md`. Extracting the comparator into
+  `engine/src/sprite_parity.rs` is the work; re-deriving the rules is not.
 - `preview_sprite_terminal` — half-block ANSI frames into the agent console.
 
 Runs standalone without Neovim.

@@ -44,3 +44,8 @@ __pycache__/
 
 # Downloaded release binaries (see :help distract-overlay)
 engine/bin/
+
+# Local sprite-import test material (236 MB of unlicensed third-party artwork).
+# Kept on disk, deliberately never committed; `imported/` regenerates from
+# `sheets/` via tools/codex_pets/. See HANDOFF.md.
+assets/codex_pets/

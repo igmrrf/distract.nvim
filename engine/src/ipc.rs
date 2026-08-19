@@ -124,6 +124,13 @@ pub enum IpcResponse {
         count: usize,
         entities: Vec<EntitySummary>,
     },
+    /// A condition the user should know about that is not a failure.
+    ///
+    /// The overlay opening on a guessed display is the motivating case: the
+    /// window is there and working, but on the wrong screen, and reporting it as
+    /// an error would say the engine failed when it did not.
+    #[serde(rename = "warning")]
+    Warning { code: String, message: String },
     #[serde(rename = "error")]
     Error { code: String, message: String },
 }

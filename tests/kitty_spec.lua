@@ -270,6 +270,75 @@ describe("distract.kitty frames", function()
     native_sprite.reset()
     os.remove(fixture_path)
   end)
+
+  -- The regression: `cols` used to be the image's own pixel width, so a 128-pixel
+  -- import was spread across 128 columns while `sprites.get_dimensions` reported
+  -- 24 and the engine wrapped and anchored against that. Fidelity belongs in the
+  -- payload; the footprint has to be the one number every consumer shares.
+  it("fills the shared cell footprint with native pixels, not its own width", function()
+    local sources = require("distract.sprite_sources")
+    local native_sprite = require("distract.native_sprite")
+    local asset_name = "native_res_footprint_test"
+    local width, height = 128, 72
+
+    local function u32(value)
+      return string.char(
+        value % 256,
+        math.floor(value / 256) % 256,
+        math.floor(value / 65536) % 256,
+        math.floor(value / 16777216) % 256
+      )
+    end
+
+    -- Only the bottom half is opaque, on purpose. A fully opaque frame makes
+    -- every candidate mask identical, so it cannot tell a mask built on the
+    -- footprint grid from one built on the image's own grid.
+    local fixture_path = vim.fn.tempname() .. ".rgba"
+    local file = io.open(fixture_path, "wb")
+    file:write("DRGB" .. string.char(1) .. u32(width) .. u32(height) .. u32(1))
+    file:write(string.rep(string.char(0, 0, 0, 0), width * height / 2))
+    file:write(string.rep(string.char(10, 20, 30, 255), width * height / 2))
+    file:close()
+
+    sources.bind_manifest(asset_name, { spritesheet = { native_path = fixture_path } })
+
+    local footprint_w, footprint_h = sources.get_dimensions(asset_name)
+    local described = frames.describe(asset_name, 1, false)
+
+    assert.are_equal(width, described.pixel_w, "the payload must keep native width")
+    assert.are_equal(height, described.pixel_h, "the payload must keep native height")
+    assert.are_equal(
+      footprint_w,
+      described.cols,
+      "kitty must occupy the footprint the engine measures against"
+    )
+    assert.are_equal(math.ceil(footprint_h / 2), described.rows)
+
+    local mask_rows = 0
+    for _ in pairs(described.mask) do
+      mask_rows = mask_rows + 1
+    end
+    assert.are_equal(
+      described.rows,
+      mask_rows,
+      "spans() indexes the mask by frame.rows, so a mask on the image's grid tears"
+    )
+
+    -- The mask must describe the bottom half of the *art*. Built on the image's
+    -- own grid instead, these nine cell rows would read the top 17 pixel rows of
+    -- 72 -- entirely transparent -- and the sprite would vanish.
+    local spans = frames.spans(described, described.cols, described.rows)
+    assert.are_equal(0, #spans[0], "the top of the frame is transparent and must not be claimed")
+    assert.is_true(
+      #spans[described.rows - 1] > 0,
+      "the bottom of the frame is opaque and must draw; an empty mask here means "
+        .. "it was built on the image's pixel grid rather than the footprint's"
+    )
+
+    sources.unbind_manifest(asset_name)
+    native_sprite.reset()
+    os.remove(fixture_path)
+  end)
 end)
 
 describe("distract.kitty writer", function()

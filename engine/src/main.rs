@@ -17,6 +17,7 @@ use winit::{
 use distract_engine::ecs::{EventContext, World};
 use distract_engine::gpu::GpuRenderer;
 use distract_engine::ipc::{IpcCommand, IpcResponse};
+use distract_engine::overlay_placement::{self, PlacementRequest};
 use distract_engine::platform;
 use distract_engine::spawn::{Anchor, SpawnOptions};
 
@@ -29,6 +30,13 @@ fn emit_response(resp: &IpcResponse) {
 
 fn emit_error(code: &str, message: impl Into<String>) {
     emit_response(&IpcResponse::Error {
+        code: code.to_string(),
+        message: message.into(),
+    });
+}
+
+fn emit_warning(code: &str, message: impl Into<String>) {
+    emit_response(&IpcResponse::Warning {
         code: code.to_string(),
         message: message.into(),
     });
@@ -77,22 +85,27 @@ fn main() {
         let _ = proxy.send_event(IpcCommand::Shutdown);
     });
 
-    // Detect monitor dimensions or fall back to standard HD resolution.
-    let primary_monitor = event_loop
-        .primary_monitor()
-        .or_else(|| event_loop.available_monitors().next());
-    let (requested_w, requested_h) = match primary_monitor {
-        Some(mon) => {
-            let size = mon.size();
-            (
-                size.width.max(800).clamp(800, 3840),
-                size.height.max(600).clamp(600, 2160),
-            )
+    let configured = match overlay_placement::from_args(std::env::args().skip(1)) {
+        Ok(configured) => configured,
+        Err(message) => {
+            emit_error("INVALID_ARGUMENT", message);
+            return;
         }
-        None => (1920, 1080),
     };
 
-    let window = match platform::create_overlay_window(&event_loop, requested_w, requested_h) {
+    // Which display, and therefore how large. Both come from the same monitor so
+    // the overlay cannot be sized for one screen and positioned on another.
+    let monitors = platform::monitor_geometries(&event_loop);
+    let (placement, guessed) = overlay_placement::resolve(&PlacementRequest {
+        configured,
+        focused: platform::focused_monitor(&event_loop),
+        monitors: &monitors,
+    });
+    if let Some(message) = guessed {
+        emit_warning("OVERLAY_DISPLAY_GUESSED", message);
+    }
+
+    let window = match platform::create_overlay_window(&event_loop, placement) {
         Ok(win) => win,
         Err(err) => {
             emit_error(

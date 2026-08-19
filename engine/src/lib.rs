@@ -7,6 +7,7 @@ pub mod ecs;
 pub mod gpu;
 pub mod ipc;
 pub mod manifest;
+pub mod overlay_placement;
 pub mod platform;
 pub mod spawn;
 pub mod sprite_gen;

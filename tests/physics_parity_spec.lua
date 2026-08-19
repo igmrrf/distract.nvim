@@ -10,6 +10,18 @@
 -- both backends". Three divergences (`wrap`, `bounce`, `animation.flip_x`) had
 -- to be found by reading. This is what makes the claim testable.
 --
+-- Frame timing is part of the same contract. `frame_duration_seconds` exists in
+-- both engines with the same precedence rule and had no fixture guarding it. A
+-- fixture carrying an `animation` block exercises it. The compared value is the
+-- atlas frame each engine would draw, not `frame_idx`: Lua indexes
+-- `animation.frames` from 1 and Rust from 0, so the raw index diverges by
+-- convention while the drawn frame must not.
+--
+-- The middle branch of that rule -- the delays a source file carries -- needs
+-- real imported art, because a procedural probe has none. A fixture may
+-- therefore carry a `spritesheet` block naming a GIF relative to the repository
+-- root, decoded by `distract.gif` here and by the `image` crate there.
+--
 -- Regenerate the goldens after an intentional behaviour change:
 --   UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test physics_parity
 
@@ -56,6 +68,32 @@ local function run(fixture)
   probe_counter = probe_counter + 1
   local name = "parity_probe_" .. probe_counter
 
+  -- Absent on every physics fixture: a multi-frame loop makes the world
+  -- permanently non-quiescent and would mask a disagreement in that rule.
+  -- Present only on the fixtures whose subject *is* frame timing.
+  local probe_animation = { frames = { 0 }, fps = 8.0, loop_anim = true }
+  if fixture.animation then
+    probe_animation = {
+      frames = fixture.animation.frames,
+      fps = fixture.animation.fps,
+      loop_anim = fixture.animation.loop_anim,
+    }
+  end
+
+  -- Present only on the fixture whose subject is the per-frame delays a source
+  -- file carries. A procedural probe has none, so that branch of
+  -- `frame_duration_seconds` cannot be reached without one. The path is
+  -- resolved against the plugin root by `asset_path`, which is the same
+  -- repository-relative string the Rust runner joins onto its own root.
+  local probe_spritesheet = nil
+  if fixture.spritesheet then
+    probe_spritesheet = {
+      path = fixture.spritesheet.path,
+      frame_width = fixture.spritesheet.frame_width,
+      frame_height = fixture.spritesheet.frame_height,
+    }
+  end
+
   engine.clear()
   engine.setup({
     backend = "halfblock",
@@ -63,9 +101,10 @@ local function run(fixture)
       [name] = {
         name = name,
         initial_state = "idle",
+        spritesheet = probe_spritesheet,
         states = {
           idle = {
-            animation = { frames = { 0 }, fps = 8.0, loop_anim = true },
+            animation = probe_animation,
             physics = fixture.physics,
             -- Empty for almost every fixture: a transition firing mid-run swaps
             -- in another state's physics and the trajectory stops describing
@@ -107,7 +146,9 @@ local function run(fixture)
   -- frame and phase offsets -- right for two cats on screen, fatal for a
   -- reproducible trajectory. Zeroed on both sides.
   e.path_phase = 0
-  e.frame_idx = 0
+  -- 1 is Lua's first frame, matching what `spawn` would have picked. Rust's
+  -- first frame is 0; the recorded sheet index reconciles the two.
+  e.frame_idx = 1
   e.frame_timer = 0
   e.state_time = 0
   -- Applied here for the same reason: a fixture describes what the *engine* is
@@ -115,6 +156,21 @@ local function run(fixture)
   -- The half-block backend would otherwise flatten every parallax to 1.
   if fixture.spawn.parallax then
     e.parallax = fixture.spawn.parallax
+  end
+
+  local frames_by_state = {}
+  local manifest_states = e.manifest.states
+  for state_name, state_def in pairs(manifest_states) do
+    frames_by_state[state_name] = state_def.animation.frames
+  end
+
+  --- The atlas frame the renderer would draw, resolved exactly as
+  --- `renderer.lua` resolves it.
+  local function drawn_sheet_index()
+    local frames = frames_by_state[e.current_state]
+    assert(frames and #frames > 0, "the recorded state declares no frames")
+    local position = ((math.max(1, e.frame_idx or 1) - 1) % #frames) + 1
+    return frames[position]
   end
 
   local bounds = { columns = fixture.bounds.columns, lines = fixture.bounds.lines }
@@ -131,6 +187,8 @@ local function run(fixture)
       flip_x = e.flip_x,
       state = e.current_state,
       quiescent = engine.is_quiescent(),
+      sheet_index = drawn_sheet_index(),
+      animation_finished = e.animation_finished == true,
     }
   end
 
@@ -218,6 +276,26 @@ describe("distract physics parity with the overlay engine", function()
             i,
             tostring(want.flip_x),
             tostring(got.flip_x)
+          )
+        )
+        assert(
+          want.sheet_index == got.sheet_index,
+          string.format(
+            "%s step %d: the drawn frame diverged, expected %s, got %s",
+            name,
+            i,
+            tostring(want.sheet_index),
+            tostring(got.sheet_index)
+          )
+        )
+        assert(
+          want.animation_finished == got.animation_finished,
+          string.format(
+            "%s step %d: animation_finished diverged, expected %s, got %s",
+            name,
+            i,
+            tostring(want.animation_finished),
+            tostring(got.animation_finished)
           )
         )
         assert(

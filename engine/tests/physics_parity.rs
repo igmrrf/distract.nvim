@@ -17,6 +17,27 @@
 //! UPDATE_GOLDEN=1 cargo test --manifest-path engine/Cargo.toml --test physics_parity
 //! ```
 //!
+//! Frame timing is part of the same contract. `frame_duration_seconds` exists
+//! in both engines with the same precedence rule (`animation.fps` wins, else the
+//! source file's per-frame delay, else 0.1s) and had no fixture guarding it. A
+//! fixture declaring an `animation` block exercises it; the recorded
+//! `sheet_index` is the atlas frame each engine would actually draw, which is
+//! free of the 0-based/1-based `frame_idx` convention the two ports differ on.
+//!
+//! The middle branch needs art that carries delays, so a fixture may also
+//! declare a `spritesheet`. `tests/fixtures/physics/frame_delays.gif` is a
+//! 24x16 four-frame GIF whose delays are deliberately all different and all
+//! unequal to the 0.1s fallback, so a run that ignored them cannot land on the
+//! same trajectory by coincidence. Regenerate it with:
+//!
+//! ```sh
+//! magick -size 24x16 -delay 4 xc:'#e03030' -delay 12 xc:'#30c040' \
+//!        -delay 8 xc:'#3050d0' -delay 20 xc:'#e0d040' -loop 0 \
+//!        tests/fixtures/physics/frame_delays.gif
+//! ```
+//!
+//! GIF stores a delay in centiseconds, which is why those are 40/120/80/200ms.
+//!
 //! Trajectories are stored in **terminal cells**, not pixels. Lua integrates in
 //! cells (`CELLS_PER_SPRITE_PX_X = 1.0`, `_Y = 0.5`) and Rust in pixels
 //! (`scale_x = cell_w`, `scale_y = cell_h / 2`), so dividing x by `cell_w` and
@@ -41,6 +62,44 @@ struct Spawn {
     /// configuration and backend capabilities that would have produced it.
     #[serde(default)]
     parallax: Option<f32>,
+}
+
+/// The animation a fixture wants on the probe state.
+///
+/// Absent on every physics fixture: a multi-frame loop makes the world
+/// permanently non-quiescent and would mask a disagreement in that rule.
+/// Present only on the fixtures whose subject *is* frame timing.
+#[derive(Deserialize)]
+struct FixtureAnimation {
+    frames: Vec<usize>,
+    /// Zero means "the manifest declares no rate", which is what sends
+    /// `frame_duration_seconds` down its fallback path. Rust stores `fps` as a
+    /// plain `f32` and cannot express absence any other way.
+    fps: f32,
+    #[serde(default = "loops_by_default")]
+    loop_anim: bool,
+}
+
+fn loops_by_default() -> bool {
+    true
+}
+
+/// Imported art the probe is bound to.
+///
+/// Present only on the fixture whose subject is the per-frame delays a source
+/// file carries: a procedural probe has none, so that branch of
+/// `frame_duration_seconds` cannot be reached without one. The path is relative
+/// to the repository root, which is the one form both harness runners can
+/// resolve -- Lua against the plugin root, this side against
+/// `CARGO_MANIFEST_DIR`'s parent.
+#[derive(Deserialize)]
+struct FixtureSpritesheet {
+    path: String,
+    /// Declared so both engines resample to the same footprint. 24x16 keeps the
+    /// probe the size an unbound probe already is, so boundary handling stays
+    /// comparable with every other fixture.
+    frame_width: u32,
+    frame_height: u32,
 }
 
 #[derive(Deserialize)]
@@ -79,6 +138,10 @@ struct Fixture {
     /// sides and therefore worth pinning.
     #[serde(default)]
     ground_row: Option<f32>,
+    #[serde(default)]
+    animation: Option<FixtureAnimation>,
+    #[serde(default)]
+    spritesheet: Option<FixtureSpritesheet>,
     dt: f32,
     steps: usize,
 }
@@ -97,28 +160,40 @@ struct Sample {
     /// `World::is_quiescent`, which is exactly the kind of duplication that has
     /// drifted here before.
     quiescent: bool,
+    /// The atlas frame this engine would draw at this step.
+    ///
+    /// Recorded rather than `frame_idx` because Lua indexes `animation.frames`
+    /// from 1 and Rust from 0. Comparing the resolved sheet index compares what
+    /// reaches the screen, so the convention difference cannot fail the test and
+    /// a real timing drift still can.
+    sheet_index: usize,
+    animation_finished: bool,
 }
 
 /// Rust reproducing its own goldens is exact arithmetic, so the tolerance here
 /// only absorbs JSON's decimal round-trip. The Lua side carries the wider one.
 const TOLERANCE: f32 = 1e-5;
 
-fn fixture_dir() -> PathBuf {
+fn repo_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is `engine/`; fixtures are shared with the Lua suite.
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("engine/ has a parent")
-        .join("tests/fixtures/physics")
+        .to_path_buf()
 }
 
-/// Runs one fixture and returns its trajectory, in cells.
+fn fixture_dir() -> PathBuf {
+    repo_root().join("tests/fixtures/physics")
+}
+
+/// The probe manifest one fixture describes.
 ///
 /// Both engines start from the cat's manifest with one state's physics
 /// replaced, so the sprite dimensions that boundary handling depends on
 /// (24x16 sprite pixels) are identical on both sides by construction. Lua
 /// falls back to the cat's art for an unregistered asset and lands on the same
 /// numbers.
-fn run(fixture: &Fixture) -> Vec<Sample> {
+fn probe_manifest(fixture: &Fixture) -> AssetManifest {
     let mut manifest = AssetManifest::default_cat();
     manifest.name = "parity_probe".to_string();
     // The fixtures describe physics, not an animal. Inheriting the cat's
@@ -127,17 +202,33 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
     manifest.locomotion = None;
     manifest.capabilities = Default::default();
 
+    if let Some(ref sheet) = fixture.spritesheet {
+        manifest.spritesheet.path =
+            Some(repo_root().join(&sheet.path).to_string_lossy().into_owned());
+        manifest.spritesheet.frame_width = Some(sheet.frame_width);
+        manifest.spritesheet.frame_height = Some(sheet.frame_height);
+    }
+
     let state = manifest
         .states
         .get_mut("idle")
         .expect("the cat manifest has an idle state");
     state.physics = fixture.physics.clone();
     state.transitions = fixture.transitions.clone();
-    state.animation.loop_anim = true;
-    // The cat's own idle animation is multi-frame, which alone would make the
-    // world permanently non-quiescent and mask any disagreement in the rule.
-    // The Lua runner uses a single frame, so this one must too.
-    state.animation.frames = vec![0];
+    match fixture.animation {
+        Some(ref animation) => {
+            state.animation.frames = animation.frames.clone();
+            state.animation.fps = animation.fps;
+            state.animation.loop_anim = animation.loop_anim;
+        }
+        // The cat's own idle animation is multi-frame, which alone would make
+        // the world permanently non-quiescent and mask any disagreement in the
+        // rule. The Lua runner uses a single frame, so this one must too.
+        None => {
+            state.animation.loop_anim = true;
+            state.animation.frames = vec![0];
+        }
+    }
 
     // A landing target for `on_land`, defined identically on both sides so the
     // state a fixture lands in has the same animation, physics and quiescence
@@ -145,6 +236,21 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
     manifest
         .states
         .insert("landed".to_string(), StateDefinition::default());
+
+    manifest
+}
+
+/// Runs one fixture and returns its trajectory, in cells.
+fn run(fixture: &Fixture) -> Vec<Sample> {
+    let manifest = probe_manifest(fixture);
+
+    // Captured before the manifest moves into the world, so the recorded step
+    // can resolve the drawn frame the same way the compositor does.
+    let frames_by_state: std::collections::HashMap<String, Vec<usize>> = manifest
+        .states
+        .iter()
+        .map(|(state_name, def)| (state_name.clone(), def.animation.frames.clone()))
+        .collect();
 
     let mut world = World::new(
         fixture.bounds.columns * fixture.cell.w,
@@ -189,6 +295,13 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
         world.update(fixture.dt);
         let quiescent = world.is_quiescent();
         let e = &world.entities[0];
+        let frames = frames_by_state
+            .get(&e.current_state)
+            .expect("the recorded state is declared on the probe manifest");
+        assert!(
+            !frames.is_empty(),
+            "a probe state must declare at least one frame"
+        );
         trajectory.push(Sample {
             x: e.x / fixture.cell.w,
             y: e.y / fixture.cell.h,
@@ -197,6 +310,8 @@ fn run(fixture: &Fixture) -> Vec<Sample> {
             flip_x: e.flip_x,
             state: e.current_state.clone(),
             quiescent,
+            sheet_index: frames[e.frame_idx % frames.len()],
+            animation_finished: e.animation_finished,
         });
     }
     trajectory
@@ -271,6 +386,14 @@ fn rust_physics_matches_the_golden_trajectories() {
             assert_eq!(
                 want.quiescent, got.quiescent,
                 "{name} step {i}: quiescence diverged"
+            );
+            assert_eq!(
+                want.sheet_index, got.sheet_index,
+                "{name} step {i}: the drawn frame diverged"
+            );
+            assert_eq!(
+                want.animation_finished, got.animation_finished,
+                "{name} step {i}: animation_finished diverged"
             );
         }
     }

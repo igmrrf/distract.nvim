@@ -1,4 +1,9 @@
---- Turning a decoded GIF canvas into a sprite-sized pixel matrix.
+--- Area-averaging a pixel canvas down to a sprite-sized matrix.
+---
+--- Used by two callers with the same need and different inputs: a decoded GIF
+--- arrives as a flat canvas, and an imported `.rgba` sidecar arrives as a nested
+--- matrix. Both shrink through the same filter so one asset does not read
+--- differently depending on which file it came from.
 ---
 --- A GIF authored for a screen is far larger than the 24x16-ish canvas a
 --- terminal sprite occupies, and the unit contract fixes that footprint: one
@@ -90,6 +95,38 @@ function M.to_matrix(canvas, source, target)
     rows[target_row + 1] = row
   end
   return rows
+end
+
+--- Area-averages a nested pixel matrix down to `target`.
+---
+--- The sidecar reader produces `[row][col]` matrices rather than the flat canvas
+--- a GIF decodes into, so this adapts one to the other instead of duplicating
+--- the filter.
+---@param rows table<integer, table<integer, integer[]|false>> 1-based `[row][col]`
+---@param target table `{ width, height }`
+---@return table<integer, table<integer, integer[]|false>> rows 1-based `[row][col]`
+function M.shrink_matrix(rows, target)
+  local source = { height = #rows, width = #rows[1] }
+  local canvas = { red = {}, green = {}, blue = {}, opaque = {} }
+
+  for row_index = 1, source.height do
+    local row = rows[row_index]
+    local offset = (row_index - 1) * source.width
+    for column = 1, source.width do
+      local pixel = row[column]
+      local index = offset + column
+      if pixel then
+        canvas.red[index] = pixel[1]
+        canvas.green[index] = pixel[2]
+        canvas.blue[index] = pixel[3]
+        canvas.opaque[index] = true
+      else
+        canvas.opaque[index] = false
+      end
+    end
+  end
+
+  return M.to_matrix(canvas, source, target)
 end
 
 return M

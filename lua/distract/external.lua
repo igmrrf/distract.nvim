@@ -122,6 +122,45 @@ function M.build(on_success)
   end
 end
 
+--- The engine's argv for a display choice, or `nil, err` if the config is wrong.
+---
+--- Validated here rather than trusted: an unparseable value reaching the engine
+--- would be rejected there, after the window had already opened somewhere, which
+--- is the silent-misplacement failure this whole path exists to prevent.
+---@param overlay table|nil `config.overlay`
+---@return string[]|nil args
+---@return string|nil error_message
+function M.overlay_args(overlay)
+  if type(overlay) ~= "table" then
+    return {}
+  end
+
+  local position = overlay.position
+  if position ~= nil then
+    if
+      type(position) ~= "table"
+      or type(position.x) ~= "number"
+      or type(position.y) ~= "number"
+    then
+      return nil, "overlay.position must be { x = <number>, y = <number> }"
+    end
+    return {
+      "--overlay-position",
+      string.format("%d,%d", math.floor(position.x), math.floor(position.y)),
+    }
+  end
+
+  local monitor = overlay.monitor
+  if monitor ~= nil then
+    if type(monitor) ~= "number" or monitor < 0 or monitor ~= math.floor(monitor) then
+      return nil, "overlay.monitor must be a non-negative whole number (0 is the primary display)"
+    end
+    return { "--overlay-monitor", tostring(monitor) }
+  end
+
+  return {}
+end
+
 function M.start()
   if M.is_running() then
     return
@@ -140,7 +179,16 @@ function M.start()
     return
   end
 
-  job_id = vim.fn.jobstart({ bin_path }, {
+  local overlay_args, overlay_err = M.overlay_args(require("distract").config.overlay)
+  if not overlay_args then
+    vim.notify("[Distract] " .. overlay_err, vim.log.levels.ERROR)
+    return
+  end
+
+  local command = { bin_path }
+  vim.list_extend(command, overlay_args)
+
+  job_id = vim.fn.jobstart(command, {
     on_stdout = function(_, data)
       for _, line in ipairs(data) do
         if line ~= "" then
@@ -227,6 +275,8 @@ function M.handle_ipc_message(raw_json)
       end
       vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
     end
+  elseif status == "warning" then
+    vim.notify("[Distract] " .. tostring(msg.message), vim.log.levels.WARN)
   elseif status == "error" then
     vim.notify("[Distract Error] " .. tostring(msg.message), vim.log.levels.ERROR)
   end

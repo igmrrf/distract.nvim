@@ -325,3 +325,45 @@ describe("the spritesheet path the overlay is sent", function()
     assert.is_nil(manifest.spritesheet)
   end)
 end)
+
+describe("overlay display placement arguments", function()
+  local external = require("distract.external")
+
+  it("passes nothing when no display is configured", function()
+    assert.are.same({}, external.overlay_args(nil))
+    assert.are.same({}, external.overlay_args({}))
+  end)
+
+  it("passes a monitor index through", function()
+    assert.are.same({ "--overlay-monitor", "2" }, external.overlay_args({ monitor = 2 }))
+    assert.are.same({ "--overlay-monitor", "0" }, external.overlay_args({ monitor = 0 }))
+  end)
+
+  it("passes an explicit position as x,y", function()
+    assert.are.same(
+      { "--overlay-position", "1600,-40" },
+      external.overlay_args({ position = { x = 1600, y = -40 } })
+    )
+  end)
+
+  it("prefers an explicit position over a monitor index", function()
+    local args = external.overlay_args({ monitor = 1, position = { x = 10, y = 20 } })
+    assert.are.same({ "--overlay-position", "10,20" }, args)
+  end)
+
+  it("rejects a malformed choice rather than letting the engine guess", function()
+    local cases = {
+      { monitor = -1 },
+      { monitor = 1.5 },
+      { monitor = "second" },
+      { position = { x = 10 } },
+      { position = { x = "left", y = 0 } },
+      { position = 10 },
+    }
+    for _, overlay in ipairs(cases) do
+      local args, err = external.overlay_args(overlay)
+      assert.is_nil(args, "a malformed overlay config must not produce arguments")
+      assert.is_not_nil(err, "a rejected overlay config must say why")
+    end
+  end)
+end)

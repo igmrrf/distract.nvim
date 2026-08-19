@@ -54,6 +54,17 @@ M.config = {
   -- Ceiling on how many of those highlight groups stay defined at once. The
   -- least recently drawn asset's groups are cleared when it is reached.
   max_highlight_groups = 4096,
+  -- Overlay only: which display the overlay window opens on.
+  --
+  -- Left unset, the engine detects the display the terminal has focus on where
+  -- the platform allows it (macOS today) and warns if it cannot, because the
+  -- overlay is a separate OS window and neither Neovim nor the Lua side can see
+  -- which screen it should be on.
+  --
+  -- `monitor` is a 0-based index into the window system's display list, 0 being
+  -- the primary display. `position` is an explicit `{ x, y }` point in global
+  -- desktop coordinates and wins over `monitor`.
+  overlay = { monitor = nil, position = nil },
   -- Where entities are placed and what they stand on. See
   -- `distract.position` for the anchor and ground vocabulary.
   position = vim.deepcopy(position.DEFAULTS),

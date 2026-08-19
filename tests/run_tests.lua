@@ -28,6 +28,7 @@ local SPECS = {
   "tests.review_fixes_spec",
   "tests.transparency_spec",
   "tests.physics_parity_spec",
+  "tests.sprite_parity_spec",
 }
 
 print("==================================================")
