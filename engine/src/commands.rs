@@ -13,6 +13,7 @@ use crate::ecs::{EventContext, World};
 use crate::gpu::GpuRenderer;
 use crate::ipc::{IpcCommand, IpcResponse};
 use crate::manifest::AssetManifest;
+use crate::render::RenderSettings;
 use crate::response::{emit_error, emit_response};
 use crate::spawn::{Anchor, SpawnOptions};
 use crate::subscription::Subscription;
@@ -123,6 +124,7 @@ pub fn handle(command: IpcCommand, ctx: &mut CommandContext<'_>) {
                 emit_error("TOO_MANY_OBSTACLES", err);
             }
         }
+        IpcCommand::UpdateRender { settings } => update_render(*settings, ctx),
         IpcCommand::SetVisible { visible } => ctx.window.set_visible(visible),
         IpcCommand::Subscribe { snapshot_ms } => {
             ctx.subscription.set_interval_ms(snapshot_ms);
@@ -200,6 +202,19 @@ fn update_scope(request: ScopeRequest, ctx: &mut CommandContext<'_>) {
 
     if let Err(err) = ctx.world.set_scope(scope) {
         emit_error("INVALID_VIEWPORT_SCOPE", err);
+    }
+}
+
+/// Applies new render settings, and rebuilds whatever they changed.
+///
+/// The meshes depend on the slab size, so a settings change is an asset change
+/// from the renderer's point of view. Sanitised here rather than at the point of
+/// use: a value that is wrong is wrong once, and clamping per frame would hide
+/// which field it was.
+fn update_render(settings: RenderSettings, ctx: &mut CommandContext<'_>) {
+    ctx.world.render = settings.sanitised();
+    if let Err(err) = ctx.renderer.sync_assets(ctx.world) {
+        emit_error("MESH_BUILD_FAILED", err);
     }
 }
 

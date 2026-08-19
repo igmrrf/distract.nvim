@@ -1,6 +1,7 @@
 use crate::journal::WorldEvent;
 use crate::manifest::AssetManifest;
 use crate::obstacles::{self, Obstacle};
+use crate::render::RenderSettings;
 use serde::{Deserialize, Serialize};
 
 /// Incoming JSON-RPC command from Neovim.
@@ -96,6 +97,14 @@ pub enum IpcCommand {
         #[serde(default)]
         height: Option<f32>,
     },
+    /// Replaces the render settings: mode, camera, lighting and slab size.
+    ///
+    /// Pushed from Neovim exactly as the floor and the viewport scope are, and for
+    /// the same reason: the configuration is the editor's, and the terminal
+    /// backends have to draw under the same numbers. Every field is optional, and
+    /// an omitted one keeps its default rather than resetting a neighbour.
+    #[serde(rename = "UpdateRender", alias = "update_render")]
+    UpdateRender { settings: Box<RenderSettings> },
     /// Shows or hides the overlay window.
     ///
     /// The window is always-on-top and belongs to this process, so an unfocused

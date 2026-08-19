@@ -138,9 +138,27 @@ function M.start()
   M.sync_plugin_subscription()
   pushed_scope = nil
   M.sync_viewport_scope()
+  M.sync_render()
 
   -- Send viewport / grid bounds
   M.update_grid()
+end
+
+--- Pushes the render settings, so the overlay draws under the numbers Neovim
+--- validated.
+---
+--- The same rule the floor, the viewport scope and the obstacle list follow: the
+--- configuration is the editor's, and an engine that read its own would be free
+--- to disagree with the terminal backends about what a session looks like.
+---@param settings table|nil validated settings; the configured ones by default
+function M.sync_render(settings)
+  if not M.is_running() then
+    return
+  end
+  M.send_command({
+    command = "UpdateRender",
+    settings = settings or require("distract").config.render,
+  })
 end
 
 --- Tells the engine whether anything is listening, and on what cadence.

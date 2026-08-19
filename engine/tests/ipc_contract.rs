@@ -7,6 +7,7 @@
 
 use distract_engine::ipc::{EntitySummary, IpcCommand, IpcResponse};
 use distract_engine::journal::{self, WorldEvent};
+use distract_engine::render::{RenderMode, RenderSettings};
 
 #[test]
 fn test_ipc_command_deserialization_all_variants() {
@@ -258,4 +259,71 @@ fn test_ipc_response_serialization_all_variants() {
     let line = resp_err.to_json_line();
     assert!(line.contains(r#""status":"error""#));
     assert!(line.contains("TEST_ERR"));
+}
+
+#[test]
+fn update_render_carries_the_whole_settings_block() {
+    // The exact shape `lua/distract/render.lua` encodes.
+    let json = r#"{"command":"UpdateRender","settings":{"mode":"3d","fov_y_degrees":50.0,
+        "depth_per_unit":0.08,"yaw_degrees":22.0,"voxel_max_width":48,"voxel_depth":4,
+        "light":{"direction":[-0.4,0.8,-0.45],"ambient":0.42}}}"#;
+    let command: IpcCommand = serde_json::from_str(json).expect("UpdateRender parses");
+    match command {
+        IpcCommand::UpdateRender { settings } => {
+            assert_eq!(settings.mode, RenderMode::Voxel);
+            assert_eq!(settings.fov_y_degrees, 50.0);
+            assert_eq!(settings.voxel_depth, 4);
+            assert_eq!(settings.light.ambient, 0.42);
+            assert_eq!(settings.light.direction, [-0.4, 0.8, -0.45]);
+        }
+        _ => panic!("expected UpdateRender"),
+    }
+}
+
+#[test]
+fn update_render_accepts_a_settings_block_that_names_only_what_changed() {
+    // A client toggling the mode must not have to restate the camera and the
+    // light, and an omitted field must not reset a neighbour to zero.
+    let json = r#"{"command":"UpdateRender","settings":{"mode":"3d"}}"#;
+    let command: IpcCommand = serde_json::from_str(json).expect("a partial block parses");
+    match command {
+        IpcCommand::UpdateRender { settings } => {
+            assert_eq!(settings.mode, RenderMode::Voxel);
+            assert_eq!(
+                settings.fov_y_degrees,
+                RenderSettings::default().fov_y_degrees
+            );
+            assert_eq!(settings.voxel_depth, RenderSettings::default().voxel_depth);
+        }
+        _ => panic!("expected UpdateRender"),
+    }
+}
+
+#[test]
+fn the_render_mode_wire_names_are_the_ones_a_user_writes_in_their_config() {
+    // `2d` and `3d` rather than `flat` and `voxel`: the name in `:help` and the
+    // name on the wire have to be the same one, or a user reading an engine log
+    // cannot tell what their own setting became.
+    for (wire, expected) in [("2d", RenderMode::Flat), ("3d", RenderMode::Voxel)] {
+        let json = format!(r#"{{"command":"UpdateRender","settings":{{"mode":"{wire}"}}}}"#);
+        let command: IpcCommand = serde_json::from_str(&json).expect("mode parses");
+        match command {
+            IpcCommand::UpdateRender { settings } => assert_eq!(settings.mode, expected),
+            _ => panic!("expected UpdateRender"),
+        }
+    }
+}
+
+#[test]
+fn a_manifest_may_pin_its_own_render_mode_over_the_wire() {
+    let json = r#"{"command":"Spawn","entity_type":"bubble","manifest":{"name":"bubble",
+        "render":"2d","states":{}}}"#;
+    let command: IpcCommand = serde_json::from_str(json).expect("Spawn parses");
+    match command {
+        IpcCommand::Spawn { manifest, .. } => {
+            let manifest = manifest.expect("a manifest arrived");
+            assert_eq!(manifest.render, Some(RenderMode::Flat));
+        }
+        _ => panic!("expected Spawn"),
+    }
 }

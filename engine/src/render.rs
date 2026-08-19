@@ -36,6 +36,7 @@ impl RenderMode {
 /// analytical multi-point model in `sprite_gen` is how a *flat* sprite gets one,
 /// and running both would put two contradictory shading models on one asset.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Light {
     /// Direction the light travels, in world axes. Normalised on use.
     pub direction: [f32; 3],
@@ -54,7 +55,12 @@ impl Default for Light {
 }
 
 /// Everything the renderer needs that is not the world itself.
+///
+/// Every field carries `serde(default)`: an omitted one takes its default rather
+/// than failing the whole command, so a client that only wants to change the mode
+/// sends only the mode.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct RenderSettings {
     pub mode: RenderMode,
     pub fov_y_degrees: f32,

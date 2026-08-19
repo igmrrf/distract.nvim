@@ -253,3 +253,69 @@ describe("mode selection in the terminal renderer", function()
     )
   end)
 end)
+
+describe("pushing the render settings to the overlay", function()
+  local external = require("distract.external")
+
+  --- Captures what `external` would put on the wire.
+  local function captured(fn)
+    local sent = {}
+    local original_send, original_running = external.send_command, external.is_running
+    external.is_running = function()
+      return true
+    end
+    external.send_command = function(command)
+      table.insert(sent, command)
+      return true
+    end
+    local ok, err = pcall(fn)
+    external.send_command, external.is_running = original_send, original_running
+    if not ok then
+      error(err, 0)
+    end
+    return sent
+  end
+
+  after_each(function()
+    sprites.configure_render(render.DEFAULTS)
+  end)
+
+  it("sends the settings Neovim validated, not the raw configuration", function()
+    -- The overlay must never measure or decide this for itself: the configuration
+    -- is the editor's, and an engine reading its own would be free to disagree
+    -- with the terminal backends about what a session looks like.
+    local sent = captured(function()
+      external.sync_render(render.settings({ mode = "3d", fov_y_degrees = 5000 }))
+    end)
+
+    assert.are_equal(1, #sent)
+    assert.are_equal("UpdateRender", sent[1].command)
+    assert.are_equal("3d", sent[1].settings.mode)
+    assert.are_equal(
+      render.MAX_FOV_Y_DEGREES,
+      sent[1].settings.fov_y_degrees,
+      "the clamp happens before the wire, so the engine never sees an absurd value"
+    )
+  end)
+
+  it("encodes as JSON the engine can parse, arrays included", function()
+    local sent = captured(function()
+      external.sync_render(render.settings({ mode = "3d" }))
+    end)
+    local encoded = vim.fn.json_encode(sent[1])
+    local decoded = vim.fn.json_decode(encoded)
+
+    assert.are_equal("UpdateRender", decoded.command)
+    assert.are_equal(3, #decoded.settings.light.direction, "the light must survive as an array")
+  end)
+
+  it("says nothing at all when the overlay is not running", function()
+    local original = external.is_running
+    external.is_running = function()
+      return false
+    end
+    local ok = pcall(external.sync_render, render.DEFAULTS)
+    external.is_running = original
+    assert.is_true(ok, "a stopped overlay is not an error")
+  end)
+end)

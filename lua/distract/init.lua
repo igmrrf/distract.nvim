@@ -2,6 +2,7 @@ local M = {}
 
 local backends = require("distract.backends")
 local position = require("distract.position")
+local render = require("distract.render")
 local viewport = require("distract.viewport")
 
 --- Built-in assets. Manifests are required on demand rather than at module
@@ -76,6 +77,10 @@ M.config = {
   -- Which rectangle entities may move in, what they must not cover, and where
   -- their surfaces sit in Neovim's float stacking. See `distract.viewport`.
   positioning = vim.deepcopy(viewport.DEFAULTS),
+  -- Whether entities are drawn as flat sprites or as voxel models extruded from
+  -- their own frames, and the camera and light the models are drawn under. Every
+  -- backend honours `mode = "3d"`. See `:help distract-render`.
+  render = vim.deepcopy(render.DEFAULTS),
   assets = lazy_assets(),
 }
 
@@ -124,6 +129,10 @@ function M.setup(opts)
   M.config.assets = setmetatable(M.config.assets or {}, getmetatable(lazy_assets()))
 
   viewport.configure(M.config.positioning)
+  -- Validated before the backend is set up, because a backend takes a snapshot of
+  -- the config and an unvalidated mode would reach the renderer as a typo.
+  M.config.render = render.settings(M.config.render)
+  require("distract.terminal_sprites").configure_render(M.config.render)
   backend_module(M.config.backend).setup(M.config)
   is_setup = true
 
@@ -172,6 +181,36 @@ end
 ---
 --- Entities do not migrate: the two backends keep separate worlds. That is
 --- reported rather than left for the user to discover.
+--- Switches the render mode, or changes any part of the render settings.
+---
+--- Applies live on every backend: the terminal renderers drop their rasterised
+--- frames and the overlay is sent the new settings, so nothing has to be
+--- respawned. A model faces the viewer at a yaw of zero and covers exactly the
+--- pixels its sprite does, so turning 3D on never moves a pet.
+---
+--- @param opts table|string a `render` config table, or a mode name ("2d"/"3d")
+function M.set_render(opts)
+  if type(opts) == "string" then
+    opts = { mode = opts }
+  end
+  local merged = vim.tbl_deep_extend("force", vim.deepcopy(M.config.render), opts or {})
+  M.config.render = render.settings(merged)
+
+  require("distract.terminal_sprites").configure_render(M.config.render)
+  require("distract.external").sync_render(M.config.render)
+  -- The settled pose already painted was painted in the old mode, and quiescence
+  -- would otherwise suppress the frame that corrects it.
+  require("distract.plugins").mark_dirty()
+
+  return M.config.render
+end
+
+--- The render settings in force.
+--- @return table
+function M.get_render()
+  return vim.deepcopy(M.config.render)
+end
+
 function M.set_backend(backend_name)
   admit_conditional_backends(backend_name)
   local norm = backends.resolve(backend_name)
