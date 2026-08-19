@@ -4,10 +4,8 @@ use crate::entity::{Entity, Rng};
 use crate::entity_step::{self, StepContext};
 use crate::ipc::EntitySummary;
 use crate::journal::{Journal, WorldEvent};
-use crate::manifest::AssetManifest;
 use crate::obstacles::{self, Obstacle};
 use crate::render::RenderSettings;
-use crate::spawn::{Anchor, EntitySeed, SpawnOptions};
 
 /// Default terminal cell size in physical pixels.
 ///
@@ -16,18 +14,6 @@ use crate::spawn::{Anchor, EntitySeed, SpawnOptions};
 /// measured or been configured with the real value. See `:help distract-overlay`.
 pub const DEFAULT_CELL_W: f32 = 10.0;
 pub const DEFAULT_CELL_H: f32 = 20.0;
-
-/// Where an anchored spawn starts vertically, in overlay pixels.
-///
-/// `None` when the anchor asks for nothing in particular, or asks for a floor
-/// Neovim has not measured yet, leaving the caller's own default to apply.
-fn anchored_y(anchor: Option<Anchor>, floor_y: Option<f32>, bounds: Bounds) -> Option<f32> {
-    match anchor {
-        Some(Anchor::Bottom) => floor_y,
-        Some(Anchor::Top) => Some(bounds.top),
-        Some(Anchor::Free) | None => None,
-    }
-}
 
 /// What the editor was doing when an event was sent.
 ///
@@ -96,7 +82,9 @@ pub struct World {
     /// renderer because the terminal backends read the same block and because a
     /// world snapshot has to be able to say what mode it was drawn in.
     pub render: RenderSettings,
-    rng: Rng,
+    /// Crate-visible so `world_spawn` can desynchronise a new entity; not part
+    /// of the public surface.
+    pub(crate) rng: Rng,
 }
 
 /// How close two floors must be to count as the same one, in overlay pixels.
@@ -245,96 +233,6 @@ impl World {
         }
     }
 
-    pub fn spawn(
-        &mut self,
-        asset_name: &str,
-        manifest_opt: Option<AssetManifest>,
-        options: SpawnOptions,
-    ) -> Result<usize, String> {
-        if let Some(manifest) = manifest_opt {
-            // Surface the error rather than silently degrading to procedural
-            // art: a mistyped spritesheet path used to look like a working
-            // spawn with the wrong pictures.
-            self.asset_manager.register_manifest(manifest)?;
-        }
-
-        let asset = self
-            .asset_manager
-            .get(asset_name)
-            .ok_or_else(|| format!("Unknown asset '{}'", asset_name))?;
-
-        let initial_state = asset.manifest.initial_state.clone();
-        let bounds = match self.scope {
-            Some(scope) => scope,
-            None => Bounds::window(self.viewport_w, self.viewport_h),
-        };
-        let id = self.next_id;
-        self.next_id += 1;
-
-        let parallax = options.parallax.unwrap_or(1.0);
-        // Parallax shrinks the art, so it shrinks the footprint the floor and
-        // the boundary modes measure against too.
-        let frame_h = asset.frame_h as f32 * self.sprite_scale_y * parallax;
-        let floor_y = self.ground_y.map(|surface| surface - frame_h);
-
-        let seed = EntitySeed {
-            initial_state: initial_state.clone(),
-            x: options.x.unwrap_or(bounds.left + bounds.width / 2.0),
-            y: options
-                .y
-                .or(anchored_y(options.anchor, floor_y, bounds))
-                .unwrap_or(bounds.top + bounds.height / 2.0),
-            flip_x: options.flip_x.unwrap_or(false),
-            // A spawned `z` is the draw order as well as the depth, so it wins
-            // over whatever the manifest declared.
-            z_index: options
-                .z
-                .map(|z| z.round() as i32)
-                .or(asset.manifest.z_index)
-                .unwrap_or(0),
-            z: options.z.unwrap_or(0.0),
-            parallax,
-        };
-
-        let mut entity = Entity::new(id, asset_name.to_string(), seed);
-        if let Some(floor_y) = floor_y {
-            entity.ground_y = floor_y;
-        }
-
-        // Apply initial physics targets if defined
-        if let Some(state_def) = asset.manifest.states.get(&initial_state) {
-            entity.target_vx = state_def.physics.target_vx * entity.heading_x;
-            entity.target_vy = state_def.physics.target_vy;
-            entity.vx = entity.target_vx;
-            entity.vy = entity.target_vy;
-            entity.is_locked = state_def.is_locked;
-            if let Some(gy) = state_def.physics.ground_y {
-                // A manifest floor is a position, and manifest positions are in
-                // terminal cells -- `spawn` is handed cells its caller already
-                // converted. Copying the raw number in put the same manifest's
-                // floor `cell_h` times further down here than in the terminal.
-                entity.ground_y = gy * self.cell_h;
-            }
-        }
-
-        // Desynchronise from anything already alive. Without this, two cats
-        // spawned together share a frame index, a frame timer and a path phase
-        // for the rest of their lives.
-        let frame_count = asset
-            .manifest
-            .states
-            .get(&initial_state)
-            .map(|s| s.animation.frames.len())
-            .unwrap_or(1)
-            .max(1);
-        entity.frame_idx = (self.rng.next_u64() as usize) % frame_count;
-        entity.frame_timer = self.rng.next_f32() * 0.1;
-        entity.path_phase = self.rng.next_f32() * std::f32::consts::TAU;
-
-        self.entities.push(entity);
-        Ok(id)
-    }
-
     /// Puts an entity into a state a plugin asked for.
     ///
     /// The mirror of `engine.lua`'s `set_entity_state` reached through a world
@@ -380,98 +278,6 @@ impl World {
 
     pub fn clear_all(&mut self) {
         self.entities.clear();
-    }
-
-    pub fn trigger_action(
-        &mut self,
-        id_opt: Option<usize>,
-        asset_name_opt: Option<&str>,
-        action_name: &str,
-    ) -> Result<Vec<(usize, String, String)>, String> {
-        let mut triggered = Vec::new();
-
-        for entity in &mut self.entities {
-            if let Some(target_id) = id_opt {
-                if entity.id != target_id {
-                    continue;
-                }
-            } else if let Some(target_asset) = asset_name_opt {
-                if entity.asset_name != target_asset {
-                    continue;
-                }
-            }
-
-            if let Some(asset) = self.asset_manager.get(&entity.asset_name) {
-                if let Some(action_def) = asset.manifest.custom_actions.get(action_name) {
-                    let target_state = action_def.target_state.clone();
-                    let duration_s = action_def.duration_ms.map(|ms| ms as f32 / 1000.0);
-                    let return_state = action_def.return_state.clone();
-                    let is_locked = action_def.is_locked.unwrap_or(true);
-
-                    // Save takeoff position as ground elevation
-                    entity.ground_y = entity.y;
-                    entity.set_action(target_state.clone(), duration_s, return_state, is_locked);
-
-                    // Apply jump impulse if configured
-                    if let Some(state_def) = asset.manifest.states.get(&target_state) {
-                        if let Some(impulse) = state_def.physics.jump_impulse_y {
-                            entity.vy = impulse;
-                        }
-                    }
-
-                    triggered.push((entity.id, entity.asset_name.clone(), target_state));
-                }
-            }
-        }
-
-        if triggered.is_empty() {
-            Err(format!(
-                "Action '{}' not found or matched no active entities",
-                action_name
-            ))
-        } else {
-            Ok(triggered)
-        }
-    }
-
-    pub fn handle_editor_event(&mut self, event_name: &str, context: EventContext) {
-        if let Some(col) = context.cursor_col {
-            self.focus_x = Some(col * self.cell_w);
-        }
-        if let Some(row) = context.cursor_row {
-            self.focus_y = Some(row * self.cell_h);
-        }
-        let focus_x = self.focus_x;
-
-        for entity in &mut self.entities {
-            if entity.is_locked {
-                continue;
-            }
-            if let Some(asset) = self.asset_manager.get(&entity.asset_name) {
-                if let Some(state_def) = asset.manifest.states.get(&entity.current_state) {
-                    if let Some(next_state) = state_def.transitions.on_event.get(event_name) {
-                        let changed = entity.current_state != *next_state;
-                        entity.set_state(next_state.clone());
-
-                        // Orient toward the cursor when picking up a new
-                        // behaviour, so the entity looks like it noticed.
-                        if changed {
-                            if let Some(fx) = focus_x {
-                                let moves = asset
-                                    .manifest
-                                    .states
-                                    .get(next_state)
-                                    .map(|s| s.physics.target_vx.abs() > 0.0)
-                                    .unwrap_or(false);
-                                if moves {
-                                    entity.face_toward(fx);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /// Advances the world by `dt` seconds.

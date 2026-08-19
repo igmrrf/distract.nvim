@@ -32,6 +32,7 @@ pub mod sprite_draw;
 pub mod sprite_gen;
 pub mod sprites;
 pub mod spritesheet;
+pub mod state_machine;
 pub mod subscription;
 pub mod voxel;
 pub mod wrap;
@@ -39,3 +40,4 @@ pub mod wrap;
 #[cfg(target_os = "macos")]
 #[macro_use]
 extern crate objc;
+pub mod world_spawn;
